@@ -31,6 +31,9 @@
     "active": true,
     "targets": ["app", "dmg"],
     "icon": [],
+    "resources": {
+      "../../crates/macbot-desktop/assets/Sounds/BubblePop.m4a": "Sounds/BubblePop.m4a"
+    },
     "category": "Productivity",
     "shortDescription": "Mac Bot desktop client",
     "macOS": {

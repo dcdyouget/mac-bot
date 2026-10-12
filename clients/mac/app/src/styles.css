@@ -92,11 +92,11 @@ kbd { padding: 1px 5px; border-radius: 4px; box-shadow: 0 0 0 1px var(--border-d
 .message-stack { display: flex; max-width: min(560px, 100%); min-width: 0; flex-direction: column; gap: 2px; }
 .outgoing .message-stack { align-items: flex-end; }
 .message-author { color: var(--text-primary); font-size: 13px; font-weight: 600; }
-.bubble { position: relative; max-width: 100%; padding: 7px 12px; border-radius: 16px 16px 16px 6px; background: var(--bubble-in); box-shadow: 0 1px 1px rgb(0 0 0 / 4%); color: var(--bubble-in-text); font-size: 14px; line-height: 20px; overflow-wrap: anywhere; white-space: pre-wrap; }
+.bubble { position: relative; max-width: 100%; padding: 7px 12px; border-radius: 16px 16px 16px 6px; background: var(--bubble-in); box-shadow: 0 1px 1px rgb(0 0 0 / 4%); color: var(--bubble-in-text); font-size: var(--message-font-size, 14px); line-height: 1.43; overflow-wrap: anywhere; white-space: pre-wrap; }
 .outgoing .bubble { border-radius: 16px 16px 6px 16px; background: var(--bubble-out); color: var(--bubble-out-text); }
 .message-time { float: right; margin: 6px -4px -4px 10px; color: var(--bubble-meta); font-size: 11px; line-height: 14px; }
 .outgoing .message-time { color: var(--bubble-out-meta); }
-.timeline-fragment { display: contents; }
+.timeline-fragment { display: flex; width: 100%; flex-direction: column; }
 .message-group.deep-link-highlight { border-radius: 12px; outline: 2px solid var(--accent); outline-offset: 3px; animation: deep-link-highlight-fade 2.2s ease-out forwards; }
 @keyframes deep-link-highlight-fade { 0%, 70% { outline-color: var(--accent); } 100% { outline-color: transparent; } }
 .time-separator { align-self: center; margin: 10px 0 4px; color: var(--text-tertiary); font-size: 11px; line-height: 14px; font-variant-numeric: tabular-nums; }

@@ -25,3 +25,17 @@ test('failed latest save restores only its own optimistic values', () => {
   assert.deepEqual(rollbackLocalPreferencePatch(current, { theme: 'dark' }, { keep_in_menubar: true }), { theme: 'dark' })
   assert.deepEqual(rollbackLocalPreferencePatch({ theme: 'light', keep_in_menubar: true }, { theme: 'dark', keep_in_menubar: false }, { keep_in_menubar: true }), { theme: 'light', keep_in_menubar: false })
 })
+
+test('notification category patches preserve sibling values and roll back only the failed category', () => {
+  const before = { theme: 'dark', notification_preferences: { need_you: true, review: true, all_group: false } }
+  const optimistic = mergeLocalPreferences(before, { notification_preferences: { review: false } })
+  assert.deepEqual(optimistic.notification_preferences, { need_you: true, review: false, all_group: false })
+
+  const withConcurrentChange = mergeLocalPreferences(optimistic, { notification_preferences: { need_you: false } })
+  const rolledBack = rollbackLocalPreferencePatch(
+    withConcurrentChange,
+    before,
+    { notification_preferences: { review: false } },
+  )
+  assert.deepEqual(rolledBack.notification_preferences, { need_you: false, review: true, all_group: false })
+})

@@ -34,6 +34,8 @@ use tauri::{
 use tauri_plugin_dialog::DialogExt;
 use uuid::Uuid;
 
+mod notifications;
+
 const MAX_UPLOAD_BYTES: usize = 100 * 1024 * 1024;
 const MAX_ARTIFACT_LIST_BYTES: usize = 4 * 1024 * 1024;
 const MAX_ARTIFACT_PREVIEW_BYTES: usize = 5 * 1024 * 1024;
@@ -251,6 +253,9 @@ struct BridgeData {
     trace_cleanup: Option<PendingTraceCleanup>,
     screen_sessions: BTreeMap<u64, ScreenSession>,
     screen_generation: u64,
+    active_chat_id: Option<String>,
+    notification_ids: notifications::RecentNotificationIds,
+    last_notification_sound: Option<std::time::Instant>,
 }
 
 impl Default for BridgeData {
@@ -274,6 +279,9 @@ impl Default for BridgeData {
             trace_cleanup: None,
             screen_sessions: BTreeMap::new(),
             screen_generation: 0,
+            active_chat_id: None,
+            notification_ids: notifications::RecentNotificationIds::default(),
+            last_notification_sound: None,
         }
     }
 }
@@ -980,6 +988,153 @@ fn persist_cache(data: &BridgeData) {
     let _ = state_cache::save_ordered(root, &host.id, node_id, &data.state, stamp);
 }
 
+fn notification_delivery_candidate(
+    data: &mut BridgeData,
+    message: &Value,
+    window_focused: bool,
+) -> Option<(String, String, String, bool, bool)> {
+    if !local_settings::load().unwrap_or_default().notifications {
+        return None;
+    }
+    let chat_id = message.get("chat_id")?.as_str()?;
+    let chat = data.state.chats.get(chat_id)?;
+    let bot_id = message.get("sender")?.get("bot_id").and_then(Value::as_str);
+    if let Some(bot) = bot_id.and_then(|id| data.state.bots.get(id)) {
+        if bot.get("notifications").and_then(Value::as_bool) == Some(false) {
+            return None;
+        }
+    }
+    let preferences = local_settings::notification_preferences().unwrap_or_default();
+    let kind = notifications::classify_message(message, chat, &preferences)?;
+    let message_id = notifications::stable_notification_id(message)?;
+    let host_id = data
+        .active_host
+        .as_ref()
+        .map(|host| host.id.as_str())
+        .or_else(|| {
+            data.state
+                .hello
+                .as_ref()
+                .and_then(|hello| hello.get("node_id"))
+                .and_then(Value::as_str)
+        })?;
+    if !data.notification_ids.insert(host_id, &message_id) {
+        return None;
+    }
+    let current_chat = notifications::should_suppress_for_current_chat(
+        window_focused,
+        data.active_chat_id.as_deref(),
+        chat_id,
+    );
+    let chat_title = chat
+        .get("title")
+        .and_then(Value::as_str)
+        .unwrap_or("Mac Bot");
+    let bot_name = message
+        .get("sender")
+        .and_then(|sender| sender.get("bot_id"))
+        .and_then(Value::as_str)
+        .and_then(|id| data.state.bots.get(id))
+        .map(|bot| {
+            let label = bot.get("label").and_then(Value::as_str).unwrap_or_default();
+            if label.is_empty() {
+                bot.get("name").and_then(Value::as_str).unwrap_or_default()
+            } else {
+                label
+            }
+        })
+        .filter(|name| !name.is_empty())
+        .unwrap_or("Bot");
+    let title = match kind {
+        notifications::NotificationKind::NeedsYou => {
+            notifications::copy("notify.need_you.title").replace("{bot}", bot_name)
+        }
+        notifications::NotificationKind::Review => {
+            notifications::copy("notify.review.title").to_owned()
+        }
+        notifications::NotificationKind::DirectMessage
+        | notifications::NotificationKind::GroupMessage => chat_title.to_owned(),
+    };
+    let raw_body = message
+        .get("fallback_text")
+        .and_then(Value::as_str)
+        .filter(|text| !text.is_empty())
+        .or_else(|| message.get("text").and_then(Value::as_str))
+        .unwrap_or_default()
+        .to_owned();
+    let approval_summary = message
+        .get("blocks")
+        .and_then(Value::as_array)
+        .and_then(|blocks| {
+            blocks.iter().find_map(|block| {
+                let approval_id = block.get("approval_id").and_then(Value::as_str)?;
+                data.state
+                    .approvals
+                    .get(approval_id)
+                    .and_then(|approval| approval.get("summary"))
+                    .and_then(Value::as_str)
+            })
+        })
+        .unwrap_or(&raw_body);
+    let review_project = message
+        .get("blocks")
+        .and_then(Value::as_array)
+        .and_then(|blocks| {
+            blocks.iter().find_map(|block| {
+                let project_id = block.get("project_id").and_then(Value::as_str)?;
+                data.state
+                    .projects
+                    .get(project_id)
+                    .and_then(|project| project.get("name"))
+                    .and_then(Value::as_str)
+            })
+        })
+        .unwrap_or(chat_title);
+    let body = match kind {
+        notifications::NotificationKind::NeedsYou
+            if message["blocks"]
+                .as_array()
+                .is_some_and(|blocks| blocks.iter().any(|block| block["type"] == "approval")) =>
+        {
+            notifications::copy("notify.approval.body").replace("{summary}", approval_summary)
+        }
+        notifications::NotificationKind::Review => {
+            notifications::copy("notify.review.body").replace("{project}", review_project)
+        }
+        _ => raw_body,
+    }
+    .chars()
+    .take(120)
+    .collect::<String>();
+    let sound_enabled = !current_chat
+        && local_settings::sound_enabled()
+        && data
+            .last_notification_sound
+            .is_none_or(|last| last.elapsed() >= std::time::Duration::from_secs(1));
+    if sound_enabled {
+        data.last_notification_sound = Some(std::time::Instant::now());
+    }
+    Some((title, body, message_id, !window_focused, sound_enabled))
+}
+
+fn approval_notification_message(approval: &Value) -> Option<Value> {
+    let id = approval.get("id")?.as_str()?;
+    let summary = approval
+        .get("summary")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    Some(json!({
+        "id": format!("approval:{id}"),
+        "chat_id": approval.get("chat_id")?,
+        "sender": {"kind":"bot", "bot_id": approval.get("bot_id")?},
+        "blocks": [{"type":"approval", "approval_id":id}],
+        "text": summary,
+        "fallback_text": summary,
+        "mentions": [],
+        "delivery": []
+    }))
+}
+
 fn persist_outbox(data: &BridgeData) {
     let Some(host) = &data.active_host else {
         return;
@@ -1136,6 +1291,16 @@ fn inject_client_locale(mut params: Value, locale: Option<&str>) -> Value {
     params
 }
 
+fn notification_preference_storage_key(key: &str) -> Option<&'static str> {
+    match key {
+        "need_you" | "notify_need_you" => Some("notify_need_you"),
+        "review" | "notify_review" => Some("notify_review"),
+        "dm_mention" | "notify_dm_mention" => Some("notify_dm_mention"),
+        "all_group" | "notify_all_group" => Some("notify_all_group"),
+        _ => None,
+    }
+}
+
 fn persist_local_preferences(preferences: &Value) -> Result<Value, String> {
     let mut current = local_settings::load().unwrap_or_default();
     let original_launch_at_login = current.launch_at_login;
@@ -1175,7 +1340,9 @@ fn persist_local_preferences(preferences: &Value) -> Result<Value, String> {
                 let enabled = value
                     .as_bool()
                     .ok_or_else(|| format!("通知偏好 {key} 必须是布尔值"))?;
-                local_settings::set_notification_preference(key, enabled)
+                let storage_key = notification_preference_storage_key(key)
+                    .ok_or_else(|| format!("未知通知偏好 {key}"))?;
+                local_settings::set_notification_preference(storage_key, enabled)
                     .map_err(|error| error.to_string())?;
             }
         } else {
@@ -1199,6 +1366,24 @@ fn read_local_preferences() -> Result<Value, String> {
         "message_font_size": local_settings::message_font_size().as_str(),
         "notification_preferences": notification_preferences
     }))
+}
+
+#[tauri::command]
+fn play_notification_sound(app: AppHandle) -> Result<(), String> {
+    notifications::play_bubble(&app)
+}
+
+#[tauri::command]
+fn set_active_chat_context(
+    bridge: State<'_, SharedBridge>,
+    chat_id: Option<String>,
+) -> Result<(), String> {
+    let mut data = bridge
+        .0
+        .lock()
+        .map_err(|_| "客户端状态不可用".to_string())?;
+    data.active_chat_id = chat_id.filter(|id| !id.trim().is_empty());
+    Ok(())
 }
 
 #[tauri::command]
@@ -1231,6 +1416,11 @@ async fn connect_to_host(
             .lock()
             .map_err(|_| "客户端状态不可用".to_string())?;
         let previous_generation = data.connection_generation;
+        let next_host_id = known_host.as_ref().map(|host| host.id.as_str());
+        let current_host_id = data.active_host.as_ref().map(|host| host.id.as_str());
+        if next_host_id != current_host_id {
+            data.active_chat_id = None;
+        }
         data.connection_generation = data.connection_generation.wrapping_add(1);
         data.connection = "connecting";
         data.error = None;
@@ -1303,6 +1493,11 @@ async fn connect_to_host(
             let mut trace_events_to_emit = Vec::new();
             let mut trace_disconnected = None;
             let mut screen_disconnected = Vec::new();
+            let mut notification_to_deliver: Option<(String, String, String, bool, bool)> = None;
+            let window_focused = app_handle
+                .get_webview_window("main")
+                .and_then(|window| window.is_focused().ok())
+                .unwrap_or(false);
             if let Ok(mut data) = bridge_state.0.lock() {
                 if !connection_is_current(&data, generation) {
                     break;
@@ -1371,8 +1566,20 @@ async fn connect_to_host(
                     }
                     ClientEvent::Protocol(protocol_event) => {
                         let old_seq = data.state.last_seq;
+                        let is_new_notification_event =
+                            matches!(
+                                protocol_event.event.as_str(),
+                                "message.created" | "approval.requested"
+                            ) && protocol_event.seq.is_some_and(|seq| seq > old_seq);
                         let event_name = protocol_event.event.clone();
                         let event_data = protocol_event.data.clone();
+                        let notification_message = match event_name.as_str() {
+                            "message.created" => event_data.get("message").cloned(),
+                            "approval.requested" => event_data
+                                .get("approval")
+                                .and_then(approval_notification_message),
+                            _ => None,
+                        };
                         let host_scope = data
                             .active_host
                             .as_ref()
@@ -1384,14 +1591,21 @@ async fn connect_to_host(
                                     .and_then(|hello| hello.get("node_id"))
                                     .and_then(Value::as_str)
                             });
-                        if let Some(payload) = memory_protocol_event_payload(
-                            &event_name,
-                            &event_data,
-                            host_scope,
-                        ) {
+                        if let Some(payload) =
+                            memory_protocol_event_payload(&event_name, &event_data, host_scope)
+                        {
                             let _ = app_handle.emit("memory-protocol-event", payload);
                         }
                         data.state.apply_event(protocol_event);
+                        if is_new_notification_event {
+                            if let Some(message) = notification_message {
+                                notification_to_deliver = notification_delivery_candidate(
+                                    &mut data,
+                                    &message,
+                                    window_focused,
+                                );
+                            }
+                        }
                         if let Some(routed) = route_trace_event(&mut data, &event_name, event_data)
                         {
                             trace_events_to_emit.push(routed);
@@ -1465,6 +1679,22 @@ async fn connect_to_host(
             }
             for session in screen_disconnected {
                 let _ = session.client.close().await;
+            }
+            if let Some((title, body, message_id, show_system, play_sound)) =
+                notification_to_deliver
+            {
+                if play_sound {
+                    let _ = notifications::play_bubble(&app_handle);
+                }
+                if show_system {
+                    if let Err(error) = notifications::show_native(
+                        &title,
+                        &body,
+                        &format!("macbot.message.{message_id}"),
+                    ) {
+                        eprintln!("Mac Bot notification failed: {error}");
+                    }
+                }
             }
             emit_snapshot(&app_handle, &bridge_state);
             if retry_after_event {
@@ -3498,6 +3728,8 @@ pub fn run() {
             take_pending_deep_links,
             get_local_preferences,
             save_local_preferences,
+            play_notification_sound,
+            set_active_chat_context,
             get_pending_messages,
             set_window_material
         ])
@@ -3526,24 +3758,24 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::{
-        activate_trace_subscription, apply_retry_result, artifact_file_preview, artifact_file_url,
-        artifact_http_context_is_current, authorized_project_home, chat_attachment_payload,
-        clear_negotiated_versions, close_window_action, connection_is_current, diagnostics_text,
-        drain_pending_deep_links, encode_screen_frame, enqueue_message_deep_link, expand_home_path,
-        fetch_artifact_http, finish_trace_unsubscribe, inject_client_locale,
-        memory_protocol_event_payload, negotiated_versions,
-        normalize_bcp47_locale, parse_message_deep_link, pending_message, redact_endpoint,
-        resolve_home_attachment_path, resolve_project_artifact_path, retain_trace_cleanup,
-        route_trace_event, screen_connection_payload, screen_generation_matches,
-        should_reopen_main_window, skill_upload_payload, snapshot, system_settings_url,
-        trace_subscription_state, trace_tauri_event, tray_menu_copy, update_check_result,
-        uploaded_chat_attachment, uploaded_skill_id, validate_artifact_file_path,
-        validate_screen_input, write_diagnostics, ArtifactHttpContext, BridgeData,
-        CloseWindowAction, DeepLinkDispatch, HostRecord, InvokeBody, MessageDeepLink,
-        PendingTraceCleanup, ScreenFrame, ScreenPoint, SystemPermission, TraceScope,
-        TraceSubscription, TrayMenuCopy, UpdateStatus, MAX_ARTIFACT_DIRECTORY_ENTRIES,
-        MAX_ARTIFACT_LIST_BYTES, MAX_ARTIFACT_PREVIEW_BYTES, MAX_BUFFERED_TRACE_BYTES,
-        MAX_PENDING_DEEP_LINKS, MAX_SCREEN_JPEG_BYTES,
+        activate_trace_subscription, apply_retry_result, approval_notification_message,
+        artifact_file_preview, artifact_file_url, artifact_http_context_is_current,
+        authorized_project_home, chat_attachment_payload, clear_negotiated_versions,
+        close_window_action, connection_is_current, diagnostics_text, drain_pending_deep_links,
+        encode_screen_frame, enqueue_message_deep_link, expand_home_path, fetch_artifact_http,
+        finish_trace_unsubscribe, inject_client_locale, memory_protocol_event_payload,
+        negotiated_versions, normalize_bcp47_locale, notification_preference_storage_key,
+        parse_message_deep_link, pending_message, redact_endpoint, resolve_home_attachment_path,
+        resolve_project_artifact_path, retain_trace_cleanup, route_trace_event,
+        screen_connection_payload, screen_generation_matches, should_reopen_main_window,
+        skill_upload_payload, snapshot, system_settings_url, trace_subscription_state,
+        trace_tauri_event, tray_menu_copy, update_check_result, uploaded_chat_attachment,
+        uploaded_skill_id, validate_artifact_file_path, validate_screen_input, write_diagnostics,
+        ArtifactHttpContext, BridgeData, CloseWindowAction, DeepLinkDispatch, HostRecord,
+        InvokeBody, MessageDeepLink, PendingTraceCleanup, ScreenFrame, ScreenPoint,
+        SystemPermission, TraceScope, TraceSubscription, TrayMenuCopy, UpdateStatus,
+        MAX_ARTIFACT_DIRECTORY_ENTRIES, MAX_ARTIFACT_LIST_BYTES, MAX_ARTIFACT_PREVIEW_BYTES,
+        MAX_BUFFERED_TRACE_BYTES, MAX_PENDING_DEEP_LINKS, MAX_SCREEN_JPEG_BYTES,
     };
     use macbot_client_core::ScreenFrameHeader;
     use serde_json::json;
@@ -3557,7 +3789,8 @@ mod tests {
 
     #[test]
     fn memory_protocol_events_are_forwarded_with_host_scope_only() {
-        let data = json!({ "entry_id": "memory-1", "quota": { "used_chars": 12, "limit_chars": 1500 } });
+        let data =
+            json!({ "entry_id": "memory-1", "quota": { "used_chars": 12, "limit_chars": 1500 } });
         for event in [
             "memory.user.updated",
             "memory.user.deleted",
@@ -3570,6 +3803,42 @@ mod tests {
         }
         assert!(memory_protocol_event_payload("message.created", &data, Some("host-a")).is_none());
         assert!(memory_protocol_event_payload("memory.user.updated", &data, None).is_none());
+    }
+
+    #[test]
+    fn approval_request_event_builds_notification_with_stable_approval_id() {
+        let message = approval_notification_message(&json!({
+            "id":"apr-1",
+            "chat_id":"chat-main",
+            "bot_id":"bot-code",
+            "summary":"推送功能分支"
+        }))
+        .unwrap();
+        assert_eq!(message["id"], "approval:apr-1");
+        assert_eq!(message["chat_id"], "chat-main");
+        assert_eq!(message["sender"]["bot_id"], "bot-code");
+        assert_eq!(message["blocks"][0]["approval_id"], "apr-1");
+        assert_eq!(message["fallback_text"], "推送功能分支");
+    }
+
+    #[test]
+    fn notification_preference_keys_map_from_ui_to_persisted_names() {
+        for (ui_key, stored_key) in [
+            ("need_you", "notify_need_you"),
+            ("review", "notify_review"),
+            ("dm_mention", "notify_dm_mention"),
+            ("all_group", "notify_all_group"),
+        ] {
+            assert_eq!(
+                notification_preference_storage_key(ui_key),
+                Some(stored_key)
+            );
+            assert_eq!(
+                notification_preference_storage_key(stored_key),
+                Some(stored_key)
+            );
+        }
+        assert_eq!(notification_preference_storage_key("unknown"), None);
     }
 
     struct TempDir(PathBuf);

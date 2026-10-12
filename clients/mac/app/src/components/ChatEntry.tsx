@@ -71,15 +71,17 @@ export function MessageContextMenu({ message, ownMessage, x, y, senderName, canQ
   onClose: () => void
 }) {
   const menu = useRef<HTMLDivElement>(null)
+  const callbacks = useRef({ onClose, onCopy, onQuote, onReply })
+  callbacks.current = { onClose, onCopy, onQuote, onReply }
   const [position, setPosition] = useState({ left: x, top: y })
   useEffect(() => {
     const rect = menu.current?.getBoundingClientRect()
     if (!rect) return
     setPosition({ left: Math.max(8, Math.min(x, window.innerWidth - rect.width - 8)), top: Math.max(8, Math.min(y, window.innerHeight - rect.height - 8)) })
-    const close = (event: PointerEvent) => { if (!menu.current?.contains(event.target as Node)) onClose() }
+    menu.current?.querySelector<HTMLButtonElement>('button')?.focus()
+    const close = (event: PointerEvent) => { if (!menu.current?.contains(event.target as Node)) callbacks.current.onClose() }
     const key = (event: KeyboardEvent) => {
       const target = event.target instanceof HTMLElement ? event.target : null
-      if (event.key === 'Escape') { onClose(); return }
       const action = messageShortcutAction({
         key: event.key,
         metaKey: event.metaKey,
@@ -90,19 +92,30 @@ export function MessageContextMenu({ message, ownMessage, x, y, senderName, canQ
         editable: Boolean(target?.matches('input, textarea, select, [contenteditable="true"]') || target?.closest('[contenteditable="true"]')),
       })
       if (action === 'reply') {
-        event.preventDefault(); event.stopPropagation(); onReply()
+        event.preventDefault(); event.stopPropagation(); callbacks.current.onReply()
       } else if (action === 'reference') {
-        event.preventDefault(); event.stopPropagation(); onQuote()
+        event.preventDefault(); event.stopPropagation(); callbacks.current.onQuote()
       } else if (action === 'copy') {
-        event.preventDefault(); event.stopPropagation(); onCopy()
+        event.preventDefault(); event.stopPropagation(); callbacks.current.onCopy()
       }
     }
     window.addEventListener('pointerdown', close)
     window.addEventListener('keydown', key)
     return () => { window.removeEventListener('pointerdown', close); window.removeEventListener('keydown', key) }
-  }, [x, y, onClose, onCopy, onQuote, onReply])
+  }, [x, y])
 
-  return <div ref={menu} className="message-context-menu glass-pop" style={{ left: position.left, top: position.top }} role="menu" aria-label={t('chat.message.menu')}>
+  return <div ref={menu} className="message-context-menu glass-pop" style={{ left: position.left, top: position.top }} role="menu" aria-label={t('chat.message.menu')} onKeyDown={(event) => {
+    const items = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>('button:not(:disabled)'))
+    if (event.key === 'Escape') {
+      event.preventDefault(); event.stopPropagation(); onClose()
+      requestAnimationFrame(() => document.getElementById(`message-${message.id}`)?.focus())
+    } else if (event.key === 'ArrowDown' || event.key === 'ArrowUp' || event.key === 'Home' || event.key === 'End') {
+      event.preventDefault(); event.stopPropagation()
+      const currentIndex = items.indexOf(document.activeElement as HTMLButtonElement)
+      const nextIndex = event.key === 'Home' ? 0 : event.key === 'End' ? items.length - 1 : (currentIndex + (event.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length
+      items[nextIndex]?.focus()
+    }
+  }}>
     <div className="message-context-reactions" role="group" aria-label={t('chat.menu.react')}>
       {quickReactions.map((emoji) => <button type="button" className="message-context-emoji" key={emoji} aria-label={`${t('chat.menu.react')} ${emoji}`} onClick={() => onReact(emoji)}>{emoji}</button>)}
     </div>

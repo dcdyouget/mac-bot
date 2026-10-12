@@ -71,6 +71,8 @@ export type LocalPreferences = {
   notification_preferences?: Record<string, boolean>
 }
 
+export type NotificationPreferenceKey = 'need_you' | 'review' | 'dm_mention' | 'all_group'
+
 export type BridgeState = {
   connection: 'disconnected' | 'connecting' | 'connected'
   error: string | null

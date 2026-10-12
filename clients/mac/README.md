@@ -34,7 +34,7 @@ open /Applications/MacBot.app
 
 `packaging/package-tauri.sh` 运行 `npm ci` 和 Tauri release 构建，先让 Tauri 生成 app bundle，再复制为 `clients/mac/dist/MacBot.app` 并用系统 `hdiutil` 生成带 Applications 拖拽链接的压缩 DMG `clients/mac/dist/MacBot.dmg`。默认使用 ad hoc 签名；设置 `CODESIGN_IDENTITY="Developer ID Application: …"` 可指定签名身份。该脚本不执行 notarization。直接运行 `npm run tauri -- build` 的原始 bundle 在 `app/src-tauri/target/release/bundle/`，其 app 名称为 `Mac Bot.app`；交付路径以 `dist/` 中的 `MacBot.app` 和 `MacBot.dmg` 为准。
 
-Tauri bridge 使用 `macbot-desktop-services` 读写 Host、凭据、本地偏好和待发 outbox；待发消息使用稳定 request ID，连接恢复后重试。React 已接入 Host 连接/管理、协议请求、外观设置、附件、电脑画面、轨迹及设置页的更新检查和诊断导出。主题和材质由 Rust 本地偏好恢复，但主题、材质及所选会话也会写入 WebView `localStorage`；所选会话目前仍以 WebView 存储为准。macOS 菜单栏与窗口生命周期已接入，行为和验收状态见下文。
+Tauri bridge 使用 `macbot-desktop-services` 读写 Host、凭据、本地偏好和待发 outbox；待发消息使用稳定 request ID，连接恢复后重试。React 已接入 Host 连接/管理、协议请求、通用设置（外观、字号、通知分类、提示音、登录启动、菜单栏驻留）、附件、电脑画面、轨迹及设置页的更新检查和诊断导出。主题和材质由 Rust 本地偏好恢复，但主题、材质及所选会话也会写入 WebView `localStorage`；所选会话目前仍以 WebView 存储为准。Tauri 通知按本机偏好和 `message.created` / `approval.requested` 筛选，请求 macOS UserNotifications 显示；打包 App 的通知送达仍待验证。声音使用唯一的 `04-bubble-pop.m4a`。首次发送系统通知时 macOS 会询问通知权限。macOS 菜单栏与窗口生命周期已接入，行为和验收状态见下文。
 
 兼容与数据位置：正式 Bundle ID 保持 `bot.mac.desktop`；`packaging/Info.plist` 注册 `macbot://` 消息链接 scheme。Keychain generic-password service 为 `bot.mac.desktop.host-password`，account 使用本机 `HostRecord.id`（不是服务端 `node_id`）；默认本地数据根为 `~/Library/Application Support/MacBot`，`MACBOT_CLIENT_DATA_DIR` 可用绝对路径覆盖。Host 元数据在 `hosts.json`，密码不写入该文件。Tauri 服务复用旧 GPUI 的存储格式与路径，因此可读取旧 Host、Keychain 密码、状态缓存、outbox 和 Rust 本地偏好；WebView 的所选会话仍单独存在 `localStorage`，并非旧 Rust 偏好的兼容数据。
 

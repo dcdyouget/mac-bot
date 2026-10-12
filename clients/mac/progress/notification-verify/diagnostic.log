@@ -1,0 +1,21 @@
+protocol event=message.created seq=Some(70) old_seq=69 is_new=true message_id=Some("msg_01a12e4c-aa49-735c-8b1f-38f3f6c5b039") chat_id=Some("chat_code") sender_kind=Some("bot") bot_id=Some("bot_code")
+classify result=DirectMessage chat_kind=direct mentions_user=false
+candidate accepted kind=DirectMessage host_id=f105da7b-9c56-4ecf-a1bc-f55b8ab9173e message_id=msg_01a12e4c-aa49-735c-8b1f-38f3f6c5b039 chat_id=chat_code active_chat_id=Some("chat_main") window_focused=true current_chat=false show_system=false play_sound=true
+delivery message_id=msg_01a12e4c-aa49-735c-8b1f-38f3f6c5b039 show_system=false play_sound=true
+protocol event=message.created seq=Some(71) old_seq=70 is_new=true message_id=Some("msg_01a12e4e-1376-758e-a145-4c9f75a961af") chat_id=Some("chat_code") sender_kind=Some("bot") bot_id=Some("bot_code")
+classify result=DirectMessage chat_kind=direct mentions_user=false
+candidate accepted kind=DirectMessage host_id=f105da7b-9c56-4ecf-a1bc-f55b8ab9173e message_id=msg_01a12e4e-1376-758e-a145-4c9f75a961af chat_id=chat_code active_chat_id=Some("chat_main") window_focused=false current_chat=false show_system=true play_sound=true
+delivery message_id=msg_01a12e4e-1376-758e-a145-4c9f75a961af show_system=true play_sound=true
+native attempt bundle_id=Some("bot.mac.desktop") identifier=macbot.message.msg_01a12e4e-1376-758e-a145-4c9f75a961af
+authorization status_before_request=0
+authorization callback granted=true error=none
+add completion error=none
+protocol event=message.created seq=Some(72) old_seq=71 is_new=true message_id=Some("msg_01a12e51-80cc-7679-9db0-ea587c87469a") chat_id=Some("chat_code") sender_kind=Some("bot") bot_id=Some("bot_code")
+classify result=DirectMessage chat_kind=direct mentions_user=false
+candidate accepted kind=DirectMessage host_id=f105da7b-9c56-4ecf-a1bc-f55b8ab9173e message_id=msg_01a12e51-80cc-7679-9db0-ea587c87469a chat_id=chat_code active_chat_id=Some("chat_main") window_focused=false current_chat=false show_system=true play_sound=true
+delivery message_id=msg_01a12e51-80cc-7679-9db0-ea587c87469a show_system=true play_sound=true
+native attempt bundle_id=Some("bot.mac.desktop") identifier=macbot.message.msg_01a12e51-80cc-7679-9db0-ea587c87469a
+authorization status_before_request=2
+authorization callback granted=true error=none
+add completion error=none
+delivered notifications count=0 identifiers=[]

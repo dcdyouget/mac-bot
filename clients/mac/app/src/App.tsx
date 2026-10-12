@@ -2,9 +2,9 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { Channel, invoke } from '@tauri-apps/api/core'
 import { getVersion } from '@tauri-apps/api/app'
 import { listen } from '@tauri-apps/api/event'
-import { AtSign, Check, ChevronDown, ChevronRight, Command, MessageCircle, Monitor, PanelRight, Plus, Search, Send, Settings, Shield, Sparkles, Workflow, Clock3, Trash2, Edit3, Users, Folder, X, Paperclip, Zap } from 'lucide-react'
+import { AtSign, Check, ChevronDown, ChevronRight, Command, MessageCircle, Monitor, PanelRight, Plus, Search, Send, Settings, Shield, Sparkles, Workflow, Clock3, Trash2, Edit3, Users, Folder, X, Paperclip, Zap, Ellipsis, CornerUpLeft, Smile } from 'lucide-react'
 import { t, type CopyKey } from './i18n'
-import { emptyState, type Announcement, type BridgeState, type Chat, type HostRecord, type Json, type LocalPreferences, type Message, type PendingMessage, type Question } from './types'
+import { emptyState, type Announcement, type BridgeState, type Chat, type HostRecord, type Json, type LocalPreferences, type Message, type NotificationPreferenceKey, type PendingMessage, type Question } from './types'
 import { CompletionCard, DelegationLine, FallbackCard, ProjectCard, ProgressRow, ReviewCard, SystemNotice, TaskCard, type ArtifactRef } from './components/MessageBlocks'
 import { WorkbenchPage } from './components/WorkbenchPage'
 import { DashboardPage } from './components/DashboardPage'
@@ -24,7 +24,7 @@ import { welcomeTemplateRetryAction, type WelcomeTemplateChoice } from './compon
 import { buildMainEmptySuggestionAction, splitSidebarGroups } from './components/sidebarGroups.model'
 import { classifyDeepLink, type PendingDeepLink } from './components/deepLinkRouting.model'
 import { CONTEXT_PANEL_TRANSITION_MS, transitionContextPanel, type ContextPanelPhase } from './components/contextPanelMotion.model'
-import { isKeepInMenubarEnabled, isLatestLocalPreferenceSave, mergeLocalPreferences, rollbackLocalPreferencePatch } from './components/localPreferences.model'
+import { isLatestLocalPreferenceSave, mergeLocalPreferences, rollbackLocalPreferencePatch } from './components/localPreferences.model'
 import { CreateGroupDialog, MessageContextMenu, type ChatEntryMessage, type QuoteTarget } from './components/ChatEntry'
 import './components/ChatEntry.css'
 import { AttachmentMenu, AttachmentTray, type ChatAttachment } from './components/ChatAttachments'
@@ -166,6 +166,7 @@ function App() {
   const [attachments, setAttachments] = useState<ChatAttachment[]>([])
   const [draggingFiles, setDraggingFiles] = useState(false)
   const [messageMenu, setMessageMenu] = useState<{ message: Message; x: number; y: number } | null>(null)
+  const [focusedMessageId, setFocusedMessageId] = useState<string | null>(null)
   const [quoteTarget, setQuoteTarget] = useState<QuoteTarget | null>(null)
   const [activePage, setActivePage] = useState<AppPage>('chat')
   const [showSearch, setShowSearch] = useState(false)
@@ -351,6 +352,16 @@ function App() {
   }, [])
 
   useEffect(() => { void getVersion().then(setClientVersion).catch(() => undefined) }, [])
+
+  useEffect(() => {
+    const fontSize = localPreferences.message_font_size ?? 'standard'
+    document.documentElement.style.setProperty('--message-font-size', fontSize === 'small' ? '13px' : fontSize === 'large' ? '16px' : '14px')
+  }, [localPreferences.message_font_size])
+
+  useEffect(() => {
+    const chatId = activePage === 'chat' ? selectedChat || null : null
+    void invoke('set_active_chat_context', { chatId }).catch(() => undefined)
+  }, [activePage, hostScope, selectedChat])
 
   useEffect(() => {
     let active = true
@@ -967,6 +978,7 @@ function App() {
   const bots = useMemo(() => Object.values(state.bots), [state.bots])
   const mainBot = bots.find((bot) => bot.is_main) ?? bots[0]
   const currentChat = chats.find((chat) => chat.id === selectedChat) ?? chats.find((chat) => chat.kind === 'main') ?? chats[0]
+  useEffect(() => { setFocusedMessageId(null) }, [currentChat?.id])
   const currentChatBotId = currentChat?.bot_id ?? (currentChat?.kind === 'main' ? mainBot?.id : null)
   const skillTargetBotId = mentionBotId ?? currentChatBotId ?? mainBot?.id ?? null
   const skillTargetBotName = skillTargetBotId ? state.bots[skillTargetBotId]?.name ?? t('common.bot') : t('common.bot')
@@ -1724,6 +1736,14 @@ function App() {
     }
   }
 
+  function updateLocalPreference(patch: LocalPreferences) {
+    void savePreferences(patch)
+  }
+
+  function updateNotificationPreference(key: NotificationPreferenceKey, enabled: boolean) {
+    updateLocalPreference({ notification_preferences: { [key]: enabled } })
+  }
+
   function updateTheme(mode: ThemeMode) {
     setThemeMode(mode)
     void savePreferences({ theme: mode })
@@ -1732,10 +1752,6 @@ function App() {
   function updateTranslucency(enabled: boolean) {
     setTranslucent(enabled)
     void savePreferences({ translucent: enabled })
-  }
-
-  function updateKeepInMenubar(enabled: boolean) {
-    void savePreferences({ keep_in_menubar: enabled })
   }
 
   async function connectSavedHost(hostId: string) {
@@ -2686,16 +2702,22 @@ function App() {
           </div>}
         </div>
           : currentMessages.length ? <div className="message-list">
-          {buildMessageTimeline(currentMessages).map((entry) => <div id={`message-${entry.message.id}`} data-message-id={entry.message.id} className={`timeline-fragment ${messageMenu?.message.id === entry.message.id ? 'message-context-selected' : ''}`} key={entry.message.id} tabIndex={0} role="group" aria-label={t('chat.message.keyboard_actions')} onKeyDown={(event) => {
+          {buildMessageTimeline(currentMessages).map((entry, index) => <div id={`message-${entry.message.id}`} data-message-id={entry.message.id} className={`timeline-fragment ${messageMenu?.message.id === entry.message.id ? 'message-context-selected' : ''}`} key={entry.message.id} tabIndex={focusedMessageId ? (focusedMessageId === entry.message.id ? 0 : -1) : (index === 0 ? 0 : -1)} role="group" aria-label={t('chat.message.keyboard_actions')} onFocus={() => setFocusedMessageId(entry.message.id)} onKeyDown={(event) => {
             if (event.target !== event.currentTarget || messageMenu || (entry.message as Message & { deleted?: boolean }).deleted) return
+            if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
+              const messages = Array.from(event.currentTarget.parentElement?.querySelectorAll<HTMLElement>('.timeline-fragment') ?? [])
+              const next = messages[index + (event.key === 'ArrowDown' ? 1 : -1)]
+              if (next) { event.preventDefault(); next.focus() }
+              return
+            }
             const action = messageShortcutAction({ key: event.key, metaKey: event.metaKey, ctrlKey: event.ctrlKey, altKey: event.altKey, shiftKey: event.shiftKey, isComposing: event.nativeEvent.isComposing })
             if (action === 'reply') { event.preventDefault(); quoteMessage(entry.message, 'reply') }
             else if (action === 'reference') { event.preventDefault(); quoteMessage(entry.message, 'reference') }
             else if (action === 'copy') { event.preventDefault(); void copyMessage(entry.message) }
-          }} onContextMenu={(event) => { event.preventDefault(); if ((entry.message as Message & { deleted?: boolean }).deleted) return; setMessageMenu({ message: entry.message, x: event.clientX, y: event.clientY }) }}>
+          }} onContextMenu={(event) => { event.preventDefault(); event.stopPropagation(); if ((entry.message as Message & { deleted?: boolean }).deleted) return; setFocusedMessageId(entry.message.id); setMessageMenu({ message: entry.message, x: event.clientX, y: event.clientY }) }}>
             {entry.dayLabel && <div className="day-separator">{entry.dayLabel}</div>}
             {entry.timeSeparator && <div className="time-separator">{entry.timeSeparator}</div>}
-            <MessageBubble message={entry.message} pending={Boolean(state.pending_messages[entry.message.id]) && entry.groupEnd} senderName={entry.message.sender?.kind === 'user' ? t('common.user') : state.bots[entry.message.sender?.bot_id ?? '']?.name ?? t('common.bot')} senderRole={entry.message.sender?.bot_id ? String(state.bots[entry.message.sender.bot_id]?.label ?? state.bots[entry.message.sender.bot_id]?.title ?? '') : ''} groupStart={entry.groupStart} groupEnd={entry.groupEnd} headerTime={entry.headerTime} exactTime={entry.exactTime} questions={currentQuestions} approvals={currentApprovalRecords} assignments={state.assignments} projects={state.projects} bots={state.bots} chats={state.chats} chatTitle={currentChat.title ?? ''} onOpenProject={openProject} onTaskDetail={openTrace} onReact={(message, emoji) => void reactToMessage(message, emoji)} onOpenComputer={openComputer} onPreviewArtifact={(artifact) => void openArtifactReference(artifact)} onConfirmProject={(projectId, messageId, blockIndex) => confirmProject(projectId, messageId, blockIndex)} onRequestChanges={(projectId, messageId, blockIndex, text) => requestProjectChanges(projectId, messageId, blockIndex, text)} onApprovalDecide={async (approvalId, decision) => {
+          <MessageBubble message={entry.message} pending={Boolean(state.pending_messages[entry.message.id]) && entry.groupEnd} senderName={entry.message.sender?.kind === 'user' ? t('common.user') : state.bots[entry.message.sender?.bot_id ?? '']?.name ?? t('common.bot')} senderRole={entry.message.sender?.bot_id ? String(state.bots[entry.message.sender.bot_id]?.label ?? state.bots[entry.message.sender.bot_id]?.title ?? '') : ''} groupStart={entry.groupStart} groupEnd={entry.groupEnd} headerTime={entry.headerTime} exactTime={entry.exactTime} questions={currentQuestions} approvals={currentApprovalRecords} assignments={state.assignments} projects={state.projects} bots={state.bots} chats={state.chats} chatTitle={currentChat.title ?? ''} onOpenProject={openProject} onTaskDetail={openTrace} onReact={(message, emoji) => void reactToMessage(message, emoji)} onReplyMessage={(message) => quoteMessage(message, 'reply')} onOpenMessageMenu={(message, x, y) => { setFocusedMessageId(message.id); setMessageMenu({ message, x, y }) }} onOpenComputer={openComputer} onPreviewArtifact={(artifact) => void openArtifactReference(artifact)} onConfirmProject={(projectId, messageId, blockIndex) => confirmProject(projectId, messageId, blockIndex)} onRequestChanges={(projectId, messageId, blockIndex, text) => requestProjectChanges(projectId, messageId, blockIndex, text)} onApprovalDecide={async (approvalId, decision) => {
             const decisionScope = hostScope
             const result = await invoke<{ approval?: Record<string, Json> }>('protocol_request', { method: 'approval.decide', params: { approval_id: approvalId, decision } })
             if (result.approval && hostScopeRef.current === decisionScope) {
@@ -3064,7 +3086,7 @@ function App() {
         }}
         onOpenSystemSettings={(permissionKey) => invoke('open_system_settings', { permissionKey })}
         t={(key) => t(key as CopyKey)}
-      /> : <GeneralSettings themeMode={themeMode} translucent={translucent && !reducedTransparency} reducedTransparency={reducedTransparency} keepInMenubar={isKeepInMenubarEnabled(localPreferences)} keepInMenubarLoaded={localPreferencesLoaded} error={settingsError} onTheme={updateTheme} onTranslucency={updateTranslucency} onKeepInMenubar={updateKeepInMenubar} />}
+      /> : <GeneralSettings themeMode={themeMode} translucent={translucent && !reducedTransparency} reducedTransparency={reducedTransparency} preferences={localPreferences} preferencesLoaded={localPreferencesLoaded} error={settingsError} onTheme={updateTheme} onTranslucency={updateTranslucency} onPreference={updateLocalPreference} onNotificationPreference={updateNotificationPreference} onPreviewSound={() => invoke('play_notification_sound')} />}
     </SettingsPanel>}
     {showSearch && <SearchPage key={hostScope} onSearch={searchRequest} onOpenResult={openSearchResult} sourceLabel={searchSourceLabel} onClose={() => setShowSearch(false)} t={(key) => t(key)} />}
     {activeSearchSideTarget && <aside className="search-side-detail" aria-label={t('search.result.open')}>
@@ -3256,15 +3278,30 @@ function SettingsPanel(props: { selected: SettingsNavigationSection; error: stri
   </section></div>
 }
 
-function GeneralSettings({ themeMode, translucent, reducedTransparency, keepInMenubar, keepInMenubarLoaded, error, onTheme, onTranslucency, onKeepInMenubar }: { themeMode: ThemeMode; translucent: boolean; reducedTransparency: boolean; keepInMenubar: boolean; keepInMenubarLoaded: boolean; error: string | null; onTheme: (mode: ThemeMode) => void; onTranslucency: (enabled: boolean) => void; onKeepInMenubar: (enabled: boolean) => void }) {
+function GeneralSettings({ themeMode, translucent, reducedTransparency, preferences, preferencesLoaded, error, onTheme, onTranslucency, onPreference, onNotificationPreference, onPreviewSound }: { themeMode: ThemeMode; translucent: boolean; reducedTransparency: boolean; preferences: LocalPreferences; preferencesLoaded: boolean; error: string | null; onTheme: (mode: ThemeMode) => void; onTranslucency: (enabled: boolean) => void; onPreference: (patch: LocalPreferences) => void; onNotificationPreference: (key: NotificationPreferenceKey, enabled: boolean) => void; onPreviewSound: () => Promise<unknown> }) {
+  const [previewError, setPreviewError] = useState(false)
+  const notificationPreferences = preferences.notification_preferences ?? {}
+  const messageFontSize = preferences.message_font_size ?? 'standard'
+  const previewSound = async () => {
+    setPreviewError(false)
+    try { await onPreviewSound() } catch { setPreviewError(true) }
+  }
   return <section className="settings-detail">
     <header className="settings-detail-heading"><h2>{t('settings.section.general')}</h2></header>
     <section className="settings-detail-section"><h3>{t('settings.appearance')}</h3><div className="settings-detail-card settings-general-card">
       <label className="appearance-row"><span>{t('settings.theme')}</span><select aria-label={t('settings.theme')} value={themeMode} onChange={(event) => onTheme(event.target.value as ThemeMode)}><option value="light">{t('settings.theme.light')}</option><option value="dark">{t('settings.theme.dark')}</option><option value="system">{t('settings.theme.system')}</option></select></label>
       <label className="appearance-row"><span>{t('settings.translucent')}<small>{t('settings.translucent_hint')}</small></span><input type="checkbox" checked={translucent} disabled={reducedTransparency} onChange={(event) => onTranslucency(event.target.checked)} /></label>
+      <label className="appearance-row"><span>{t('settings.font_size')}</span><select aria-label={t('settings.font_size')} value={messageFontSize} disabled={!preferencesLoaded} onChange={(event) => onPreference({ message_font_size: event.target.value as LocalPreferences['message_font_size'] })}><option value="small">{t('settings.font_size.small')}</option><option value="standard">{t('settings.font_size.standard')}</option><option value="large">{t('settings.font_size.large')}</option></select></label>
+      <label className="appearance-row"><span>{t('settings.language')}</span><select aria-label={t('settings.language')} value="zh-CN" disabled><option value="zh-CN">{t('settings.language.zh_cn')}</option></select></label>
+    </div></section>
+    <section className="settings-detail-section"><h3>{t('settings.notify.section')}</h3><div className="settings-detail-card settings-general-card">
+      <label className="appearance-row"><span>{t('settings.notify.enabled')}</span><input type="checkbox" checked={preferences.notifications !== false} disabled={!preferencesLoaded} onChange={(event) => onPreference({ notifications: event.target.checked })} /></label>
+      {(['need_you', 'review', 'dm_mention', 'all_group'] as const).map((key) => <label className="appearance-row settings-subrow" key={key}><span>{t(`settings.notify.${key}`)}</span><input type="checkbox" checked={notificationPreferences[key] !== false} disabled={!preferencesLoaded || preferences.notifications === false} onChange={(event) => onNotificationPreference(key, event.target.checked)} /></label>)}
+      <div className="appearance-row"><span>{t('settings.notify.sound')}<small>{t('settings.notify.sound_hint')}</small>{previewError && <small className="settings-inline-error">{t('settings.notify.sound_preview_error')}</small>}</span><div className="settings-sound-actions"><button type="button" className="settings-preview-button" disabled={!preferencesLoaded} onClick={() => void previewSound()}>{t('settings.notify.sound_preview')}</button><input type="checkbox" aria-label={t('settings.notify.sound')} checked={preferences.sound_enabled !== false} disabled={!preferencesLoaded} onChange={(event) => onPreference({ sound_enabled: event.target.checked })} /></div></div>
     </div></section>
     <section className="settings-detail-section"><h3>{t('settings.startup')}</h3><div className="settings-detail-card settings-general-card">
-      <label className="appearance-row"><span>{t('settings.keep_in_menubar')}<small>{keepInMenubarLoaded ? t('settings.keep_in_menubar_hint') : t('common.loading')}</small></span><input type="checkbox" aria-label={t('settings.keep_in_menubar')} checked={keepInMenubar} disabled={!keepInMenubarLoaded} onChange={(event) => onKeepInMenubar(event.target.checked)} /></label>
+      <label className="appearance-row"><span>{t('settings.launch_at_login')}</span><input type="checkbox" checked={preferences.launch_at_login === true} disabled={!preferencesLoaded} onChange={(event) => onPreference({ launch_at_login: event.target.checked })} /></label>
+      <label className="appearance-row"><span>{t('settings.keep_in_menubar')}<small>{preferencesLoaded ? t('settings.keep_in_menubar_hint') : t('common.loading')}</small></span><input type="checkbox" aria-label={t('settings.keep_in_menubar')} checked={preferences.keep_in_menubar === true} disabled={!preferencesLoaded} onChange={(event) => onPreference({ keep_in_menubar: event.target.checked })} /></label>
     </div></section>
     {error && <div className="connect-error settings-page-error" role="alert">{error}</div>}
   </section>
@@ -3335,7 +3372,7 @@ function dateLabel(date: Date) {
   return date.toLocaleDateString('zh-CN', { year: date.getFullYear() === today.getFullYear() ? undefined : 'numeric', month: 'long', day: 'numeric' })
 }
 
-function MessageBubble({ message, pending = false, senderName, senderRole, groupStart, groupEnd, headerTime, exactTime, questions, approvals, assignments, projects, bots, chats, chatTitle, onOpenProject, onTaskDetail, onReact, onOpenComputer, onPreviewArtifact, onConfirmProject, onRequestChanges, onApprovalDecide, onQuestionAnswer }: {
+function MessageBubble({ message, pending = false, senderName, senderRole, groupStart, groupEnd, headerTime, exactTime, questions, approvals, assignments, projects, bots, chats, chatTitle, onOpenProject, onTaskDetail, onReact, onReplyMessage, onOpenMessageMenu, onOpenComputer, onPreviewArtifact, onConfirmProject, onRequestChanges, onApprovalDecide, onQuestionAnswer }: {
   message: Message
   pending?: boolean
   senderName: string
@@ -3354,6 +3391,8 @@ function MessageBubble({ message, pending = false, senderName, senderRole, group
   onOpenProject: (projectId: string, chatId?: string) => Promise<void>
   onTaskDetail: (assignmentId: string) => void
   onReact: (message: Message, emoji: string) => void
+  onReplyMessage: (message: Message) => void
+  onOpenMessageMenu: (message: Message, x: number, y: number) => void
   onOpenComputer: (botId: string) => void
   onPreviewArtifact: (artifact: ArtifactRef) => void
   onConfirmProject: (projectId: string, messageId: string, blockIndex: number) => Promise<void>
@@ -3378,6 +3417,11 @@ function MessageBubble({ message, pending = false, senderName, senderRole, group
     <div className="message-stack">
       {!isUser && groupStart && <div className="message-author">{senderName}{senderRole && <span className="message-author-role"> · {senderRole}</span>}{headerTime && <span className="message-author-time"> · {headerTime}</span>}{message.sender?.bot_id && <button type="button" className="message-computer-action" aria-label={t('computer.title').replace('{bot}', senderName)} title={t('computer.title').replace('{bot}', senderName)} onClick={() => onOpenComputer(message.sender!.bot_id!)}><Monitor size={12} /></button>}</div>}
       <div className="bubble">
+        {!deleted && <div className="message-hover-tools" aria-label={t('chat.message.menu')}>
+          <button type="button" aria-label={t('chat.menu.react')} title={t('chat.menu.react')} onClick={(event) => onOpenMessageMenu(message, event.clientX, event.clientY)}><Smile size={14} /></button>
+          <button type="button" aria-label={t('chat.menu.reply')} title={t('chat.menu.reply')} onClick={() => onReplyMessage(message)}><CornerUpLeft size={14} /></button>
+          <button type="button" aria-label={t('chat.message.menu')} title={t('chat.message.menu')} onClick={(event) => onOpenMessageMenu(message, event.clientX, event.clientY)}><Ellipsis size={14} /></button>
+        </div>}
         {exactTime && <span className="hover-time">{exactTime}</span>}
         {quote && <div className="chat-message-quote"><strong>{quote.sender?.kind === 'user' ? t('common.user') : bots[quote.sender?.bot_id ?? '']?.name ?? t('common.bot')}</strong><span>{quote.excerpt ?? ''}</span></div>}
         {deleted ? <span className="message-deleted-copy">{t('chat.message.deleted')}</span> : hasRenderable ? <div className="message-blocks">{blocks.map((block, index) => {

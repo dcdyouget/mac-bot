@@ -112,6 +112,13 @@
 .settings-detail input[type="checkbox"] { accent-color: var(--accent); }
 .settings-detail-helper { margin: 0; padding: 9px 14px 12px; color: var(--text-tertiary); font-size: 11px; line-height: 16px; }
 .settings-detail-permission { padding: 6px 14px; }
+.settings-general-card .appearance-row:last-child { border-bottom: 0; }
+.settings-general-card .settings-subrow { padding-left: 22px; }
+.settings-sound-actions { display: flex; align-items: center; gap: 14px; }
+.settings-preview-button { min-height: 28px; padding: 0 10px; border: 1px solid var(--border-subtle); border-radius: 7px; background: var(--bg-panel); color: var(--text-primary); font: inherit; font-size: 11px; cursor: pointer; }
+.settings-preview-button:hover:not(:disabled) { background: var(--bg-hover); }
+.settings-preview-button:disabled { opacity: .5; cursor: default; }
+.settings-inline-error { color: var(--danger) !important; }
 
 .settings-detail-segment { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding: 12px; }
 .settings-detail-segment button {
