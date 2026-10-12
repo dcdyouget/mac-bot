@@ -7,6 +7,7 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.clickable
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.scaleIn
@@ -69,6 +70,8 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.IntOffset
 import kotlin.math.roundToInt
@@ -172,6 +175,7 @@ fun ChatScreen(
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
     val composerFocusRequester = remember(hostId, chatId) { FocusRequester() }
+    var composerFocused by remember(hostId, chatId) { mutableStateOf(false) }
     val mentionButtonFocusRequester = remember(hostId, chatId) { FocusRequester() }
     var mentionOpenedByButton by remember(hostId, chatId) { mutableStateOf(false) }
     var initialJumpHandled by remember(hostId, chatId, initialMessageId) { mutableStateOf(initialMessageId.isNullOrBlank()) }
@@ -517,10 +521,12 @@ fun ChatScreen(
                 LucideIcon(LucideIconKind.ChevronRight, Modifier.size(18.dp), tint = LocalMobilePalette.current.textSecondary)
             }
         }
+        Box(Modifier.weight(1f).fillMaxWidth()) {
         FontScaleLimit(2.0f) {
         LazyColumn(
             state = listState,
-            modifier = Modifier.weight(1f).fillMaxWidth().padding(horizontal = 12.dp),
+            modifier = Modifier.fillMaxSize().padding(horizontal = 12.dp),
+            contentPadding = PaddingValues(bottom = 112.dp),
             verticalArrangement = Arrangement.spacedBy(0.dp),
         ) {
             if (showMainChatEmptyState) {
@@ -742,6 +748,7 @@ fun ChatScreen(
                 }
             }
         }
+        Column(Modifier.align(Alignment.BottomCenter)) {
         val slashQuery = draft.substringAfter('/', "").substringBefore(' ')
         if (slashPickerOpen) {
             Surface(
@@ -818,7 +825,24 @@ fun ChatScreen(
                 }
             }
         }
-        Row(Modifier.fillMaxWidth().padding(10.dp), verticalAlignment = Alignment.Bottom) {
+        val canSendDraft = canSendChatMessage(serializeChatMessageText(selectedSkill, draft), attachments, readOnly)
+        val sendScale by animateFloatAsState(
+            targetValue = if (canSendDraft) 1f else 0.88f,
+            animationSpec = if (animationsEnabled) spring(dampingRatio = 0.68f, stiffness = 380f) else tween(1),
+            label = "composerSendPop",
+        )
+        val composerShape = RoundedCornerShape(22.dp)
+        Surface(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 8.dp)
+                .shadow(8.dp, composerShape),
+            shape = composerShape,
+            color = LocalMobilePalette.current.sidebar,
+            border = BorderStroke(
+                if (composerFocused || draft.isNotBlank()) 3.dp else 0.5.dp,
+                if (composerFocused || draft.isNotBlank()) LocalMobilePalette.current.accentSoft else LocalMobilePalette.current.borderDefault,
+            ),
+        ) {
+        Row(Modifier.fillMaxWidth().padding(4.dp), verticalAlignment = Alignment.Bottom) {
             IconButton(enabled = !readOnly, onClick = { showAttachmentMenu = true }, modifier = Modifier.semantics { contentDescription = attachmentLabel }) { LucideIcon(LucideIconKind.Plus, Modifier.size(20.dp)) }
         Column(Modifier.weight(1f), horizontalAlignment = Alignment.Start) {
             selectedSkill?.let { skillName ->
@@ -842,7 +866,7 @@ fun ChatScreen(
             OutlinedTextField(
                 value = draft,
                 onValueChange = { draft = it; if (it.endsWith("@")) showMentions = true },
-                modifier = Modifier.fillMaxWidth().focusRequester(composerFocusRequester).onPreviewKeyEvent { event ->
+                modifier = Modifier.fillMaxWidth().focusRequester(composerFocusRequester).onFocusChanged { composerFocused = it.isFocused }.onPreviewKeyEvent { event ->
                     if (event.type == KeyEventType.KeyDown && event.key == Key.Backspace && draft.isEmpty() && selectedSkill != null) {
                         selectedSkill = null
                         true
@@ -858,7 +882,8 @@ fun ChatScreen(
             ) { LucideIcon(LucideIconKind.AtSign, Modifier.size(20.dp), tint = LocalMobilePalette.current.accent) }
             Spacer(Modifier.padding(4.dp))
             Button(
-                enabled = canSendChatMessage(serializeChatMessageText(selectedSkill, draft), attachments, readOnly),
+                enabled = canSendDraft,
+                modifier = Modifier.graphicsLayer { scaleX = sendScale; scaleY = sendScale },
                 onClick = {
                     val text = serializeChatMessageText(selectedSkill, draft)
                     val uploadIds = attachments.mapNotNull { it.uploadId }
@@ -893,6 +918,9 @@ fun ChatScreen(
                     }
                 },
             ) { Text(if (readOnly) stringResource(Res.string.feature_readonly) else stringResource(Res.string.common_send)) }
+        }
+        }
+        }
         }
         if (showAttachmentMenu) androidx.compose.material3.ModalBottomSheet(onDismissRequest = { showAttachmentMenu = false }) {
             Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
