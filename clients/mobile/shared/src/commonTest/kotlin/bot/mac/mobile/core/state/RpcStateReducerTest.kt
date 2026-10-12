@@ -17,6 +17,18 @@ class RpcStateReducerTest {
         protocolJson.parseToJsonElement(value).jsonObject
 
     @Test
+    fun skillListRpcPopulatesThePickerState() {
+        val next = RpcStateReducer.apply(
+            MobileState(),
+            "skill.list",
+            buildJsonObject {},
+            objectOf("""{"skills":[{"name":"web-auth-patterns"}]}"""),
+        )
+
+        assertEquals(listOf("web-auth-patterns"), next.skills.map { it.str("name") })
+    }
+
+    @Test
     fun workbenchGetKeepsBotListAndAbsorbsAssignments() {
         val current = MobileState(
             bots = listOf(objectOf("""{"id":"existing","name":"Existing"}""")),

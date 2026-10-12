@@ -42,7 +42,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -135,6 +140,8 @@ fun ChatScreen(
     val lastOwnMessageIndex = messages.indexOfLast { it.obj("sender").str("kind") == "user" }
     val chat = state.chats.firstOrNull { it.str("id") == chatId }
     var draft by remember(hostId, chatId) { mutableStateOf("") }
+    var selectedSkill by remember(hostId, chatId) { mutableStateOf<String?>(null) }
+    var slashSkills by remember(hostId, chatId) { mutableStateOf(emptyList<JsonObject>()) }
     var replyTo by remember(hostId, chatId) { mutableStateOf<String?>(null) }
     var quoteMode by remember(hostId, chatId) { mutableStateOf("reply") }
     var mentionBots by remember(hostId, chatId) { mutableStateOf(emptySet<String>()) }
@@ -279,7 +286,9 @@ fun ChatScreen(
     LaunchedEffect(hostId, chatId) {
         draftLoaded = false
         val store = platformPersistentStore()
-        draft = runCatching { store.read(chatDraftKey(hostId, chatId)) }.getOrNull().orEmpty()
+        val restoredDraft = parseChatSkillDraft(runCatching { store.read(chatDraftKey(hostId, chatId)) }.getOrNull().orEmpty())
+        selectedSkill = restoredDraft.skillName
+        draft = restoredDraft.text
         attachments = runCatching { decodeAttachmentDraft(store.read(chatAttachmentsDraftKey(hostId, chatId))) }.getOrDefault(emptyList())
         draftLoaded = true
     }
@@ -290,11 +299,11 @@ fun ChatScreen(
             runCatching { composerFocusRequester.requestFocus() }
         }
     }
-    LaunchedEffect(draft, hostId, chatId, draftLoaded) {
+    LaunchedEffect(draft, selectedSkill, hostId, chatId, draftLoaded) {
         if (draftLoaded) {
             // Drafts update for every IME key; debounce the disk-backed SharedPreferences commit.
             kotlinx.coroutines.delay(400)
-            runCatching { platformPersistentStore().write(chatDraftKey(hostId, chatId), draft) }
+            runCatching { platformPersistentStore().write(chatDraftKey(hostId, chatId), serializeChatSkillDraft(selectedSkill, draft)) }
         }
     }
     LaunchedEffect(attachments, hostId, chatId, draftLoaded) {
@@ -364,8 +373,16 @@ fun ChatScreen(
         }
         initialJumpHandled = true
     }
-    LaunchedEffect(draft.startsWith("/")) {
-        if (draft.startsWith("/")) runCatching { repository.call("skill.list", buildJsonObject {}) }
+    val slashPickerOpen = isSlashSkillQuery(draft, selectedSkill)
+    val canLoadSlashSkills = shouldLoadSlashSkills(draft, selectedSkill, state.connected)
+    LaunchedEffect(hostId, chatId, slashPickerOpen, canLoadSlashSkills) {
+        if (slashPickerOpen && canLoadSlashSkills) {
+            val loaded = runCatching { repository.callOnHost(hostId, "skill.list", buildJsonObject {}) }
+                .getOrNull()?.objects("skills").orEmpty()
+            slashSkills = loaded.ifEmpty { repository.state.value.skills }
+        } else if (!slashPickerOpen) {
+            slashSkills = emptyList()
+        }
     }
 
     LaunchedEffect(messages.size, messages.lastOrNull()?.toString(), pendingAnchor) {
@@ -710,16 +727,38 @@ fun ChatScreen(
                 }
             }
         }
-        val slashQuery = draft.takeIf { it.startsWith("/") }?.substringAfter('/').orEmpty().substringBefore(' ')
-        if (draft.startsWith("/") && !draft.substringAfter('/', "").contains(' ')) {
-            Surface(Modifier.fillMaxWidth().padding(horizontal = 12.dp), color = LocalMobilePalette.current.sidebar, shape = RoundedCornerShape(10.dp)) {
-                Column(Modifier.heightIn(max = 340.dp).verticalScroll(rememberScrollState()).padding(8.dp)) {
-                    val matches = state.skills.filter { it.str("name").contains(slashQuery, ignoreCase = true) }
+        val slashQuery = draft.substringAfter('/', "").substringBefore(' ')
+        if (slashPickerOpen) {
+            Surface(
+                Modifier.fillMaxWidth().padding(horizontal = 12.dp).padding(bottom = 4.dp),
+                color = LocalMobilePalette.current.elevated,
+                shape = RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp, bottomStart = 4.dp, bottomEnd = 4.dp),
+                shadowElevation = 8.dp,
+                border = androidx.compose.foundation.BorderStroke(1.dp, LocalMobilePalette.current.borderDefault),
+            ) {
+                Column(Modifier.heightIn(max = 340.dp).verticalScroll(rememberScrollState()).padding(6.dp)) {
+                    val matches = filterSlashSkills(slashSkills.ifEmpty { state.skills }, slashQuery)
                     matches.forEach { skill ->
-                        TextButton(onClick = { draft = "/${skill.str("name")} "; error = null }) {
-                            Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.Start) {
-                                Text(skill.str("name"), style = MaterialTheme.typography.titleSmall)
-                                Text(skill.str("description"), style = MaterialTheme.typography.bodySmall, maxLines = 2)
+                        val name = skill.str("name")
+                        TextButton(
+                            onClick = {
+                                selectedSkill = name.takeIf { it.isNotBlank() }
+                                draft = ""
+                                error = null
+                                scope.launch { withFrameNanos { }; runCatching { composerFocusRequester.requestFocus() } }
+                            },
+                            modifier = Modifier.fillMaxWidth().heightIn(min = 60.dp),
+                        ) {
+                            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                Surface(color = LocalMobilePalette.current.accentSoft, shape = RoundedCornerShape(8.dp), modifier = Modifier.size(36.dp)) {
+                                    Box(contentAlignment = Alignment.Center) {
+                                        LucideIcon(LucideIconKind.Zap, Modifier.size(18.dp), tint = LocalMobilePalette.current.accent)
+                                    }
+                                }
+                                Column(Modifier.weight(1f), horizontalAlignment = Alignment.Start, verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                    Text("/$name", style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    Text(skill.str("description"), style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                }
                             }
                         }
                     }
@@ -737,22 +776,47 @@ fun ChatScreen(
         }
         Row(Modifier.fillMaxWidth().padding(10.dp), verticalAlignment = Alignment.Bottom) {
             IconButton(enabled = !readOnly, onClick = { showAttachmentMenu = true }, modifier = Modifier.semantics { contentDescription = attachmentLabel }) { LucideIcon(LucideIconKind.Plus, Modifier.size(20.dp)) }
+        Column(Modifier.weight(1f), horizontalAlignment = Alignment.Start) {
+            selectedSkill?.let { skillName ->
+                val removeSkillDescription = stringResource(Res.string.common_close)
+                Surface(
+                    color = LocalMobilePalette.current.accentSoft,
+                    contentColor = LocalMobilePalette.current.accent,
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier.padding(bottom = 4.dp).widthIn(max = 220.dp),
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(start = 8.dp, end = 2.dp)) {
+                        LucideIcon(LucideIconKind.Zap, Modifier.size(14.dp))
+                        Text(skillName, Modifier.weight(1f).padding(start = 4.dp), style = MaterialTheme.typography.labelMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        IconButton(
+                            onClick = { selectedSkill = null },
+                            modifier = Modifier.size(30.dp).semantics { contentDescription = removeSkillDescription },
+                        ) { LucideIcon(LucideIconKind.X, Modifier.size(14.dp)) }
+                    }
+                }
+            }
             OutlinedTextField(
                 value = draft,
                 onValueChange = { draft = it; if (it.endsWith("@")) showMentions = true },
-                modifier = Modifier.weight(1f).focusRequester(composerFocusRequester),
+                modifier = Modifier.fillMaxWidth().focusRequester(composerFocusRequester).onPreviewKeyEvent { event ->
+                    if (event.type == KeyEventType.KeyDown && event.key == Key.Backspace && draft.isEmpty() && selectedSkill != null) {
+                        selectedSkill = null
+                        true
+                    } else false
+                },
                 placeholder = { Text(composerPlaceholder) },
                 maxLines = 4,
             )
+        }
             if (groupChat || mentionCandidates.isNotEmpty()) IconButton(
                 onClick = { mentionOpenedByButton = true; showMentions = true },
                 modifier = Modifier.focusRequester(mentionButtonFocusRequester).semantics { contentDescription = mentionLabel },
             ) { LucideIcon(LucideIconKind.AtSign, Modifier.size(20.dp), tint = LocalMobilePalette.current.accent) }
             Spacer(Modifier.padding(4.dp))
             Button(
-                enabled = canSendChatMessage(draft, attachments, readOnly),
+                enabled = canSendChatMessage(serializeChatMessageText(selectedSkill, draft), attachments, readOnly),
                 onClick = {
-                    val text = draft.trim()
+                    val text = serializeChatMessageText(selectedSkill, draft)
                     val uploadIds = attachments.mapNotNull { it.uploadId }
                     val sendHostId = hostId
                     scope.launch {
@@ -772,6 +836,7 @@ fun ChatScreen(
                         }.onSuccess {
                             if (isCurrentUploadHost(sendHostId, repository.activeHost.value?.id)) {
                                 draft = ""
+                                selectedSkill = null
                                 replyTo = null
                                 quoteMode = "reply"
                                 mentionBots = emptySet()

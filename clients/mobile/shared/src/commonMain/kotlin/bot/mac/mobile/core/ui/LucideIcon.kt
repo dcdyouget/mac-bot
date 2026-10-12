@@ -14,7 +14,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 
 /** Small, platform-neutral Lucide-style outline icons (24×24, 1.5 dp stroke). */
-enum class LucideIconKind { ArrowLeft, ArrowUp, Plus, Search, RefreshCw, RotateCcw, ChevronDown, ChevronLeft, ChevronRight, Clock, CalendarDays, Ellipsis, Info, X, AtSign, Paperclip, FileText, Check, MessageCircle, Reply, Smile, Monitor, PanelRight, ShieldAlert, Target }
+enum class LucideIconKind { ArrowLeft, ArrowUp, Plus, Search, RefreshCw, RotateCcw, ChevronDown, ChevronLeft, ChevronRight, Clock, CalendarDays, Ellipsis, Info, X, AtSign, Paperclip, FileText, Check, MessageCircle, Reply, Smile, Monitor, PanelRight, ShieldAlert, Target, Zap }
 
 @Composable
 fun LucideIcon(
@@ -115,6 +115,7 @@ fun LucideIcon(
                 drawCircle(resolvedTint, radius = 3f, center = Offset(12f, 12f), style = stroke)
                 line(12f, 2f, 12f, 4f); line(12f, 20f, 12f, 22f); line(2f, 12f, 4f, 12f); line(20f, 12f, 22f, 12f)
             }
+            LucideIconKind.Zap -> path(13f, 2f, 5f, 14f, 11f, 14f, 10f, 22f, 19f, 10f, 13f, 10f, 13f, 2f)
         }
         drawContext.transform.scale(1f / scale, 1f / scale, Offset.Zero)
     }
