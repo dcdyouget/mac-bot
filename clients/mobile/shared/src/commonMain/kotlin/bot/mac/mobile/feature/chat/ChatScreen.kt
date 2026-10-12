@@ -1,16 +1,17 @@
 package bot.mac.mobile.feature.chat
 
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.spring
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.scaleIn
+import androidx.compose.animation.core.Animatable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.lazy.LazyColumn
@@ -48,6 +49,7 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
@@ -122,7 +124,7 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import org.jetbrains.compose.resources.stringResource
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun ChatScreen(
     repository: MobileRepository,
@@ -176,6 +178,7 @@ fun ChatScreen(
     val scope = rememberCoroutineScope()
     val composerFocusRequester = remember(hostId, chatId) { FocusRequester() }
     var composerFocused by remember(hostId, chatId) { mutableStateOf(false) }
+    var composerStackHeightPx by remember(hostId, chatId) { mutableStateOf(0) }
     val mentionButtonFocusRequester = remember(hostId, chatId) { FocusRequester() }
     var mentionOpenedByButton by remember(hostId, chatId) { mutableStateOf(false) }
     var initialJumpHandled by remember(hostId, chatId, initialMessageId) { mutableStateOf(initialMessageId.isNullOrBlank()) }
@@ -379,10 +382,11 @@ fun ChatScreen(
             historyBeforeSeq = beforeSeq
             pages++
         }
-        val index = repository.state.value.messages[chatId].orEmpty().indexOfFirst { it.str("id") == targetId }
+        val currentMessages = repository.state.value.messages[chatId].orEmpty()
+        val index = currentMessages.indexOfFirst { it.str("id") == targetId }
         if (index >= 0) {
             withFrameNanos { }
-            listState.scrollToItem(index + if (historyHasMore) 1 else 0)
+            listState.scrollToItem(chatMessageLazyIndex(currentMessages, index, historyHasMore))
             scrollState = scrollState.afterInitialPosition()
             highlightedMessageId = targetId
             kotlinx.coroutines.delay(900)
@@ -410,7 +414,7 @@ fun ChatScreen(
                 val index = messages.indexOfFirst { it.str("id") == anchor.id }
                 if (index >= 0) {
                     withFrameNanos { }
-                    listState.scrollToItem(index + if (historyHasMore) 1 else 0, anchor.offset)
+                    listState.scrollToItem(chatMessageLazyIndex(messages, index, historyHasMore), anchor.offset)
                 }
                 pendingAnchor = null
             }
@@ -428,7 +432,7 @@ fun ChatScreen(
     LaunchedEffect(chatId, historyLoaded, messages.size, historyHasMore) {
         if (initialMessageId != null && !initialJumpHandled) return@LaunchedEffect
         if (!historyLoaded || scrollState.initialPositioned) return@LaunchedEffect
-        val lastIndex = latestChatItemIndex(messages.size, historyHasMore) ?: return@LaunchedEffect
+        val lastIndex = latestChatItemIndex(messages, historyHasMore) ?: return@LaunchedEffect
         withFrameNanos { }
         listState.scrollToItem(lastIndex)
         scrollState = scrollState.afterInitialPosition()
@@ -437,7 +441,7 @@ fun ChatScreen(
     LaunchedEffect(messages.size, messages.lastOrNull()?.toString(), historyHasMore, scrollState) {
         if (initialMessageId != null && !initialJumpHandled) return@LaunchedEffect
         if (!scrollState.shouldScrollToLatest(messages.size)) return@LaunchedEffect
-        val lastIndex = latestChatItemIndex(messages.size, historyHasMore) ?: return@LaunchedEffect
+        val lastIndex = latestChatItemIndex(messages, historyHasMore) ?: return@LaunchedEffect
         withFrameNanos { }
         listState.scrollToItem(lastIndex)
     }
@@ -450,7 +454,7 @@ fun ChatScreen(
         if (showHeader) {
             FontScaleLimit(1.3f) {
             Row(
-                Modifier.fillMaxWidth().heightIn(min = 64.dp).padding(horizontal = 8.dp),
+                Modifier.fillMaxWidth().heightIn(min = 64.dp).background(LocalMobilePalette.current.sidebar).padding(horizontal = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 IconButton(onClick = onBack, modifier = Modifier.semantics { contentDescription = backLabel }) { LucideIcon(LucideIconKind.ArrowLeft, Modifier.size(20.dp)) }
@@ -526,7 +530,11 @@ fun ChatScreen(
         LazyColumn(
             state = listState,
             modifier = Modifier.fillMaxSize().padding(horizontal = 12.dp),
-            contentPadding = PaddingValues(bottom = 112.dp),
+            contentPadding = PaddingValues(
+                bottom = with(androidx.compose.ui.platform.LocalDensity.current) {
+                    if (composerStackHeightPx == 0) 112.dp else composerStackHeightPx.toDp() + 12.dp
+                },
+            ),
             verticalArrangement = Arrangement.spacedBy(0.dp),
         ) {
             if (showMainChatEmptyState) {
@@ -581,20 +589,25 @@ fun ChatScreen(
                     ) { Text(if (loadingOlder) stringResource(Res.string.feature_loading) else stringResource(Res.string.chat_loading_older)) }
                 }
             }
-            itemsIndexed(messages, key = { _, message -> "$hostId:$chatId:${message.str("id").ifBlank { "message:${message.hashCode()}" }}" }) { messageIndex, message ->
+            messages.forEachIndexed { messageIndex, message ->
                 val previousMessage = messages.getOrNull(messageIndex - 1)
                 val nextMessage = messages.getOrNull(messageIndex + 1)
                 val startsNewDay = previousMessage == null || !sameChatDay(previousMessage, message)
                 val hasTimeSeparator = previousMessage != null && hasChatTimeSeparator(previousMessage, message)
-                if (startsNewDay) ChatDayCapsule(message.str("created_at"))
-                if (hasTimeSeparator) ChatTimeSeparator(message.str("created_at"))
+                if (startsNewDay) stickyHeader(key = "$hostId:$chatId:day:${chatDayKey(message.str("created_at"))}") {
+                    ChatDayCapsule(message.str("created_at"))
+                }
+                if (hasTimeSeparator) item(key = "$hostId:$chatId:time:${message.str("id")}") {
+                    ChatTimeSeparator(message.str("created_at"))
+                }
                 val followsSameAuthor = previousMessage?.let { sameMessageGroup(it, message) } == true && !hasTimeSeparator
                 val continuesSameAuthor = continuesChatMessageGroup(message, nextMessage)
                 val messageTopSpacing = when {
                     startsNewDay || hasTimeSeparator -> 0.dp
-                    followsSameAuthor -> 2.dp
+                    followsSameAuthor -> 3.dp
                     else -> 10.dp
                 }
+                item(key = "$hostId:$chatId:${message.str("id").ifBlank { "message:${message.hashCode()}" }}") {
                 ChatMessageRow(
                     message = message,
                     hostId = hostId,
@@ -618,7 +631,7 @@ fun ChatScreen(
                         val index = messages.indexOfFirst { it.str("id") == quotedId }
                         if (index >= 0) {
                             scope.launch {
-                                val targetIndex = index + if (historyHasMore) 1 else 0
+                                val targetIndex = chatMessageLazyIndex(messages, index, historyHasMore)
                                 if (animationsEnabled) {
                                     listState.animateScrollToItem(targetIndex)
                                     highlightedMessageId = quotedId
@@ -633,7 +646,7 @@ fun ChatScreen(
                     highlighted = highlightedMessageId == message.str("id"),
                     onReply = { replyTo = it },
                     onQuote = { id, mode -> quoteMode = mode; replyTo = id },
-                    onReact = { id, emoji -> scope.launch { runCatching { repository.call("chat.react", buildJsonObject { put("message_id", id); put("emoji", emoji); put("on", true) }) }.onFailure { error = it.message ?: sendError } } },
+                    onReact = { id, emoji, enabled -> scope.launch { runCatching { repository.call("chat.react", buildJsonObject { put("message_id", id); put("emoji", emoji); put("on", enabled) }) }.onFailure { error = it.message ?: sendError } } },
                     onOpenTrace = onOpenTrace,
                     onApproval = { id, decision -> scope.launch { runCatching { repository.call("approval.decide", buildJsonObject { put("approval_id", id); put("decision", decision) }) }.onFailure { error = it.message ?: sendError } } },
                     onQuestion = { id, index, indexes, text -> scope.launch { runCatching { repository.call("question.answer", buildJsonObject {
@@ -678,9 +691,11 @@ fun ChatScreen(
                     artifactProjectId = artifactProjectId ?: chat?.str("project_id")?.takeIf { it.isNotBlank() },
                 state = state,
                 )
+                }
             }
         }
         }
+        Column(Modifier.align(Alignment.BottomCenter).onSizeChanged { composerStackHeightPx = it.height }) {
         replyTo?.let { id ->
             Surface(Modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.surfaceContainerHigh) {
                 Row(Modifier.padding(horizontal = 12.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -748,7 +763,6 @@ fun ChatScreen(
                 }
             }
         }
-        Column(Modifier.align(Alignment.BottomCenter)) {
         val slashQuery = draft.substringAfter('/', "").substringBefore(' ')
         if (slashPickerOpen) {
             Surface(
@@ -831,6 +845,13 @@ fun ChatScreen(
             animationSpec = if (animationsEnabled) spring(dampingRatio = 0.68f, stiffness = 380f) else tween(1),
             label = "composerSendPop",
         )
+        val sendInteractionSource = remember(hostId, chatId) { MutableInteractionSource() }
+        val sendPressed by sendInteractionSource.collectIsPressedAsState()
+        val sendPressScale by animateFloatAsState(
+            targetValue = if (sendPressed) 0.97f else 1f,
+            animationSpec = if (animationsEnabled) spring(dampingRatio = 0.82f, stiffness = 380f) else tween(1),
+            label = "composerSendPress",
+        )
         val composerShape = RoundedCornerShape(22.dp)
         Surface(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 8.dp)
@@ -883,7 +904,8 @@ fun ChatScreen(
             Spacer(Modifier.padding(4.dp))
             Button(
                 enabled = canSendDraft,
-                modifier = Modifier.graphicsLayer { scaleX = sendScale; scaleY = sendScale },
+                interactionSource = sendInteractionSource,
+                modifier = Modifier.graphicsLayer { scaleX = sendScale * sendPressScale; scaleY = sendScale * sendPressScale },
                 onClick = {
                     val text = serializeChatMessageText(selectedSkill, draft)
                     val uploadIds = attachments.mapNotNull { it.uploadId }
@@ -1020,11 +1042,12 @@ private fun ChatDayCapsule(timestamp: String) {
     val palette = LocalMobilePalette.current
     Row(Modifier.fillMaxWidth().padding(vertical = 12.dp), horizontalArrangement = Arrangement.Center) {
         Surface(
-            color = palette.panel,
+            modifier = Modifier.shadow(3.dp, RoundedCornerShape(11.dp)),
+            color = palette.elevated,
             shape = RoundedCornerShape(11.dp),
-            border = androidx.compose.foundation.BorderStroke(1.dp, palette.borderDefault),
+            border = BorderStroke(0.5.dp, palette.borderSubtle),
         ) {
-            Text(label, Modifier.padding(horizontal = 10.dp, vertical = 3.dp), style = MaterialTheme.typography.labelSmall, color = palette.textSecondary)
+            Text(label, Modifier.padding(horizontal = 10.dp, vertical = 3.dp), style = MaterialTheme.typography.labelSmall.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold), color = palette.textSecondary)
         }
     }
 }
@@ -1050,14 +1073,18 @@ private fun ChatClockText(timestamp: String, modifier: Modifier = Modifier) {
     Text(label, modifier, style = MaterialTheme.typography.labelSmall, color = LocalMobilePalette.current.textTertiary)
 }
 
-private fun sameChatDay(first: JsonObject, second: JsonObject): Boolean {
+internal fun sameChatDay(first: JsonObject, second: JsonObject): Boolean {
     val zone = TimeZone.currentSystemDefault()
     val firstDate = runCatching { Instant.parse(first.str("created_at")).toLocalDateTime(zone).date }.getOrNull() ?: return false
     val secondDate = runCatching { Instant.parse(second.str("created_at")).toLocalDateTime(zone).date }.getOrNull() ?: return false
     return firstDate == secondDate
 }
 
-private fun hasChatTimeSeparator(first: JsonObject, second: JsonObject): Boolean {
+private fun chatDayKey(timestamp: String): String =
+    runCatching { Instant.parse(timestamp).toLocalDateTime(TimeZone.currentSystemDefault()).date.toString() }
+        .getOrElse { timestamp.take(10) }
+
+internal fun hasChatTimeSeparator(first: JsonObject, second: JsonObject): Boolean {
     if (!sameChatDay(first, second)) return false
     val firstInstant = runCatching { Instant.parse(first.str("created_at")) }.getOrNull() ?: return false
     val secondInstant = runCatching { Instant.parse(second.str("created_at")) }.getOrNull() ?: return false
@@ -1096,7 +1123,7 @@ internal fun ChatMessageRow(
     highlighted: Boolean,
     onReply: (String) -> Unit,
     onQuote: (String, String) -> Unit,
-    onReact: (String, String) -> Unit,
+    onReact: (String, String, Boolean) -> Unit,
     onOpenTrace: (String?, String?) -> Unit,
     onApproval: (String, String) -> Unit,
     onQuestion: (String, Int?, List<Int>?, String?) -> Unit,
@@ -1119,6 +1146,13 @@ internal fun ChatMessageRow(
     var showMessageActions by remember(messageIdentity) { mutableStateOf(false) }
     var messageActionError by remember(messageIdentity) { mutableStateOf(false) }
     val messageFocusRequester = remember(messageIdentity) { FocusRequester() }
+    val messageInteractionSource = remember(messageIdentity) { MutableInteractionSource() }
+    val messagePressed by messageInteractionSource.collectIsPressedAsState()
+    val bubblePressScale by animateFloatAsState(
+        targetValue = if (messagePressed) 0.97f else 1f,
+        animationSpec = if (LocalSystemAnimationsEnabled.current) spring(dampingRatio = 0.82f, stiffness = 380f) else tween(1),
+        label = "messagePress",
+    )
     val actionScope = rememberCoroutineScope()
     var exactTimeHideJob by remember(messageIdentity) { mutableStateOf<Job?>(null) }
     fun dismissMessageActions() {
@@ -1135,13 +1169,24 @@ internal fun ChatMessageRow(
     var exactTimeOffsetPx by remember(messageIdentity) { mutableStateOf(0f) }
     val animatedExactTimeOffsetPx by animateFloatAsState(
         targetValue = exactTimeOffsetPx,
-        animationSpec = tween(durationMillis = 200),
+        animationSpec = if (LocalSystemAnimationsEnabled.current) spring(dampingRatio = 0.82f, stiffness = 380f) else tween(durationMillis = 1),
         label = "messageExactTimeReveal",
     )
     val sender = message.obj("sender")
     val isUser = sender.str("kind") == "user"
     val id = message.str("id")
     val blocks = message.arr("blocks")
+    val reactionPills = message.arr("reactions").mapNotNull { it as? JsonObject }.mapNotNull { reaction ->
+        val emoji = reaction.str("emoji").takeIf(String::isNotBlank) ?: return@mapNotNull null
+        val senders = reaction.arr("by").mapNotNull { it as? JsonObject }
+        TapbackPill(emoji, senders.size, senders.any { it.str("kind") == "user" })
+    }
+    val hasWideCard = blocks.any { element ->
+        (element as? JsonObject)?.str("type") in setOf(
+            "task_card", "completion", "review_card", "project_card", "question", "delegation",
+            "approval", "approval_ref", "takeover_request", "bot_dm_ref", "link_preview", "image", "file",
+        )
+    }
     val assignmentId = message.str("assignment_id")
     val senderId = sender.str("bot_id")
     val senderLabel = state.bots.firstOrNull { it.str("id")==senderId }?.str("name")?.takeIf { it.isNotBlank() } ?: if (senderId.isBlank()) stringResource(Res.string.feature_bot) else senderId
@@ -1156,6 +1201,14 @@ internal fun ChatMessageRow(
     })
     val avatarDescription = stringResource(Res.string.chat_avatar_description, senderLabel, avatarStatusLabel)
     val messageInstant = runCatching { Instant.parse(message.str("created_at")) }.getOrNull()
+    val entranceEligible = LocalSystemAnimationsEnabled.current && messageInstant?.let {
+        (Clock.System.now().toEpochMilliseconds() - it.toEpochMilliseconds()) in 0L..5_000L
+    } == true
+    val entranceProgress = remember(messageIdentity) { Animatable(if (entranceEligible) 0f else 1f) }
+    LaunchedEffect(messageIdentity, entranceEligible) {
+        if (entranceEligible) entranceProgress.animateTo(1f, spring(dampingRatio = 0.82f, stiffness = 380f))
+        else entranceProgress.snapTo(1f)
+    }
     val messageLocalTime = messageInstant?.toLocalDateTime(TimeZone.currentSystemDefault())
     val spokenTime = if (messageLocalTime == null) message.str("created_at") else stringResource(
         Res.string.chat_time_full,
@@ -1194,7 +1247,18 @@ internal fun ChatMessageRow(
     val messageDescription = stringResource(Res.string.chat_message_accessibility, if (isUser) stringResource(Res.string.common_you) else senderLabel, spokenTime, spokenBody)
     val standaloneTask = blocks.singleOrNull()?.let { it as? JsonObject }?.takeIf { it.str("type") == "task_card" }
     val actionAssignmentId = assignmentId.ifBlank { standaloneTask?.str("assignment_id").orEmpty() }
-    Column(Modifier.fillMaxWidth().padding(top = topSpacing).semantics { isTraversalGroup = true; contentDescription = messageDescription }, horizontalAlignment = if (isUser) Alignment.End else Alignment.Start) {
+    Column(
+        Modifier.fillMaxWidth().padding(top = topSpacing).graphicsLayer {
+            val progress = entranceProgress.value
+            val startScale = if (isUser) 0.96f else 0.98f
+            alpha = progress
+            scaleX = startScale + (1f - startScale) * progress
+            scaleY = startScale + (1f - startScale) * progress
+            translationX = if (isUser) (1f - progress) * 8.dp.toPx() else 0f
+            translationY = (1f - progress) * 10.dp.toPx()
+        }.semantics { isTraversalGroup = true; contentDescription = messageDescription },
+        horizontalAlignment = if (isUser) Alignment.End else Alignment.Start,
+    ) {
         if (standaloneTask != null) {
             StandaloneTaskCard(standaloneTask, state, onOpenTrace) {
                 showMessageActions = true
@@ -1227,11 +1291,14 @@ internal fun ChatMessageRow(
                 palette.bubbleOut,
             ),
         )
+        val showTapbacks = !continuesSameAuthor && reactionPills.isNotEmpty()
+        Box(modifier = if (isUser) Modifier.fillMaxWidth(0.9f) else Modifier.weight(1f).padding(start = 8.dp)) {
         Surface(
-            modifier = (if (isUser) Modifier.fillMaxWidth(0.9f) else Modifier.weight(1f).padding(start = 8.dp))
+            modifier = Modifier.fillMaxWidth().padding(top = if (showTapbacks) 14.dp else 0.dp)
+                .graphicsLayer { scaleX = bubblePressScale; scaleY = bubblePressScale }
                 .shadow(1.dp, bubbleShape, ambientColor = palette.borderSubtle, spotColor = palette.borderSubtle)
                 .drawBehind {
-                    if (!continuesSameAuthor) {
+                    if (!continuesSameAuthor && !hasWideCard) {
                         val tailWidth = 18.dp.toPx()
                         val tailHeight = 6.dp.toPx()
                         val path = Path().apply {
@@ -1286,12 +1353,13 @@ internal fun ChatMessageRow(
                     )
                 }
                 .combinedClickable(
+                    interactionSource = messageInteractionSource,
                     onClick = { if (didSwipeReply) didSwipeReply = false },
                     onLongClick = {
                         haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                         showMessageActions = true
                     },
-                    onDoubleClick = { if (id.isNotBlank()) onReact(id, "👍") },
+                    onDoubleClick = { if (id.isNotBlank()) onReact(id, "👍", !reactionPills.any { it.emoji == "👍" && it.mine }) },
                 ),
             shape = bubbleShape,
             color = if (isUser) androidx.compose.ui.graphics.Color.Transparent else palette.bubbleIn,
@@ -1309,35 +1377,35 @@ internal fun ChatMessageRow(
                 val quote = message.obj("quote")
                 if (quote.str("message_id").isNotBlank()) {
                     Surface(
-                        color = MaterialTheme.colorScheme.surface.copy(alpha = .55f),
+                        color = if (isUser) androidx.compose.ui.graphics.Color.White.copy(alpha = .16f) else MaterialTheme.colorScheme.surface.copy(alpha = .55f),
                         shape = RoundedCornerShape(6.dp),
                         onClick = { onJumpToMessage(quote.str("message_id")) },
                     ) {
                         Row(Modifier.fillMaxWidth().padding(end = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Spacer(Modifier.width(2.dp).heightIn(min = 34.dp).background(MaterialTheme.colorScheme.primary))
+                            Spacer(Modifier.width(2.dp).heightIn(min = 34.dp).background(if (isUser) androidx.compose.ui.graphics.Color.White.copy(alpha = .8f) else MaterialTheme.colorScheme.primary))
                             Column(Modifier.weight(1f).padding(horizontal = 8.dp, vertical = 5.dp)) {
                             val quoteSenderId = quote.obj("sender").str("bot_id")
                             val quoteSender = state.bots.firstOrNull { it.str("id") == quoteSenderId }?.str("name")
                                 ?.takeIf { it.isNotBlank() } ?: stringResource(Res.string.common_you)
-                            Text(quoteSender, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
-                            Text(quote.str("excerpt"), style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(quoteSender, style = MaterialTheme.typography.labelSmall, color = if (isUser) androidx.compose.ui.graphics.Color.White else MaterialTheme.colorScheme.primary)
+                            Text(quote.str("excerpt"), style = MaterialTheme.typography.bodySmall, color = if (isUser) androidx.compose.ui.graphics.Color.White.copy(alpha = 0.92f) else palette.textSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             }
                         }
                     }
                 }
-                if (message.boolean("streaming")) Text(stringResource(Res.string.chat_typing), style = MaterialTheme.typography.labelMedium)
+                if (message.boolean("streaming")) ChatTypingWave(LocalSystemAnimationsEnabled.current)
                 if (visibleSkillNames.isNotEmpty()) Row(
                     Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     visibleSkillNames.forEach { skillName ->
-                        MessageSkillChip(skillName)
+                        MessageSkillChip(skillName, outgoingBubble = isUser)
                         if (skillName in loadedNames) {
                             Text(
                                 stringResource(Res.string.chat_slash_loaded, skillName),
                                 style = MaterialTheme.typography.labelSmall,
-                                color = palette.textSecondary,
+                                color = if (isUser) androidx.compose.ui.graphics.Color.White.copy(alpha = 0.85f) else palette.textSecondary,
                                 maxLines = 1,
                             )
                         }
@@ -1387,41 +1455,19 @@ internal fun ChatMessageRow(
                     Button(onClick = { onOpenTrace(assignmentId, null) }) { Text(stringResource(Res.string.feature_detail)) }
                 }
             }
-              val reactionPills = message.arr("reactions").mapNotNull { it as? JsonObject }.mapNotNull { reaction ->
-                  val emoji = reaction.str("emoji").takeIf(String::isNotBlank) ?: return@mapNotNull null
-                  val senders = reaction.arr("by").mapNotNull { it as? JsonObject }
-                  TapbackPill(emoji, senders.size, senders.any { it.str("kind") == "user" })
-              }
-              if (reactionPills.isNotEmpty()) Row(
-                  Modifier.align(if (isUser) Alignment.TopStart else Alignment.TopEnd)
-                      .offset(x = if (isUser) (-8).dp else 8.dp, y = (-14).dp),
-                  horizontalArrangement = Arrangement.spacedBy(4.dp),
-              ) {
-                  reactionPills.forEach { pill ->
-                      AnimatedVisibility(visible = true, enter = scaleIn(initialScale = 0.6f) + fadeIn()) {
-                          Surface(
-                              color = if (pill.mine) palette.accent else palette.elevated,
-                              shape = RoundedCornerShape(13.dp),
-                              border = BorderStroke(0.5.dp, palette.borderDefault),
-                              modifier = Modifier.shadow(4.dp, RoundedCornerShape(13.dp)),
-                          ) {
-                              Row(
-                                  Modifier.heightIn(min = 26.dp).padding(horizontal = 7.dp),
-                                  verticalAlignment = Alignment.CenterVertically,
-                                  horizontalArrangement = Arrangement.spacedBy(3.dp),
-                              ) {
-                                  Text(pill.emoji, style = MaterialTheme.typography.labelLarge)
-                                  if (pill.count > 1) Text(
-                                      pill.count.toString(),
-                                      style = MaterialTheme.typography.labelSmall,
-                                      color = if (pill.mine) MaterialTheme.colorScheme.onPrimary else palette.textSecondary,
-                                  )
-                              }
-                          }
-                      }
-                  }
-              }
             }
+        if (showTapbacks) Row(
+            Modifier.align(if (isUser) Alignment.TopStart else Alignment.TopEnd)
+                .offset(x = if (isUser) 8.dp else (-8).dp),
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            reactionPills.forEach { pill ->
+                TapbackPillView(pill, LocalSystemAnimationsEnabled.current) {
+                    if (id.isNotBlank()) onReact(id, pill.emoji, !pill.mine)
+                }
+            }
+        }
+        }
         }
         }
         }
@@ -1443,7 +1489,7 @@ internal fun ChatMessageRow(
                     }
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
                     listOf("👍", "❤️", "😂", "🎉", "🤔", "👀").forEach { emoji ->
-                        TextButton(onClick = { if (id.isNotBlank()) onReact(id, emoji); dismissMessageActions() }) { Text(emoji, style = MaterialTheme.typography.titleLarge) }
+                        TextButton(onClick = { if (id.isNotBlank()) onReact(id, emoji, !reactionPills.any { it.emoji == emoji && it.mine }); dismissMessageActions() }) { Text(emoji, style = MaterialTheme.typography.titleLarge) }
                     }
                 }
                 TextButton(onClick = { if (id.isNotBlank()) onQuote(id, "reply"); dismissMessageActions() }) { Text(stringResource(Res.string.chat_menu_reply)) }
@@ -1578,6 +1624,47 @@ private fun MessageQuestionDeck(
 private data class TapbackPill(val emoji: String, val count: Int, val mine: Boolean)
 
 @Composable
+private fun TapbackPillView(pill: TapbackPill, animationsEnabled: Boolean, onClick: () -> Unit) {
+    val palette = LocalMobilePalette.current
+    val scale = remember(pill.emoji) { Animatable(if (animationsEnabled) 0.6f else 1f) }
+    val interactionSource = remember(pill.emoji) { MutableInteractionSource() }
+    val pressed by interactionSource.collectIsPressedAsState()
+    val pressScale by animateFloatAsState(
+        targetValue = if (pressed) 0.97f else 1f,
+        animationSpec = if (animationsEnabled) spring(dampingRatio = 0.82f, stiffness = 380f) else tween(1),
+        label = "tapbackPress",
+    )
+    LaunchedEffect(pill.emoji, animationsEnabled) {
+        if (animationsEnabled) scale.animateTo(1f, spring(dampingRatio = 0.68f, stiffness = 380f))
+        else scale.snapTo(1f)
+    }
+    val shape = RoundedCornerShape(13.dp)
+    Surface(
+        onClick = onClick,
+        interactionSource = interactionSource,
+        modifier = Modifier.graphicsLayer { scaleX = scale.value * pressScale; scaleY = scale.value * pressScale }
+            .shadow(4.dp, shape),
+        color = if (pill.mine) palette.accent else palette.elevated,
+        contentColor = if (pill.mine) androidx.compose.ui.graphics.Color.White else palette.textPrimary,
+        shape = shape,
+        border = BorderStroke(0.5.dp, palette.borderDefault),
+    ) {
+        Row(
+            Modifier.heightIn(min = 26.dp).padding(horizontal = 7.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(3.dp),
+        ) {
+            Text(pill.emoji, style = MaterialTheme.typography.labelLarge)
+            if (pill.count > 1) Text(
+                pill.count.toString(),
+                style = MaterialTheme.typography.labelSmall,
+                color = if (pill.mine) androidx.compose.ui.graphics.Color.White else palette.textSecondary,
+            )
+        }
+    }
+}
+
+@Composable
 private fun StandaloneTaskCard(
     block: JsonObject,
     state: MobileState,
@@ -1681,11 +1768,11 @@ private fun SlashSkillOption(skill: JsonObject, onSelect: (String) -> Unit) {
 }
 
 @Composable
-private fun MessageSkillChip(name: String) {
+private fun MessageSkillChip(name: String, outgoingBubble: Boolean = false) {
     val palette = LocalMobilePalette.current
     Surface(
-        color = palette.accentSoft,
-        contentColor = palette.accent,
+        color = if (outgoingBubble) androidx.compose.ui.graphics.Color.White.copy(alpha = 0.2f) else palette.accentSoft,
+        contentColor = if (outgoingBubble) androidx.compose.ui.graphics.Color.White else palette.accent,
         shape = RoundedCornerShape(8.dp),
         modifier = Modifier.widthIn(max = 220.dp),
     ) {
@@ -1721,11 +1808,12 @@ private fun BlockView(
     onOpenArtifact: (String, String, String?) -> Unit,
     artifactProjectId: String?,
     repository: MobileRepository,
+    outgoingBubble: Boolean = false,
 ) {
     val kind = block.str("type")
     val blockScope = rememberCoroutineScope()
     when (kind) {
-        "text" -> MarkdownText(block.str("markdown"), Modifier.fillMaxWidth())
+        "text" -> MarkdownText(block.str("markdown"), Modifier.fillMaxWidth(), outgoingBubble = outgoingBubble)
         "image" -> {
             val file = fileRef(block)
             val key = fileKey(file)

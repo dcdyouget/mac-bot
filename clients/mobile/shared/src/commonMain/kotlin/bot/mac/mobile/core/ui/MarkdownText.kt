@@ -36,11 +36,12 @@ import org.jetbrains.compose.resources.stringResource
 
 /** Renders the small Markdown subset used by protocol message fallback text. */
 @Composable
-fun MarkdownText(markdown: String, modifier: Modifier = Modifier) {
+fun MarkdownText(markdown: String, modifier: Modifier = Modifier, outgoingBubble: Boolean = false) {
     val blocks = remember(markdown) { parseMarkdown(markdown) }
     val scope = rememberCoroutineScope()
-    val linkColor = MaterialTheme.colorScheme.primary
-    val codeBackground = MaterialTheme.colorScheme.surfaceVariant
+    val foreground = if (outgoingBubble) Color.White else LocalContentColor.current
+    val linkColor = if (outgoingBubble) Color.White else MaterialTheme.colorScheme.primary
+    val codeBackground = if (outgoingBubble) Color.White.copy(alpha = 0.18f) else MaterialTheme.colorScheme.surfaceVariant
 
     Column(
         modifier = modifier,
@@ -50,7 +51,7 @@ fun MarkdownText(markdown: String, modifier: Modifier = Modifier) {
             when (block) {
                 is MarkdownBlock.Paragraph -> MarkdownInlineText(
                     text = block.text,
-                    style = MaterialTheme.typography.bodyLarge,
+                    style = MaterialTheme.typography.bodyLarge.copy(color = foreground),
                     linkColor = linkColor,
                     codeBackground = codeBackground,
                     onLink = { url -> scope.launch { openExternalUrl(url) } },
@@ -58,7 +59,7 @@ fun MarkdownText(markdown: String, modifier: Modifier = Modifier) {
 
                 is MarkdownBlock.Heading -> MarkdownInlineText(
                     text = block.text,
-                    style = headingStyle(block.level),
+                    style = headingStyle(block.level).copy(color = foreground),
                     linkColor = linkColor,
                     codeBackground = codeBackground,
                     onLink = { url -> scope.launch { openExternalUrl(url) } },
@@ -68,6 +69,7 @@ fun MarkdownText(markdown: String, modifier: Modifier = Modifier) {
                     code = block.text,
                     language = block.language,
                     background = codeBackground,
+                    foreground = foreground,
                 )
             }
         }
@@ -97,7 +99,7 @@ private fun MarkdownInlineText(
 }
 
 @Composable
-private fun MarkdownCodeBlock(code: String, language: String, background: Color) {
+private fun MarkdownCodeBlock(code: String, language: String, background: Color, foreground: Color) {
     val clipboard = LocalClipboardManager.current
     Column(
         modifier = Modifier
@@ -112,7 +114,7 @@ private fun MarkdownCodeBlock(code: String, language: String, background: Color)
                     text = language,
                     modifier = Modifier.weight(1f),
                     style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = foreground.copy(alpha = 0.8f),
                 )
             } else {
                 androidx.compose.foundation.layout.Spacer(Modifier.weight(1f))
@@ -124,7 +126,7 @@ private fun MarkdownCodeBlock(code: String, language: String, background: Color)
         SelectionContainer {
             Text(
                 text = code,
-                style = DesignTokens.mobileMono.copy(color = MaterialTheme.colorScheme.onSurfaceVariant),
+                style = DesignTokens.mobileMono.copy(color = foreground),
             )
         }
     }
