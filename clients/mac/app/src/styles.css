@@ -115,6 +115,9 @@ kbd { padding: 1px 5px; border-radius: 4px; box-shadow: 0 0 0 1px var(--border-d
 .group-middle.outgoing .bubble { border-top-right-radius: 6px; }
 .group-end:not(.outgoing) .bubble { border-bottom-left-radius: 6px; }
 .group-end.outgoing .bubble { border-bottom-right-radius: 6px; }
+.group-end:not(.outgoing) .bubble::after, .group-end.outgoing .bubble::after { position: absolute; bottom: 0; width: 8px; height: 8px; content: ''; }
+.group-end:not(.outgoing) .bubble::after { left: -5px; border-bottom-right-radius: 8px; box-shadow: 3px 3px 0 0 var(--bubble-in); }
+.group-end.outgoing .bubble::after { right: -5px; border-bottom-left-radius: 8px; box-shadow: -3px 3px 0 0 var(--bubble-out); }
 .group-middle:not(.group-end):not(.outgoing) .bubble, .group-middle.outgoing:not(.group-end) .bubble { border-radius: 6px 16px 16px 6px; }
 .group-middle.outgoing:not(.group-end) .bubble { border-radius: 16px 6px 6px 16px; }
 .task-card-done-line { display: flex; align-items: center; gap: 6px; margin: 4px 0 4px 40px; color: var(--text-tertiary); font-size: 12px; }
