@@ -29,7 +29,7 @@ object DesignTokens {
     val bgWindow = Color(0xFFFBFBFA)
     val bgSidebar = Color(0xFFF3F3F1)
     val bgPanel = Color(0xFFF7F7F5)
-    val bgChat = Color(0xFFEFEFEB)
+    val bgChat = Color(0xFFF1F1EE)
     val bgElevated = Color(0xFFFFFFFF)
     val bgInput = Color(0xFFFFFFFF)
     val bgHover = Color(0x0B141418)
@@ -51,8 +51,9 @@ object DesignTokens {
     val accentOn = Color(0xFFFFFFFF)
     val bubbleIn = Color(0xFFFFFFFF)
     val bubbleInText = Color(0xFF1C1C1E)
-    val bubbleOut = Color(0xFFDDE5F0)
-    val bubbleOutText = Color(0xFF1C1C1E)
+    val bubbleOut = Color(0xFF4E70A3)
+    val bubbleOutTop = Color(0xFF5D81B8)
+    val bubbleOutText = Color(0xFFFFFFFF)
     val bubbleMeta = Color(0xFF8E8E93)
     val bubbleOutMeta = Color(0xFF6F819C)
     val success = Color(0xFF3E8E66)
@@ -104,8 +105,9 @@ object DesignTokens {
         "accent.on" to Color(0xFF111113),
         "bubble.in" to Color(0xFF222225),
         "bubble.in.text" to Color(0xFFECECEE),
-        "bubble.out" to Color(0xFF2B3A52),
-        "bubble.out.text" to Color(0xFFECEFF5),
+        "bubble.out" to Color(0xFF4C6B9C),
+        "bubble.out.top" to Color(0xFF5B7DB2),
+        "bubble.out.text" to Color(0xFFFFFFFF),
         "bubble.meta" to Color(0xFF7C7C82),
         "bubble.out.meta" to Color(0xFF8FA2C0),
         "success" to Color(0xFF6DBE94),
@@ -166,7 +168,7 @@ object DesignTokens {
     val radiuslg = 12.dp
     val radiusxl = 16.dp
     val radius2xl = 20.dp
-    val radiusbubble = 16.dp
+    val radiusbubble = 18.dp
     val radiusbubbleTail = 6.dp
     val radiuscard = 12.dp
     val radiussheet = 20.dp
@@ -185,7 +187,7 @@ object DesignTokens {
         "text.primary" to textPrimary, "text.secondary" to textSecondary, "text.tertiary" to textTertiary,
         "text.inverse" to textInverse, "text.link" to textLink, "accent" to accent, "accent.hover" to accentHover,
         "accent.pressed" to accentPressed, "accent.soft" to accentSoft, "accent.on" to accentOn,
-        "bubble.in" to bubbleIn, "bubble.in.text" to bubbleInText, "bubble.out" to bubbleOut,
+        "bubble.in" to bubbleIn, "bubble.in.text" to bubbleInText, "bubble.out" to bubbleOut, "bubble.out.top" to bubbleOutTop,
         "bubble.out.text" to bubbleOutText, "bubble.meta" to bubbleMeta, "bubble.out.meta" to bubbleOutMeta,
         "success" to success, "success.soft" to successSoft, "warning" to warning, "warning.soft" to warningSoft,
         "danger" to danger, "danger.soft" to dangerSoft, "review" to review, "review.soft" to reviewSoft,

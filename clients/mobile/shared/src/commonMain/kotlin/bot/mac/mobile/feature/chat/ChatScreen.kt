@@ -2,6 +2,7 @@ package bot.mac.mobile.feature.chat
 
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.clickable
 import androidx.compose.animation.core.animateFloatAsState
@@ -40,6 +41,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.key.Key
@@ -59,6 +62,8 @@ import androidx.compose.ui.semantics.isTraversalGroup
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.unit.dp
@@ -1180,8 +1185,36 @@ internal fun ChatMessageRow(
             }
             else Spacer(Modifier.size(32.dp))
         }
+        val bubbleShape = RoundedCornerShape(18.dp)
+        val bubbleBrush = Brush.verticalGradient(
+            listOf(
+                palette.tokenColors["bubble.out.top"] ?: palette.bubbleOut,
+                palette.bubbleOut,
+            ),
+        )
         Surface(
             modifier = (if (isUser) Modifier.fillMaxWidth(0.9f) else Modifier.weight(1f).padding(start = 8.dp))
+                .shadow(1.dp, bubbleShape, ambientColor = palette.borderSubtle, spotColor = palette.borderSubtle)
+                .drawBehind {
+                    if (!continuesSameAuthor) {
+                        val tailWidth = 18.dp.toPx()
+                        val tailHeight = 6.dp.toPx()
+                        val path = Path().apply {
+                            if (isUser) {
+                                moveTo(size.width - tailWidth, size.height - 2.dp.toPx())
+                                cubicTo(size.width - 10.dp.toPx(), size.height + tailHeight, size.width - 7.dp.toPx(), size.height + tailHeight, size.width, size.height - 1.dp.toPx())
+                                lineTo(size.width - tailWidth, size.height - 2.dp.toPx())
+                            } else {
+                                moveTo(0f, size.height - 2.dp.toPx())
+                                cubicTo(10.dp.toPx(), size.height + tailHeight, 7.dp.toPx(), size.height + tailHeight, 0f, size.height - 1.dp.toPx())
+                                lineTo(0f, size.height - 2.dp.toPx())
+                            }
+                            close()
+                        }
+                        drawPath(path, if (isUser) palette.bubbleOut else palette.bubbleIn)
+                    }
+                }
+                .background(if (isUser) bubbleBrush else Brush.verticalGradient(listOf(palette.bubbleIn, palette.bubbleIn)), bubbleShape)
                 .focusRequester(messageFocusRequester)
                 .offset { IntOffset(-animatedExactTimeOffsetPx.roundToInt(), 0) }
                 .pointerInput(message.str("id"), swipeThreshold) {
@@ -1225,15 +1258,14 @@ internal fun ChatMessageRow(
                     },
                     onDoubleClick = { if (id.isNotBlank()) onReact(id, "👍") },
                 ),
-            shape = RoundedCornerShape(
-                topStart = if (!isUser && followsSameAuthor) 6.dp else 16.dp,
-                topEnd = if (isUser && followsSameAuthor) 6.dp else 16.dp,
-                bottomStart = if (!isUser && showAvatar) 6.dp else 16.dp,
-                bottomEnd = if (isUser && !continuesSameAuthor) 6.dp else 16.dp,
-            ),
-            color = if (isUser) palette.bubbleOut else palette.bubbleIn,
+            shape = bubbleShape,
+            color = if (isUser) androidx.compose.ui.graphics.Color.Transparent else palette.bubbleIn,
             contentColor = if (isUser) palette.bubbleOutText else palette.bubbleInText,
-            border = if (highlighted) androidx.compose.foundation.BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else null,
+            border = when {
+                highlighted -> BorderStroke(2.dp, MaterialTheme.colorScheme.primary)
+                isUser -> null
+                else -> BorderStroke(0.5.dp, palette.borderSubtle)
+            },
         ) {
             Column(
                 Modifier.fillMaxWidth(0.9f).padding(horizontal = 12.dp, vertical = 8.dp),
