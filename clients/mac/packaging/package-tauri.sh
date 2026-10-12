@@ -30,12 +30,12 @@ npm run tauri -- build --bundles app
   exit 1
 }
 
-if ! codesign --verify --deep --strict "$BUNDLE_APP" >/dev/null 2>&1; then
-  [[ -z "${CODESIGN_IDENTITY:-}" ]] || {
-    print -u2 "Tauri bundle signature verification failed for the requested identity."
-    exit 1
-  }
-  codesign --force --deep --sign - --timestamp=none "$BUNDLE_APP"
+if [[ -z "${CODESIGN_IDENTITY:-}" ]]; then
+  BUNDLE_IDENTIFIER="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$BUNDLE_APP/Contents/Info.plist")"
+  codesign --force --sign - --identifier "$BUNDLE_IDENTIFIER" --timestamp=none "$BUNDLE_APP"
+elif ! codesign --verify --deep --strict "$BUNDLE_APP" >/dev/null 2>&1; then
+  print -u2 "Tauri bundle signature verification failed for the requested identity."
+  exit 1
 fi
 codesign --verify --deep --strict "$BUNDLE_APP"
 

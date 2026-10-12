@@ -6,6 +6,7 @@ import { AtSign, Check, ChevronDown, ChevronRight, Command, MessageCircle, Monit
 import { t, type CopyKey } from './i18n'
 import { emptyState, type Announcement, type BridgeState, type Chat, type HostRecord, type Json, type LocalPreferences, type Message, type NotificationPreferenceKey, type PendingMessage, type Question } from './types'
 import { CompletionCard, DelegationLine, FallbackCard, ProjectCard, ProgressRow, ReviewCard, SystemNotice, TaskCard, type ArtifactRef } from './components/MessageBlocks'
+import { summarizeMarkdown } from './summaryMarkdown.mjs'
 import { WorkbenchPage } from './components/WorkbenchPage'
 import { DashboardPage } from './components/DashboardPage'
 import { RoutinesPage, type RoutineRecord, type RoutineRun, type RoutineInput, type RoutinePatch } from './components/RoutinesPage'
@@ -2682,7 +2683,7 @@ function App() {
       </header>
       {(currentChat?.kind === 'project' || currentChat?.project_id) && <GroupStatusBar chat={currentChat} announcement={announcement} project={currentProject} bots={state.bots} assignments={state.assignments} onSelectAssignment={openTrace} />}
       {(currentChat?.kind === 'project' || currentChat?.project_id) && <button type="button" className="pinned-announcement glass-toolbar" onClick={() => { openContextPanel(); setContextPanelStack(['context']); requestAnimationFrame(() => announcementPanelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })) }}>
-        <span className="announcement-bar" /><span className="announcement-summary"><strong>{t('group.announcement')}</strong><small>{announcement ? summarizeMarkdown(announcement.text) : announcementLoading ? t('settings.permissions.loading') : t('group.announcement.empty')}</small></span><ChevronDown size={14} />
+        <span className="announcement-bar" /><span className="announcement-summary"><strong>{t('group.announcement')}</strong><small>{announcement ? summarizeMarkdown(announcement.text) || t('group.announcement.empty') : announcementLoading ? t('settings.permissions.loading') : t('group.announcement.empty')}</small></span><ChevronDown size={14} />
       </button>}
       {state.connection !== 'connected' && <div className="offline-bar">{t('host.reconnecting').replace('{host}', state.active_host?.name ?? hostName)} · {t('host.reconnecting_detail')}</div>}
       {draggingFiles && <div className="chat-drop-overlay"><Paperclip size={24} /><strong>{t('chat.drop.title').replace('{group}', currentChat ? chatTitle(currentChat) : t('chat.empty.select'))}</strong><span>{t('chat.drop.desc')}</span></div>}
@@ -3178,10 +3179,6 @@ function formatShortTime(value?: string) {
 function botOrUserName(sender: Announcement['text_updated_by'], bots: BridgeState['bots']) {
   if (sender?.kind === 'user') return t('common.you')
   return sender?.bot_id ? bots[sender.bot_id]?.name ?? t('common.bot') : t('common.bot')
-}
-
-function summarizeMarkdown(value: string) {
-  return value.replace(/```[\s\S]*?```/g, ' ').replace(/`([^`]+)`/g, '$1').replace(/!?(\[([^\]]*)\]\([^)]+\))/g, '$2').replace(/[#>*_~]/g, '').replace(/\s+/g, ' ').trim().slice(0, 80)
 }
 
 function groupSubtitle(chat: Chat, project: BridgeState['projects'][string] | undefined, announcement: Announcement | null) {

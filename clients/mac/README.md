@@ -32,9 +32,9 @@ open /Applications/MacBot.app
 # 也可直接打开本地产物：open dist/MacBot.app
 ```
 
-`packaging/package-tauri.sh` 运行 `npm ci` 和 Tauri release 构建，先让 Tauri 生成 app bundle，再复制为 `clients/mac/dist/MacBot.app` 并用系统 `hdiutil` 生成带 Applications 拖拽链接的压缩 DMG `clients/mac/dist/MacBot.dmg`。默认使用 ad hoc 签名；设置 `CODESIGN_IDENTITY="Developer ID Application: …"` 可指定签名身份。该脚本不执行 notarization。直接运行 `npm run tauri -- build` 的原始 bundle 在 `app/src-tauri/target/release/bundle/`，其 app 名称为 `Mac Bot.app`；交付路径以 `dist/` 中的 `MacBot.app` 和 `MacBot.dmg` 为准。
+`packaging/package-tauri.sh` 运行 `npm ci` 和 Tauri release 构建，先让 Tauri 生成 app bundle，再复制为 `clients/mac/dist/MacBot.app` 并用系统 `hdiutil` 生成带 Applications 拖拽链接的压缩 DMG `clients/mac/dist/MacBot.dmg`。默认使用 ad hoc 签名，签名 identifier 从 `Info.plist` 读取并固定为 bundle ID `bot.mac.desktop`，避免通知授权随临时构建路径变化；设置 `CODESIGN_IDENTITY="Developer ID Application: …"` 可指定签名身份。该脚本不执行 notarization。直接运行 `npm run tauri -- build` 的原始 bundle 在 `app/src-tauri/target/release/bundle/`，其 app 名称为 `Mac Bot.app`；交付路径以 `dist/` 中的 `MacBot.app` 和 `MacBot.dmg` 为准。
 
-Tauri bridge 使用 `macbot-desktop-services` 读写 Host、凭据、本地偏好和待发 outbox；待发消息使用稳定 request ID，连接恢复后重试。React 已接入 Host 连接/管理、协议请求、通用设置（外观、字号、通知分类、提示音、登录启动、菜单栏驻留）、附件、电脑画面、轨迹及设置页的更新检查和诊断导出。主题和材质由 Rust 本地偏好恢复，但主题、材质及所选会话也会写入 WebView `localStorage`；所选会话目前仍以 WebView 存储为准。Tauri 通知按本机偏好和 `message.created` / `approval.requested` 筛选，请求 macOS UserNotifications 显示；打包 App 的通知送达仍待验证。声音使用唯一的 `04-bubble-pop.m4a`。首次发送系统通知时 macOS 会询问通知权限。macOS 菜单栏与窗口生命周期已接入，行为和验收状态见下文。
+Tauri bridge 使用 `macbot-desktop-services` 读写 Host、凭据、本地偏好和待发 outbox；待发消息使用稳定 request ID，连接恢复后重试。React 已接入 Host 连接/管理、协议请求、通用设置（外观、字号、通知分类、提示音、登录启动、菜单栏驻留）、附件、电脑画面、轨迹及设置页的更新检查和诊断导出。主题和材质由 Rust 本地偏好恢复，但主题、材质及所选会话也会写入 WebView `localStorage`；所选会话目前仍以 WebView 存储为准。Tauri 通知按本机偏好和 `message.created` / `approval.requested` 筛选；已用打包 `.app` 验证后台 mock DM 可进入 Notification Center。系统通知首次请求 macOS 授权；无自定义签名身份时，打包脚本使用稳定的 bundle ID 作为 ad-hoc 签名 identifier。提示音以唯一音源 `design/sounds/04-bubble-pop.wav` 为准。
 
 兼容与数据位置：正式 Bundle ID 保持 `bot.mac.desktop`；`packaging/Info.plist` 注册 `macbot://` 消息链接 scheme。Keychain generic-password service 为 `bot.mac.desktop.host-password`，account 使用本机 `HostRecord.id`（不是服务端 `node_id`）；默认本地数据根为 `~/Library/Application Support/MacBot`，`MACBOT_CLIENT_DATA_DIR` 可用绝对路径覆盖。Host 元数据在 `hosts.json`，密码不写入该文件。Tauri 服务复用旧 GPUI 的存储格式与路径，因此可读取旧 Host、Keychain 密码、状态缓存、outbox 和 Rust 本地偏好；WebView 的所选会话仍单独存在 `localStorage`，并非旧 Rust 偏好的兼容数据。
 
@@ -46,7 +46,7 @@ Tauri bridge 使用 `macbot-desktop-services` 读写 Host、凭据、本地偏�
 
 界面和交互遵循 [DESIGN.md](../../docs/DESIGN.md) 第 4 章，协议遵循 [PROTOCOL.md](../../docs/PROTOCOL.md)。编译需要 Xcode 的 Metal 工具链（本机已安装）。
 
-桌面主题 token、消息块与交互细则同步采用新版 `design/` 规范。外观支持浅色、深色和跟随系统，并提供遵循 macOS「降低透明度」设置的半透明材质开关；唯一提示音 `04-bubble-pop.m4a` 会被打包到 App 的 `Contents/Resources/Sounds/`。远程 Home 浏览使用 Host 的文件 API；客户端没有远程打开 Finder 的能力，因此提供路径复制。
+桌面主题 token、消息块与交互细则同步采用新版 `design/` 规范。外观支持浅色、深色和跟随系统，并提供遵循 macOS「降低透明度」设置的半透明材质开关。唯一提示音源为 `design/sounds/04-bubble-pop.wav`；通知 API 使用 `afconvert` 转出的 `BubblePop.caf`（IMA4），位于 App 的 `Contents/Resources/` 根目录。远程 Home 浏览使用 Host 的文件 API；客户端没有远程打开 Finder 的能力，因此提供路径复制。
 
 Tauri 诊断导出包含应用/系统版本、连接状态、当前 Host 名称、脱敏后的 Host 地址，以及最近客户端连接/传输错误类别；不包含实体数量、消息正文或凭据。旧 GPUI 客户端的通知偏好保存在本机私有设置目录，登录时启动通过用户 LaunchAgent 实现；GPUI 只支持整窗系统模糊，降低透明度开启时半透明主题自动退回不透明。
 

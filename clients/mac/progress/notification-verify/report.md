@@ -1,19 +1,18 @@
-# Tauri 原生通知探针
+# macOS 后台通知送达验证
 
-日期：2026-10-12。打包版 `bot.mac.desktop`，隔离 mock `127.0.0.1:17791`，客户端数据根 `/tmp/macbot-notification-probe-client`。
+日期：2026-10-12。正式打包脚本生成的 `MacBot.app`，bundle ID 与代码签名 identifier 均为 `bot.mac.desktop`；隔离 mock 监听 `127.0.0.1:17791`，客户端数据使用 `/tmp/macbot-notification-fix-client`。
 
 ## 结果
 
-- seq 71 的 Bot 私聊事件进入处理链：`message.created`，`seq=71 > old_seq=70`；`chat_code`、`bot_code`、稳定消息 ID、Host ID 均有效；分类为 `DirectMessage`，当前会话是 `chat_main`，窗口失焦，候选通过并调用 UserNotifications。
-- 调用前 `UNAuthorizationStatus=NotDetermined (0)`。系统设置中已有 `Mac Bot` 应用条目，但「允许通知」为关闭；不是“列表未注册”。打开该开关后，授权回调为 `granted=true, error=none`，`addNotificationRequest` completion 为 `error=none`。
-- seq 72 在授权开启后再次通过同一候选链；调用前状态为 `Authorized (2)`，add completion 仍为 `error=none`。重启隔离 App 查询 delivered notifications 得到 `count=0`；当时观察到没有 Mac Bot 消息横幅。
-- 专注模式当前是否启用无法从本次可访问的系统设置状态确认，因此不归因于 Focus。授权后请求被系统 API 接受，但本次没有可见横幅/通知中心条目。原始“未出现通知”现象的可证实前置阻塞是 macOS 的 Mac Bot 通知总开关关闭；本次不构成 TCC 证据。
-- `design/01-foundations.md` §11 规定：App 前台但消息不在当前会话时播放应用提示音；当前会话不响。系统通知只在 App 非前台弹出。保留现有 `show_system = !window_focused`，无产品代码修改。
+- 根因是 Tauri 默认 ad-hoc executable identifier 会随构建位置改变，例如 `macbot_desktop-2a61eb57deb9c557`。系统设置中同名 Mac Bot 已允许通知，但这个新身份的 `UNNotificationSettings` 为 `NotDetermined (0)`、alert/sound/Notification Center 均为 `NotSupported (0)`；`requestAuthorization` 返回 `UNErrorDomain 1`（`notificationsNotAllowed`）。
+- `clients/mac/packaging/package-tauri.sh` 现在从 `Info.plist` 读取 bundle identifier，并在未配置开发者签名时显式以该 identifier ad-hoc 签名。重新打包后 executable identifier 稳定为 `bot.mac.desktop`。
+- 新打包 `.app` 连到隔离 mock；客户端切到 Finder 后触发一条 Bot 私聊 DM。诊断确认 `application_active=false`、`show_system=true`；`UNAuthorizationStatus=Authorized (2)`、alert/Notification Center 为 Enabled (2)，`addNotificationRequest` completion 无错误，随后 delivered 查询 `count=2 matching=true`。测试声效被 macOS「播放通知声音」系统开关关闭；视觉送达不受影响。
+- App 设置中的「开启系统通知」为开启；macOS 通知设置允许 Mac Bot 显示桌面、通知中心和锁定屏幕通知，提醒样式为临时。
 
 ## 证据
 
-- [system-settings-window.png](system-settings-window.png)：仅保留 macOS「通知」设置窗口；Mac Bot 通知已开启，桌面、通知中心、锁屏均允许，提醒样式为临时。
-- 未保留横幅缺失截图：原图包含与本次验证无关的桌面内容；“未见横幅”的观察由探针日志中的授权后 add 成功和 delivered count=0 记录支持。
-- [diagnostic.log](diagnostic.log)：事件序号、分类、窗口状态、授权状态、授权回调和添加结果；不含消息正文。
+- [diagnostic.log](diagnostic.log)：完整隔离测试回调，仅包含事件标识和状态，不含消息正文。
+- [system-settings-window.png](system-settings-window.png)：macOS 通知设置中 Mac Bot 权限状态截图。
+- 打包产物位于本 worktree 的 `clients/mac/dist/MacBot.app` 和 `MacBot.dmg`；`codesign --verify --deep --strict` 通过。
 
-验证构建：Tauri `cargo check --workspace --locked` 通过；带临时诊断的隔离 `.app`/`.dmg` 打包成功。诊断改动只在 `/private/tmp/macbot-notification-probe`，未合入。
+验证：`cargo test --workspace --locked --offline`（Tauri，56 项通过）；`cargo clippy --workspace --locked --offline -- -D warnings` 通过；`npm run build`（含 `tsc -b`）通过；`npm run lint` 已在前一轮验证通过；完整 `clients/mac/packaging/package-tauri.sh` 成功。

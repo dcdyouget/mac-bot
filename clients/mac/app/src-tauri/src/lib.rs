@@ -991,7 +991,7 @@ fn persist_cache(data: &BridgeData) {
 fn notification_delivery_candidate(
     data: &mut BridgeData,
     message: &Value,
-    window_focused: bool,
+    application_active: bool,
 ) -> Option<(String, String, String, bool, bool)> {
     if !local_settings::load().unwrap_or_default().notifications {
         return None;
@@ -1022,7 +1022,7 @@ fn notification_delivery_candidate(
         return None;
     }
     let current_chat = notifications::should_suppress_for_current_chat(
-        window_focused,
+        application_active,
         data.active_chat_id.as_deref(),
         chat_id,
     );
@@ -1111,10 +1111,14 @@ fn notification_delivery_candidate(
         && data
             .last_notification_sound
             .is_none_or(|last| last.elapsed() >= std::time::Duration::from_secs(1));
+    notifications::diagnostic(&format!(
+        "candidate accepted application_active={application_active} current_chat={current_chat} system={} sound={sound_enabled}",
+        !application_active
+    ));
     if sound_enabled {
         data.last_notification_sound = Some(std::time::Instant::now());
     }
-    Some((title, body, message_id, !window_focused, sound_enabled))
+    Some((title, body, message_id, !application_active, sound_enabled))
 }
 
 fn approval_notification_message(approval: &Value) -> Option<Value> {
@@ -1494,10 +1498,7 @@ async fn connect_to_host(
             let mut trace_disconnected = None;
             let mut screen_disconnected = Vec::new();
             let mut notification_to_deliver: Option<(String, String, String, bool, bool)> = None;
-            let window_focused = app_handle
-                .get_webview_window("main")
-                .and_then(|window| window.is_focused().ok())
-                .unwrap_or(false);
+            let application_active = notifications::application_is_active();
             if let Ok(mut data) = bridge_state.0.lock() {
                 if !connection_is_current(&data, generation) {
                     break;
@@ -1602,7 +1603,7 @@ async fn connect_to_host(
                                 notification_to_deliver = notification_delivery_candidate(
                                     &mut data,
                                     &message,
-                                    window_focused,
+                                    application_active,
                                 );
                             }
                         }
@@ -1683,14 +1684,15 @@ async fn connect_to_host(
             if let Some((title, body, message_id, show_system, play_sound)) =
                 notification_to_deliver
             {
-                if play_sound {
+                if play_sound && !show_system {
                     let _ = notifications::play_bubble(&app_handle);
                 }
                 if show_system {
-                    if let Err(error) = notifications::show_native(
+                    if let Err(error) = notifications::show_native_with_sound(
                         &title,
                         &body,
                         &format!("macbot.message.{message_id}"),
+                        play_sound,
                     ) {
                         eprintln!("Mac Bot notification failed: {error}");
                     }
@@ -3676,6 +3678,10 @@ pub fn run() {
         .manage(SharedBridge::default())
         .manage(WindowLifecycle::default())
         .setup(|app| {
+            #[cfg(target_os = "macos")]
+            if let Err(error) = notifications::install_delegate() {
+                eprintln!("Mac Bot notification setup skipped: {error}");
+            }
             #[cfg(target_os = "macos")]
             install_menu_bar(app);
             Ok(())

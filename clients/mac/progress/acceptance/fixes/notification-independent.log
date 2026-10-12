@@ -1,0 +1,14 @@
+verification_id=notify-independent-20261012
+bundle_id=bot.mac.desktop
+process_id=38872
+mock_id=notify-independent-20261012
+mock_port=17792
+client_data_dir=/tmp/macbot-notification-independent-client-20261012
+diagnostics=enabled
+delegate=installed
+connected=false
+dm_triggered=false
+authorization_status=not_reached
+add_callback=not_reached
+delivered_query=not_reached
+blocker=macOS_app_data_access_prompt

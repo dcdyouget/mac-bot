@@ -8,6 +8,7 @@
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "test:memory": "node --test src/components/userProfileConflict.test.mjs",
+    "test:summary": "node --test src/summaryMarkdown.test.mjs",
     "tauri": "tauri"
   },
   "dependencies": {
