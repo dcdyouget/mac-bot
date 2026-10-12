@@ -244,10 +244,17 @@ fun TraceScreen(
                     .padding(horizontal = 12.dp, vertical = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                if (queuedMessages.isNotEmpty()) Text(
-                    stringResource(Res.string.trace_queue_title),
-                    style = MaterialTheme.typography.titleSmall,
-                )
+                if (queuedMessages.isNotEmpty()) {
+                    Text(
+                        stringResource(Res.string.trace_queue_title_count, queuedMessages.size),
+                        style = MaterialTheme.typography.titleSmall,
+                    )
+                    Text(
+                        stringResource(Res.string.trace_queue_hint, currentBotName),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
                 if (!state.connected) {
                     Text(stringResource(Res.string.followup_offline), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
                 }

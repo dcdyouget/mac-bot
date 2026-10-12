@@ -181,9 +181,15 @@ fun ChatScreen(
     val waitingReviewProject = if (chat?.str("kind") == "main") state.projects.firstOrNull {
         it.str("status") in setOf("review", "pending_review")
     } else null
-    val hasWorkingProjectBots = groupChat && state.assignments.any {
-        it.str("project_id") == chat?.str("project_id") && it.str("status") == "working"
-    }
+    val workingProjectBots = if (groupChat) {
+        state.assignments.asSequence()
+            .filter { it.str("project_id") == chat?.str("project_id") && it.str("status") == "working" }
+            .map { it.str("bot_id") }
+            .filter(String::isNotBlank)
+            .distinct()
+            .mapNotNull { botId -> state.bots.firstOrNull { it.str("id") == botId } }
+            .toList()
+    } else emptyList()
     val loadingError = stringResource(Res.string.feature_loading_error)
     val sendError = stringResource(Res.string.feature_send_error)
     val quoteOriginalUnloaded = stringResource(Res.string.feature_quote_original_unloaded)
@@ -766,13 +772,32 @@ fun ChatScreen(
                 }
             }
         }
-        if (hasWorkingProjectBots && mentionBots.isEmpty()) {
-            Text(
-                stringResource(Res.string.feature_group_message_queued_hint),
+        if (workingProjectBots.isNotEmpty() && mentionBots.isEmpty() && '@' !in draft) {
+            Column(
                 Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                style = MaterialTheme.typography.bodySmall,
-            )
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                Text(
+                    stringResource(Res.string.feature_group_message_queued_hint),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    workingProjectBots.forEach { bot ->
+                        val botId = bot.str("id")
+                        val botName = bot.str("name").ifBlank { botId }
+                        TextButton(
+                            onClick = {
+                                mentionBots = mentionBots + botId
+                                draft = "@$botName ${draft.trimStart()}"
+                            },
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
+                        ) {
+                            Text(stringResource(Res.string.chat_queue_at_now, botName), maxLines = 1)
+                        }
+                    }
+                }
+            }
         }
         Row(Modifier.fillMaxWidth().padding(10.dp), verticalAlignment = Alignment.Bottom) {
             IconButton(enabled = !readOnly, onClick = { showAttachmentMenu = true }, modifier = Modifier.semantics { contentDescription = attachmentLabel }) { LucideIcon(LucideIconKind.Plus, Modifier.size(20.dp)) }

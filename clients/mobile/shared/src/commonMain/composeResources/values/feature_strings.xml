@@ -634,6 +634,7 @@
     <string name="chat_delivery_queued_for">%1$s 交付前会看到</string>
     <string name="chat_delivery_queue_seen">%1$s 交付前已查看 ✓</string>
     <string name="trace_queue_title">待看消息</string>
+    <string name="trace_queue_title_count">%1$d 条待看消息</string>
     <string name="trace_queue_hint">没有 @ %1$s 的消息不会打断它，交付前会一起查看。点「改为插话」可以让某一条在下一步就生效。</string>
     <string name="trace_queue_to_steer">改为插话</string>
     <string name="trace_queue_steered">已插话 · 等待 Bot 下一步</string>
