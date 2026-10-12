@@ -995,6 +995,7 @@ fn ensure_mock_defaults(state: &mut MockState, home: &std::path::Path) {
         }
     }
     ensure_mock_skill_fixtures(state, home);
+    ensure_mock_skill_attachment_fixtures(state, home);
     if extra_get(state, "providers").is_empty() {
         extra_set(
             state,
@@ -1323,6 +1324,46 @@ fn ensure_mock_skill_fixtures(state: &mut MockState, home: &std::path::Path) {
 
     extra_set(state, "skills", skills);
     extra_set(state, "mock_skills_loaded", vec![json!({"loaded":true})]);
+}
+
+/// Keep the canonical skills screen example backed by files the mock can use,
+/// including mock homes created before the attachment fixture was added.
+fn ensure_mock_skill_attachment_fixtures(state: &mut MockState, home: &std::path::Path) {
+    const ATTACHMENTS: [(&str, &str); 2] = [
+        (
+            "scripts/gen-test-users.sh",
+            "#!/usr/bin/env bash\nset -euo pipefail\nprintf '%s\\n' '{\"users\":[{\"email\":\"alice@example.test\"},{\"email\":\"bob@example.test\"}]}'\n",
+        ),
+        (
+            "references/owasp.md",
+            "# Authentication security checklist\n\n- Store passwords with a modern password hash and per-password salt.\n- Set session cookies to HttpOnly, Secure, and SameSite.\n- Rate-limit login, recovery, and verification endpoints.\n- Use single-use, expiring tokens for email verification and password reset.\n",
+        ),
+    ];
+
+    let mut skills = extra_get(state, "skills");
+    let Some(skill) = skills.iter_mut().find(|skill| {
+        skill.get("name").and_then(Value::as_str) == Some("web-auth-patterns")
+            && skill.get("path").and_then(Value::as_str)
+                == Some("~/MacBot/skills/web-auth-patterns")
+    }) else {
+        return;
+    };
+
+    let files = skill
+        .get("files")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    if files.is_empty() {
+        skill["files"] = json!(ATTACHMENTS.iter().map(|(path, _)| path).collect::<Vec<_>>());
+        extra_set(state, "skills", skills);
+        let _ = persist_mock_skills(home, state);
+    }
+
+    let directory = home.join("skills/web-auth-patterns");
+    for (relative_path, contents) in ATTACHMENTS {
+        seed_mock_file(&directory.join(relative_path), contents);
+    }
 }
 
 fn seed_mock_artifact_files(state: &MockState, home: &std::path::Path) {
@@ -7931,6 +7972,10 @@ mod contract_tests {
         let detail = call(&gateway, "skill.get", json!({"name":"web-auth-patterns"})).await;
         let detail: SkillDetail = serde_json::from_value(detail["skill"].clone()).unwrap();
         assert!(detail.content.contains("bcrypt"));
+        assert_eq!(
+            detail.skill.files,
+            ["scripts/gen-test-users.sh", "references/owasp.md"]
+        );
 
         let published = call(&gateway, "skill.publish", json!({"name":"prd-template"})).await;
         let published: Skill = serde_json::from_value(published["skill"].clone()).unwrap();
@@ -7969,6 +8014,65 @@ mod contract_tests {
                 Some("screen-created-skill" | "prd-template" | "web-auth-patterns")
             )
         }));
+    }
+
+    #[tokio::test]
+    async fn mock_skill_attachment_files_are_seeded_and_listed_in_skill_detail() {
+        let home = tempfile::tempdir().unwrap().keep();
+        let data = home.join("data");
+        std::fs::create_dir_all(&data).unwrap();
+        std::fs::write(
+            data.join("mock-skills.json"),
+            serde_json::to_vec(&json!([{
+                "name":"web-auth-patterns",
+                "description":"登录、注册和找回密码的实现规范",
+                "source":"user",
+                "path":"~/MacBot/skills/web-auth-patterns",
+                "files":[],
+                "enabled":true,
+                "disabled_bot_ids":[],
+                "invocations_7d":{"total":14,"by_bot":[]},
+                "last_invoked_at":null,
+                "updated_at":"2026-10-12T00:00:00Z",
+                "content":"---\nname: web-auth-patterns\ndescription: Login security\n---\n# 登录实现规范\n使用 bcrypt。"
+            }]))
+            .unwrap(),
+        )
+        .unwrap();
+        let gateway = gateway_at(home.clone()).await;
+
+        let listed = call(&gateway, "skill.list", json!({})).await;
+        let skill = listed["skills"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|skill| skill["name"] == "web-auth-patterns")
+            .unwrap();
+        let detail = call(&gateway, "skill.get", json!({"name":"web-auth-patterns"})).await;
+        let detail: SkillDetail = serde_json::from_value(detail["skill"].clone()).unwrap();
+
+        assert_eq!(
+            skill["files"],
+            json!(["scripts/gen-test-users.sh", "references/owasp.md"])
+        );
+        assert_eq!(
+            detail.skill.files,
+            ["scripts/gen-test-users.sh", "references/owasp.md"]
+        );
+        assert!(detail.content.contains("# 登录实现规范"));
+
+        let script = std::fs::read_to_string(
+            home.join("skills/web-auth-patterns/scripts/gen-test-users.sh"),
+        )
+        .unwrap();
+        assert!(script.starts_with("#!/usr/bin/env bash\nset -euo pipefail"));
+        assert!(script.contains("alice@example.test"));
+
+        let reference =
+            std::fs::read_to_string(home.join("skills/web-auth-patterns/references/owasp.md"))
+                .unwrap();
+        assert!(reference.contains("HttpOnly, Secure, and SameSite"));
+        assert!(reference.contains("Rate-limit login"));
     }
 
     #[tokio::test]
