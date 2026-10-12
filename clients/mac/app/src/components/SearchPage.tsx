@@ -41,6 +41,8 @@ export type SearchCopyKey =
   | 'search.result.open'
 
 export interface SearchPageProps {
+  theme: 'light' | 'dark'
+  material: 'opaque' | 'translucent'
   onSearch: (request: SearchRequest) => Promise<SearchResponse>
   onOpenResult: (result: SearchResult, options: { sidePanel: boolean }) => void
   sourceLabel?: (result: SearchResult) => string | null
@@ -73,7 +75,7 @@ function formatDate(value: string | null): string | null {
   return new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute: '2-digit', month: 'short', day: 'numeric' }).format(date)
 }
 
-export function SearchPage({ onSearch, onOpenResult, sourceLabel, onClose, t }: SearchPageProps) {
+export function SearchPage({ theme, material, onSearch, onOpenResult, sourceLabel, onClose, t }: SearchPageProps) {
   const [query, setQuery] = useState('')
   const [filter, setFilter] = useState<SearchFilter>('all')
   const [limit, setLimit] = useState(INITIAL_LIMIT)
@@ -149,7 +151,7 @@ export function SearchPage({ onSearch, onOpenResult, sourceLabel, onClose, t }: 
   }
 
   return (
-    <div className="search-overlay" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }}>
+    <div className="search-overlay" data-theme={theme} data-material={material} onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }}>
       <section className="search-dialog" role="dialog" aria-modal="true" aria-label={t('search.placeholder')} onKeyDown={handleKeyDown}>
         <div className="search-query-row">
           <Search size={18} aria-hidden="true" />

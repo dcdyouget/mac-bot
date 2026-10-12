@@ -231,8 +231,10 @@ interface Message {
   assignment_id: Id | null;    // 这条消息属于哪个任务
   streaming: boolean;          // 只有私聊里 Bot 正在流式输出的回复为 true
   delivery: Delivery[];        // 群消息对各 Bot 的送达状态，见 4.5
+  loaded_skills?: LoadedSkill[]; // 对应用户消息实际加载成功的技能；旧消息可省略
   reactions: Reaction[];
 }
+interface LoadedSkill { name: string; bot_id: Id; assignment_id: Id | null; loaded_at: Time }
 type Mention =
   | { kind: "bot"; bot_id: Id; instruction: string | null }
   | { kind: "main" }
@@ -263,6 +265,8 @@ interface Delivery { bot_id: Id; assignment_id: Id | null; state: "queued" | "de
 - `queued`：已收到，Bot 正在执行当前步骤。
 - `delivered`：已经注入任务，下一次模型调用就会看到。
 - `read`：这次模型调用已经包含了这条消息。
+
+`loaded_skills` 与 `delivery` 是两个独立事实：只有服务端成功把指定技能正文加入对应 Bot 的模型上下文后，才在原用户消息中追加一项，并持久化 `message.updated { message }`。同一消息可被多个 Bot 使用，因此以 `name`、`bot_id`、`assignment_id` 区分记录；重放与 `chat.history` 均返回已加载记录。未加载、加载失败或旧服务端消息不显示“已加载技能”，客户端将缺失字段视为空数组；`delivery.read` 不推导技能加载状态。
 
 如果 Bot 在这个群里没有进行中的任务，服务端会创建一个新任务，`assignment_id` 指向它，`state` 直接为 `delivered`。
 
@@ -593,7 +597,7 @@ interface PendingItems { approvals: Approval[]; questions: Question[]; reviews: 
 - `bot_dm` 会话是只读的，对它调用 `chat.send` 返回 `forbidden`。
 - `message.delete` 只允许删除当前用户发送的消息（`sender.kind = "user"`）；删除 Bot、系统或其他非用户消息返回 `forbidden`。对已删除消息重试仍返回 `{}`，不重复产生 `message.deleted`；删除成功时持久化事件的 data 为 `{ chat_id, message_id }`。
 - `message.edit` 只允许修改 `sender.kind = "user"`、`mentions` 为空且 `blocks` 恰好包含一个 `type = "text"` block 的消息；其他发送者返回 `forbidden`，已删除、流式、有 mentions 或含其他内容块的消息返回 `conflict`。`text` 非空；成功时替换该 block 的 `markdown` 和消息的 `fallback_text`，设置 `edited_at`，不重新解析 mention 或派发任务，返回更新后的 `{ message }` 并持久化 `message.updated`，data 为 `{ message }`。
-- **强制使用技能**：`text` 以 `/<技能名>` 开头时（例如 `/web-auth-patterns 按这个规范做`），服务端把这个技能的全文加载进本次任务，其余文字作为指令。技能名不存在时，按普通文本处理。
+- **强制使用技能**：`text` 以 `/<技能名>` 开头时（例如 `/web-auth-patterns 按这个规范做`），服务端尝试把这个技能的全文加载进本次任务，其余文字作为指令；仅在成功加入模型上下文后记录 `loaded_skills`。技能名不存在时，按普通文本处理。
 
 ### 5.3 Bot
 

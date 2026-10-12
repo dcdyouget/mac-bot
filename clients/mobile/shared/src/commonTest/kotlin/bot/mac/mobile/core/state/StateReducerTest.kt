@@ -20,6 +20,18 @@ class StateReducerTest {
         assertEquals("final", result.first().str("fallback_text"))
         assertEquals("read", result.first().objects("delivery").single().str("state"))
     }
+    @Test fun loadedSkillsFromMessageUpdatedReplaceHistoryAndAreNotInferredFromDeliveryRead() {
+        val history = objectOf("""{"id":"m1","chat_id":"c","seq":1,"sender":{"kind":"user"},"delivery":[{"bot_id":"b","state":"read"}]}""")
+        val oldServerUpdate = objectOf("""{"message":{"id":"m1","chat_id":"c","seq":1,"sender":{"kind":"user"},"delivery":[{"bot_id":"b","state":"read"}]}}""")
+        val newServerUpdate = objectOf("""{"message":{"id":"m1","chat_id":"c","seq":1,"sender":{"kind":"user"},"delivery":[{"bot_id":"b","state":"read"}],"loaded_skills":[{"name":"web-auth-patterns","bot_id":"b","assignment_id":"a","loaded_at":"2026-10-12T09:00:00Z"}]}}""")
+
+        val initial = MobileState(messages = mapOf("c" to listOf(history)))
+        val oldCompatible = StateReducer.event(initial, "message.updated", oldServerUpdate, 1)
+        assertEquals(emptyList(), Message(oldCompatible.messages.getValue("c").single()).loadedSkills)
+
+        val loaded = StateReducer.event(oldCompatible, "message.updated", newServerUpdate, 2)
+        assertEquals("web-auth-patterns", Message(loaded.messages.getValue("c").single()).loadedSkills.single().name)
+    }
     @Test fun resetReplacesSnapshotWhileUnknownEventCommitsCursor() {
         val old = MobileState(bots = listOf(objectOf("""{"id":"old"}""")), messages = mapOf("c" to listOf(objectOf("""{"id":"m"}"""))))
         val reset = StateReducer.bootstrap(old, objectOf("""{"seq":70,"bots":[{"id":"new"}],"chats":[],"projects":[],"pending":{}}"""))

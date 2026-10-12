@@ -1,5 +1,12 @@
 export type Json = null | boolean | number | string | Json[] | { [key: string]: Json }
 
+export type LoadedSkill = {
+  name: string
+  bot_id: string
+  assignment_id: string | null
+  loaded_at: string
+}
+
 export type Message = {
   id: string
   chat_id?: string
@@ -10,6 +17,7 @@ export type Message = {
   blocks?: { type?: string; text?: string; [key: string]: Json | undefined }[]
   created_at?: string
   reactions?: { emoji: string; by: { kind?: string; bot_id?: string }[] }[]
+  loaded_skills?: LoadedSkill[]
 }
 
 export type Question = {

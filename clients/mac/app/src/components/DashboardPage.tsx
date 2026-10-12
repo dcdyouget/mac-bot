@@ -4,6 +4,7 @@ import { BarChart3, CalendarDays, ChevronDown, Download, TrendingDown, TrendingU
 import { invoke } from '@tauri-apps/api/core'
 import { t, type CopyKey } from '../i18n'
 import type { Json } from '../types'
+import { getCalendarRange } from './dashboard.model'
 
 type Range = 'today' | '7d' | '30d' | '90d'
 type Dimension = 'model' | 'bot' | 'project'
@@ -41,10 +42,11 @@ export function DashboardPage() {
     setError(null)
     const from = windowRange.from.toISOString()
     const to = windowRange.to.toISOString()
+    const calendarRange = heatMode === 'calendar' ? getCalendarRange() : windowRange
     const request = (method: string, params: Record<string, Json>) => invoke<Json>('protocol_request', { method, params })
     void Promise.allSettled([
       request('usage.summary', { from, to }),
-      request('usage.heatmap', { mode: heatMode, from, to, metric }),
+      request('usage.heatmap', { mode: heatMode, from: calendarRange.from.toISOString(), to: calendarRange.to.toISOString(), metric }),
       request('usage.timeseries', { from, to, granularity: 'auto', dimension, metric, split_io: false, top: 6 }),
       request('usage.breakdown', { from, to, dimension, ...(drill ?? {}) }),
     ]).then((results) => {

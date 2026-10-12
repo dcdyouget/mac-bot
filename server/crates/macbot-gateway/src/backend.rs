@@ -25,7 +25,7 @@ use crate::{
     GatewayState, RpcBackend,
 };
 use async_trait::async_trait;
-use chrono::Utc;
+use chrono::{SecondsFormat, Utc};
 use macbot_memory::{MemoryAccess, MemoryTarget, ProjectRecord, SessionMessage};
 use macbot_orchestrator::Orchestrator;
 use macbot_providers::{
@@ -1286,6 +1286,7 @@ impl ComposedBackend {
             let request = ExecutionRequest {
                 run_id: run_id.to_owned(),
                 assignment_id,
+                source_message_id: None,
                 chat_id,
                 bot_id,
                 model,
@@ -1694,6 +1695,7 @@ impl ComposedBackend {
         Some(ExecutionRequest {
             run_id,
             assignment_id,
+            source_message_id: message_id.map(str::to_owned),
             chat_id,
             bot_id,
             model,
@@ -1934,6 +1936,10 @@ impl ComposedBackend {
         Some(ExecutionRequest {
             run_id,
             assignment_id: Some(assignment_id),
+            source_message_id: assignment
+                .get("trigger_message_id")
+                .and_then(Value::as_str)
+                .map(str::to_owned),
             chat_id,
             bot_id,
             model,
@@ -4934,7 +4940,7 @@ impl RuntimeExecution {
         else {
             return Ok(None);
         };
-        Ok(self.engine_for(&request)?.cancel(&request).await?)
+        Ok(self.engine_for(&request, None)?.cancel(&request).await?)
     }
 
     /// Cancel a denied private approval only when its approval map, waiting
@@ -6124,6 +6130,19 @@ impl RuntimeExecution {
         }
     }
 
+    fn explicit_skill_source_message(
+        &self,
+        request: &ExecutionRequest,
+        skill_name: &str,
+    ) -> Option<String> {
+        let messages = self.backend.load_chat_messages(&request.chat_id).ok()?;
+        explicit_skill_source_message_from(
+            &messages,
+            request.source_message_id.as_deref(),
+            skill_name,
+        )
+    }
+
     // Every execution entry, including approval/question/message restoration,
     // needs the persisted browser configuration before any tool can create a
     // session. Otherwise a continuation after restart uses the default config
@@ -6135,10 +6154,54 @@ impl RuntimeExecution {
         self.configure_browser_for_request(request)
             .await
             .map_err(RuntimeError::Provider)?;
-        self.engine_for(request)
+        let mut loaded_skill = None;
+        let explicit_skill = match self
+            .feature_service
+            .load_skill_for_text(&request.instruction, Some(&request.bot_id))
+        {
+            Ok(Some((detail, instruction))) => {
+                let loaded_at = detail
+                    .skill
+                    .last_invoked_at
+                    .unwrap_or_else(Utc::now)
+                    .to_rfc3339_opts(SecondsFormat::Millis, true);
+                loaded_skill = Some((detail.skill.name, loaded_at));
+                Some((detail.content, instruction))
+            }
+            Ok(None) => None,
+            Err(error) => {
+                tracing::warn!(bot_id = %request.bot_id, %error, "explicit skill invocation could not be loaded");
+                None
+            }
+        };
+        let engine = self.engine_for(request, explicit_skill)?;
+        if let Some((skill_name, loaded_at)) = loaded_skill {
+            if let Some(message_id) = self.explicit_skill_source_message(request, &skill_name) {
+                let record = json!({
+                    "name":skill_name,
+                    "bot_id":request.bot_id,
+                    "assignment_id":request.assignment_id,
+                    "loaded_at":loaded_at
+                });
+                if let Err(error) = self
+                    .backend
+                    .record_loaded_skill(&self.gateway_state, &request.chat_id, &message_id, record)
+                    .await
+                {
+                    tracing::warn!(%error, %message_id, "could not persist explicit skill load on source message");
+                }
+            } else {
+                tracing::warn!(chat_id = %request.chat_id, bot_id = %request.bot_id, "explicit skill loaded without a source user message");
+            }
+        }
+        Ok(engine)
     }
 
-    fn engine_for(&self, request: &ExecutionRequest) -> Result<ExecutionEngine, RuntimeError> {
+    fn engine_for(
+        &self,
+        request: &ExecutionRequest,
+        explicit_skill: Option<(String, String)>,
+    ) -> Result<ExecutionEngine, RuntimeError> {
         let is_main = self
             .backend
             .orchestrator
@@ -6194,17 +6257,6 @@ impl RuntimeExecution {
             .collect();
         self.sync_feature_projects();
         self.sync_feature_messages(request);
-        let explicit_skill = match self
-            .feature_service
-            .load_skill_for_text(&request.instruction, Some(&request.bot_id))
-        {
-            Ok(Some((detail, instruction))) => Some((detail.content, instruction)),
-            Ok(None) => None,
-            Err(error) => {
-                tracing::warn!(bot_id = %request.bot_id, %error, "explicit skill invocation could not be loaded");
-                None
-            }
-        };
         if let Ok(skills) = self.feature_service.skill_registry.read() {
             let skill_catalog = skills
                 .list()
@@ -6432,6 +6484,52 @@ impl RuntimeExecution {
     }
 }
 
+fn explicit_skill_source_message_from(
+    messages: &[Value],
+    source_id: Option<&str>,
+    skill_name: &str,
+) -> Option<String> {
+    let source_id = source_id?;
+    messages.iter().find_map(|message| {
+        (message.get("id").and_then(Value::as_str) == Some(source_id)
+            && message.pointer("/sender/kind").and_then(Value::as_str) == Some("user")
+            && message
+                .get("fallback_text")
+                .and_then(Value::as_str)
+                .and_then(macbot_skills::forced_invocation)
+                .is_some_and(|(name, _)| name == skill_name))
+        .then(|| source_id.to_owned())
+    })
+}
+
+#[cfg(test)]
+mod explicit_skill_source_tests {
+    use super::explicit_skill_source_message_from;
+    use serde_json::{json, Value};
+
+    #[test]
+    fn source_annotation_requires_the_exact_message_association() {
+        let messages: Vec<Value> = vec![
+            json!({"id":"old", "sender":{"kind":"user"}, "fallback_text":"/deploy old request"}),
+            json!({"id":"current", "sender":{"kind":"user"}, "fallback_text":"/deploy current request"}),
+        ];
+
+        assert_eq!(
+            explicit_skill_source_message_from(&messages, Some("current"), "deploy"),
+            Some("current".into())
+        );
+        assert_eq!(
+            explicit_skill_source_message_from(&messages, None, "deploy"),
+            None,
+            "unassociated execution must not annotate a same-named historical invocation"
+        );
+        assert_eq!(
+            explicit_skill_source_message_from(&messages, Some("missing"), "deploy"),
+            None
+        );
+    }
+}
+
 struct RuntimeSubagentDispatch {
     runtime: RuntimeExecution,
 }
@@ -6501,6 +6599,7 @@ impl SubagentDispatchBridge for RuntimeSubagentDispatch {
         let child = ExecutionRequest {
             run_id: format!("subagent_{}", safe_component(&request.subagent_id)),
             assignment_id: Some(request.assignment_id.clone()),
+            source_message_id: None,
             chat_id: request.chat_id.clone(),
             bot_id: request.bot_id.clone(),
             model,

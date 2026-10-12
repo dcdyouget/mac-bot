@@ -212,9 +212,36 @@ data class Message(override val raw: JsonObject) : RawProtocolModel {
     val assignmentId: String? get() = raw.stringOrNull("assignment_id")
     val streaming: Boolean get() = raw.boolOrNull("streaming") ?: false
     val delivery: List<Delivery> get() = raw.modelObjects("delivery").map(::Delivery)
+    val loadedSkills: List<LoadedSkill> get() = raw.modelObjects("loaded_skills").mapNotNull(LoadedSkill::from)
     val reactions: List<Reaction> get() = raw.modelObjects("reactions").map(::Reaction)
 }
 object MessageSerializer : RawModelSerializer<Message>(::Message)
+
+/** Successful skill loads attached to the originating user message. Unknown wire fields are ignored. */
+data class LoadedSkill(
+    val name: String,
+    val botId: String,
+    val assignmentId: String?,
+    val loadedAt: String,
+) {
+    companion object {
+        fun from(raw: JsonObject): LoadedSkill? {
+            fun string(key: String): String? = (raw[key] as? JsonPrimitive)
+                ?.takeIf { it.isString }
+                ?.contentOrNull
+            val name = string("name")?.takeIf(String::isNotBlank) ?: return null
+            val botId = string("bot_id")?.takeIf(String::isNotBlank) ?: return null
+            val loadedAt = string("loaded_at")?.takeIf(String::isNotBlank) ?: return null
+            val assignment = raw["assignment_id"]
+            val assignmentId = when (assignment) {
+                null, kotlinx.serialization.json.JsonNull -> null
+                is JsonPrimitive -> assignment.takeIf { it.isString }?.contentOrNull ?: return null
+                else -> return null
+            }
+            return LoadedSkill(name, botId, assignmentId, loadedAt)
+        }
+    }
+}
 
 @Serializable(with = QuoteSerializer::class)
 data class Quote(override val raw: JsonObject) : RawProtocolModel {

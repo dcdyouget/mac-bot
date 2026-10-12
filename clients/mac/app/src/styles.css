@@ -119,6 +119,13 @@ kbd { padding: 1px 5px; border-radius: 4px; box-shadow: 0 0 0 1px var(--border-d
 .task-card-done-line .task-detail-button { margin-left: 2px; }
 .message-blocks { display: flex; flex-direction: column; gap: 9px; min-width: 280px; }
 .message-text-block { margin: 0; white-space: pre-wrap; }
+.skill-message-line { white-space: pre-wrap; }
+.skill-message-chip { display: inline-flex; align-items: center; gap: 4px; height: 22px; margin-right: 5px; padding: 0 6px; vertical-align: -4px; border-radius: 6px; color: var(--accent); background: color-mix(in srgb, var(--accent) 16%, transparent); font: 500 12px var(--font-family-mono); }
+.skill-message-body { white-space: pre-wrap; }
+.skill-message-status { gap: 6px; }
+.skill-message-delivery { display: inline-flex; align-items: center; gap: 3px; }
+.skill-message-delivery small { color: var(--text-tertiary); font-size: 10px; }
+.skill-delivery-read { color: var(--success); }
 .block-fallback { color: var(--text-secondary); font-size: 12px; }
 .question-card, .approval-card { min-width: 280px; padding: 12px; border: 1px solid var(--border-subtle); border-radius: 12px; background: var(--bg-elevated); color: var(--text-primary); white-space: normal; }
 .question-deck { position: relative; z-index: 0; padding-bottom: 8px; }
@@ -564,4 +571,28 @@ kbd { padding: 1px 5px; border-radius: 4px; box-shadow: 0 0 0 1px var(--border-d
   .dashboard-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .dashboard-series-controls { flex-wrap: wrap; }
   .workbench-waiting-banners { grid-template-columns: minmax(0, 1fr); }
+}
+
+@keyframes context-panel-enter {
+  from { opacity: 0; transform: translateX(24px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+@keyframes context-panel-exit {
+  from { opacity: 1; transform: translateX(0); }
+  to { opacity: 0; transform: translateX(24px); }
+}
+@media (max-width: 1099px) {
+  .app-shell { position: relative; }
+  .app-shell > .context-panel-scrim { position: absolute; z-index: 7; inset: 0; display: block; border: 0; background: transparent; }
+  .app-shell > .context-panel.context-panel-open { position: absolute; z-index: 8; inset: 0 0 0 auto; display: flex; width: 280px; box-shadow: var(--elevation-4); animation: context-panel-enter 200ms var(--ease-standard) both; }
+  .app-shell > .context-panel.context-panel-open.context-panel-closing { animation: context-panel-exit 200ms var(--ease-standard) both; }
+  .app-shell > .context-panel-collapsed { display: none; }
+}
+@media (max-width: 520px) {
+  .app-shell > .context-panel.context-panel-open { width: min(320px, calc(100vw - 48px)); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .app-shell > .context-panel.context-panel-open,
+  .app-shell > .context-panel.context-panel-closing,
+  .app-shell > .context-panel.context-panel-open.context-panel-closing { animation: none; transition: none; }
 }

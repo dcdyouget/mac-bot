@@ -5,7 +5,7 @@ import { listen } from '@tauri-apps/api/event'
 import { AtSign, Check, ChevronDown, ChevronRight, Command, MessageCircle, Monitor, PanelRight, Plus, Search, Send, Settings, Shield, Sparkles, Workflow, Clock3, Trash2, Edit3, Users, Folder, X, Paperclip, Zap, Ellipsis, CornerUpLeft, Smile } from 'lucide-react'
 import { t, type CopyKey } from './i18n'
 import { emptyState, type Announcement, type BridgeState, type Chat, type HostRecord, type Json, type LocalPreferences, type Message, type NotificationPreferenceKey, type PendingMessage, type Question } from './types'
-import { CompletionCard, DelegationLine, FallbackCard, ProjectCard, ProgressRow, ReviewCard, SystemNotice, TaskCard, type ArtifactRef } from './components/MessageBlocks'
+import { CompletionCard, DelegationLine, FallbackCard, ProjectCard, ProgressRow, ReviewCard, SkillMessageDeliveryStatus, SkillMessageLoadedStatus, SkillMessageText, SystemNotice, TaskCard, type ArtifactRef } from './components/MessageBlocks'
 import { summarizeMarkdown } from './summaryMarkdown.mjs'
 import { WorkbenchPage } from './components/WorkbenchPage'
 import { DashboardPage } from './components/DashboardPage'
@@ -33,6 +33,7 @@ import { ChatSkillPicker } from './components/ChatSkillPicker'
 import { getChatSkillPickerItems, shouldRefreshSkillsOnPickerOpen } from './components/chatSkillPickerModel'
 import { makeSkillCreateIntent, type SkillCreateIntent } from './components/skillCreateIntent'
 import { appendMessageQuoteToAnnouncement, chatSendMentions, isMessageMenuActionCurrent, messageAssignmentId, messageDeepLink, messageShortcutAction, quoteSendFields, userHasReaction } from './components/messageActions.model'
+import { findForcedSkillTextBlockIndex, getRenderableSkillNames, getValidLoadedSkills, parseForcedSkillText } from './components/skillMessage.model'
 
 type ThemeMode = 'light' | 'dark' | 'system'
 type ContextPanelPage = 'context' | 'group-settings'
@@ -248,6 +249,8 @@ function App() {
   const [systemDark, setSystemDark] = useState(false)
   const [reducedTransparency, setReducedTransparency] = useState(false)
   const hostScope = state.active_host?.id ?? state.node_id ?? endpoint.trim()
+  const effectiveTheme = themeMode === 'system' ? (systemDark ? 'dark' : 'light') : themeMode
+  const effectiveMaterial = translucent && !reducedTransparency ? 'translucent' : 'opaque'
   const localPreferenceSaveRequestRef = useRef(0)
   const [contextPanelPhase, setContextPanelPhase] = useState<ContextPanelPhase>('open')
   const contextPanelOpen = contextPanelPhase === 'open'
@@ -406,8 +409,8 @@ function App() {
   useEffect(() => {
     const handlePanelEscape = (event: KeyboardEvent) => {
       if (event.key !== 'Escape' || !contextPanelOpen || showSearch || showSettings) return
-      if (contextPanelStack.length > 1) { popContextPanelPage(); return }
-      if (window.innerWidth < 1100) closeContextPanel()
+      if (window.innerWidth < 1100) { closeContextPanel(); return }
+      if (contextPanelStack.length > 1) popContextPanelPage()
     }
     window.addEventListener('keydown', handlePanelEscape)
     return () => window.removeEventListener('keydown', handlePanelEscape)
@@ -415,16 +418,14 @@ function App() {
 
   useEffect(() => {
     const root = document.documentElement
-    const theme = themeMode === 'system' ? (systemDark ? 'dark' : 'light') : themeMode
-    const useTranslucency = translucent && !reducedTransparency
-    root.dataset.theme = theme
-    root.dataset.material = useTranslucency ? 'translucent' : 'opaque'
+    root.dataset.theme = effectiveTheme
+    root.dataset.material = effectiveMaterial
     localStorage.setItem(THEME_STORAGE_KEY, themeMode)
     localStorage.setItem(MATERIAL_STORAGE_KEY, String(translucent))
-    void invoke('set_window_material', { translucent: useTranslucency }).catch((error: unknown) => {
+    void invoke('set_window_material', { translucent: effectiveMaterial === 'translucent' }).catch((error: unknown) => {
       setSettingsError(String(error))
     })
-  }, [themeMode, translucent, systemDark, reducedTransparency])
+  }, [themeMode, translucent, systemDark, reducedTransparency, effectiveTheme, effectiveMaterial])
 
   useEffect(() => {
     if (!hostScope) return
@@ -2721,7 +2722,7 @@ function App() {
           }} onContextMenu={(event) => { event.preventDefault(); event.stopPropagation(); if ((entry.message as Message & { deleted?: boolean }).deleted) return; setFocusedMessageId(entry.message.id); setMessageMenu({ message: entry.message, x: event.clientX, y: event.clientY }) }}>
             {entry.dayLabel && <div className="day-separator">{entry.dayLabel}</div>}
             {entry.timeSeparator && <div className="time-separator">{entry.timeSeparator}</div>}
-          <MessageBubble message={entry.message} pending={Boolean(state.pending_messages[entry.message.id]) && entry.groupEnd} senderName={entry.message.sender?.kind === 'user' ? t('common.user') : state.bots[entry.message.sender?.bot_id ?? '']?.name ?? t('common.bot')} senderRole={entry.message.sender?.bot_id ? String(state.bots[entry.message.sender.bot_id]?.label ?? state.bots[entry.message.sender.bot_id]?.title ?? '') : ''} groupStart={entry.groupStart} groupEnd={entry.groupEnd} headerTime={entry.headerTime} exactTime={entry.exactTime} questions={currentQuestions} approvals={currentApprovalRecords} assignments={state.assignments} projects={state.projects} bots={state.bots} chats={state.chats} chatTitle={currentChat.title ?? ''} onOpenProject={openProject} onTaskDetail={openTrace} onReact={(message, emoji) => void reactToMessage(message, emoji)} onReplyMessage={(message) => quoteMessage(message, 'reply')} onOpenMessageMenu={(message, x, y) => { setFocusedMessageId(message.id); setMessageMenu({ message, x, y }) }} onOpenComputer={openComputer} onPreviewArtifact={(artifact) => void openArtifactReference(artifact)} onConfirmProject={(projectId, messageId, blockIndex) => confirmProject(projectId, messageId, blockIndex)} onRequestChanges={(projectId, messageId, blockIndex, text) => requestProjectChanges(projectId, messageId, blockIndex, text)} onApprovalDecide={async (approvalId, decision) => {
+          <MessageBubble message={entry.message} skillNames={skillsDataScope === hostScope ? getRenderableSkillNames(skills) : []} pending={Boolean(state.pending_messages[entry.message.id]) && entry.groupEnd} senderName={entry.message.sender?.kind === 'user' ? t('common.user') : state.bots[entry.message.sender?.bot_id ?? '']?.name ?? t('common.bot')} senderRole={entry.message.sender?.bot_id ? String(state.bots[entry.message.sender.bot_id]?.label ?? state.bots[entry.message.sender.bot_id]?.title ?? '') : ''} groupStart={entry.groupStart} groupEnd={entry.groupEnd} headerTime={entry.headerTime} exactTime={entry.exactTime} questions={currentQuestions} approvals={currentApprovalRecords} assignments={state.assignments} projects={state.projects} bots={state.bots} chats={state.chats} chatTitle={currentChat.title ?? ''} onOpenProject={openProject} onTaskDetail={openTrace} onReact={(message, emoji) => void reactToMessage(message, emoji)} onReplyMessage={(message) => quoteMessage(message, 'reply')} onOpenMessageMenu={(message, x, y) => { setFocusedMessageId(message.id); setMessageMenu({ message, x, y }) }} onOpenComputer={openComputer} onPreviewArtifact={(artifact) => void openArtifactReference(artifact)} onConfirmProject={(projectId, messageId, blockIndex) => confirmProject(projectId, messageId, blockIndex)} onRequestChanges={(projectId, messageId, blockIndex, text) => requestProjectChanges(projectId, messageId, blockIndex, text)} onApprovalDecide={async (approvalId, decision) => {
             const decisionScope = hostScope
             const result = await invoke<{ approval?: Record<string, Json> }>('protocol_request', { method: 'approval.decide', params: { approval_id: approvalId, decision } })
             if (result.approval && hostScopeRef.current === decisionScope) {
@@ -3105,7 +3106,7 @@ function App() {
         t={(key) => t(key as CopyKey)}
       /> : <GeneralSettings themeMode={themeMode} translucent={translucent && !reducedTransparency} reducedTransparency={reducedTransparency} preferences={localPreferences} preferencesLoaded={localPreferencesLoaded} error={settingsError} onTheme={updateTheme} onTranslucency={updateTranslucency} onPreference={updateLocalPreference} onNotificationPreference={updateNotificationPreference} onPreviewSound={() => invoke('play_notification_sound')} />}
     </SettingsPanel>}
-    {showSearch && <SearchPage key={hostScope} onSearch={searchRequest} onOpenResult={openSearchResult} sourceLabel={searchSourceLabel} onClose={() => setShowSearch(false)} t={(key) => t(key)} />}
+    {showSearch && <SearchPage key={hostScope} theme={effectiveTheme} material={effectiveMaterial} onSearch={searchRequest} onOpenResult={openSearchResult} sourceLabel={searchSourceLabel} onClose={() => setShowSearch(false)} t={(key) => t(key)} />}
     {activeSearchSideTarget && <aside className="search-side-detail" aria-label={t('search.result.open')}>
       <header><strong>{activeSearchSideTarget.title}</strong><button type="button" onClick={() => setSearchSideTarget(null)} aria-label={t('search.action.close')}>×</button></header>
       <div className="search-side-detail-content">
@@ -3386,8 +3387,9 @@ function dateLabel(date: Date) {
   return date.toLocaleDateString('zh-CN', { year: date.getFullYear() === today.getFullYear() ? undefined : 'numeric', month: 'long', day: 'numeric' })
 }
 
-function MessageBubble({ message, pending = false, senderName, senderRole, groupStart, groupEnd, headerTime, exactTime, questions, approvals, assignments, projects, bots, chats, chatTitle, onOpenProject, onTaskDetail, onReact, onReplyMessage, onOpenMessageMenu, onOpenComputer, onPreviewArtifact, onConfirmProject, onRequestChanges, onApprovalDecide, onQuestionAnswer }: {
+function MessageBubble({ message, skillNames, pending = false, senderName, senderRole, groupStart, groupEnd, headerTime, exactTime, questions, approvals, assignments, projects, bots, chats, chatTitle, onOpenProject, onTaskDetail, onReact, onReplyMessage, onOpenMessageMenu, onOpenComputer, onPreviewArtifact, onConfirmProject, onRequestChanges, onApprovalDecide, onQuestionAnswer }: {
   message: Message
+  skillNames: string[]
   pending?: boolean
   senderName: string
   senderRole: string
@@ -3420,6 +3422,11 @@ function MessageBubble({ message, pending = false, senderName, senderRole, group
   const blocks = message.blocks ?? []
   const hasRenderable = !deleted && blocks.some((block) => block.type && block.type !== 'text')
   const text = deleted ? '' : blocks.map((block) => typeof block.text === 'string' ? block.text : typeof block.markdown === 'string' ? block.markdown : '').filter(Boolean).join('\n')
+  const displayText = text || message.fallback_text || t('common.unsupported_block')
+  const loadedSkills = isUser && !deleted ? getValidLoadedSkills(message.loaded_skills) : []
+  const renderableSkillNames = [...new Set([...skillNames, ...loadedSkills.map((skill) => skill.name)])]
+  const skillTextBlockIndex = isUser && !deleted ? findForcedSkillTextBlockIndex(blocks, renderableSkillNames) : -1
+  const hasSkillPrefix = isUser && !deleted && (skillTextBlockIndex >= 0 || parseForcedSkillText(displayText, renderableSkillNames) !== null)
   if (blocks.length === 1 && blocks[0].type === 'task_card') {
     const assignmentId = typeof blocks[0].assignment_id === 'string' ? blocks[0].assignment_id : ''
     return assignments[assignmentId] ? <TaskCard assignment={assignments[assignmentId]} groupName={chatTitle} botName={bots[String(assignments[assignmentId].bot_id ?? '')]?.name ?? senderName} onDetail={onTaskDetail} /> : <div className="block-fallback">{message.fallback_text || t('common.unsupported_block')}</div>
@@ -3439,7 +3446,12 @@ function MessageBubble({ message, pending = false, senderName, senderRole, group
         {exactTime && <span className="hover-time">{exactTime}</span>}
         {quote && <div className="chat-message-quote"><strong>{quote.sender?.kind === 'user' ? t('common.user') : bots[quote.sender?.bot_id ?? '']?.name ?? t('common.bot')}</strong><span>{quote.excerpt ?? ''}</span></div>}
         {deleted ? <span className="message-deleted-copy">{t('chat.message.deleted')}</span> : hasRenderable ? <div className="message-blocks">{blocks.map((block, index) => {
-          if (block.type === 'text') return <p className="message-text-block" key={index}>{String(block.markdown ?? block.text ?? '')}</p>
+          if (block.type === 'text') {
+            const value = String(block.markdown ?? block.text ?? '')
+            return skillTextBlockIndex === index
+              ? <div className="message-text-block" key={index}><SkillMessageText text={value} knownSkillNames={renderableSkillNames} /></div>
+              : <p className="message-text-block" key={index}>{value}</p>
+          }
           if (block.type === 'question') {
             if (blocks[index - 1]?.type === 'question') return null
             const questionIds: string[] = []
@@ -3494,12 +3506,14 @@ function MessageBubble({ message, pending = false, senderName, senderRole, group
           const value = typeof block.text === 'string' ? block.text : typeof block.markdown === 'string' ? block.markdown : ''
           if (value) return <p className="message-text-block" key={index}>{value}</p>
           return <div className="block-fallback" key={index}><Shield size={13} />{message.fallback_text || t('common.unsupported_block')}<small>{t('block.fallback.hint')}</small></div>
-        })}</div> : <>{text || message.fallback_text || t('common.unsupported_block')}</>}
+        })}</div> : hasSkillPrefix ? <SkillMessageText text={displayText} knownSkillNames={renderableSkillNames} /> : <>{displayText}</>}
         {!deleted && Boolean(message.reactions?.length) && <div className="message-reactions" aria-label={t('chat.menu.react')}>
           {message.reactions?.filter((reaction) => reaction.by.length > 0).map((reaction) => <button type="button" className={`message-reaction-pill ${userHasReaction(reaction) ? 'active' : ''}`} key={reaction.emoji} aria-label={`${reaction.emoji} ${reaction.by.length}`} onClick={() => onReact(message, reaction.emoji)}>{reaction.emoji}<span>{reaction.by.length}</span></button>)}
         </div>}
       </div>
-      {pending && <div className="message-send-status"><Clock3 size={11} />{t('chat.delivery.queued')}</div>}
+      {hasSkillPrefix && <SkillMessageDeliveryStatus deliveries={(message as MessageWithDelivery).delivery ?? []} bots={bots} />}
+      {loadedSkills.length > 0 && <SkillMessageLoadedStatus loadedSkills={loadedSkills} bots={bots} />}
+      {pending && !hasSkillPrefix && <div className="message-send-status"><Clock3 size={11} />{t('chat.delivery.queued')}</div>}
     </div>
   </article>
 }

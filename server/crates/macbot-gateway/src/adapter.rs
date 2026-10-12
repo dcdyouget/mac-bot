@@ -5677,6 +5677,59 @@ impl ProductionBackend {
         )
     }
 
+    /// Persist a successfully loaded explicit skill on its originating user
+    /// message. This update is independent of the message's delivery state.
+    pub(crate) async fn record_loaded_skill(
+        &self,
+        state: &GatewayState,
+        chat_id: &str,
+        message_id: &str,
+        loaded_skill: Value,
+    ) -> Result<(), RpcError> {
+        let _writer = self.write_lock.lock().await;
+        let mut message = self
+            .load_chat_messages(chat_id)?
+            .into_iter()
+            .find(|message| message.get("id").and_then(Value::as_str) == Some(message_id))
+            .ok_or_else(|| RpcError {
+                code: "not_found".into(),
+                message: "loaded skill source message not found".into(),
+                details: None,
+            })?;
+        if message.pointer("/sender/kind").and_then(Value::as_str) != Some("user") {
+            return Err(RpcError {
+                code: "forbidden".into(),
+                message: "loaded skills can only be recorded on user messages".into(),
+                details: None,
+            });
+        }
+        let records = message
+            .get_mut("loaded_skills")
+            .and_then(Value::as_array_mut)
+            .ok_or_else(|| RpcError {
+                code: "internal".into(),
+                message: "message loaded_skills must be an array".into(),
+                details: None,
+            })?;
+        let duplicate = records.iter().any(|record| {
+            record.get("name") == loaded_skill.get("name")
+                && record.get("bot_id") == loaded_skill.get("bot_id")
+                && record.get("assignment_id") == loaded_skill.get("assignment_id")
+        });
+        if duplicate {
+            return Ok(());
+        }
+        records.push(loaded_skill);
+        let canonical = self.persist_client_message(&message)?;
+        let data = json!({"message":canonical});
+        let event = self
+            .store
+            .append_event("message.updated", data.clone())
+            .map_err(store_error)?;
+        state.publish_event(event.seq, &event.event, data).await;
+        Ok(())
+    }
+
     fn persist_attention_messages(&self, messages: Vec<Value>) -> Result<Vec<Value>, RpcError> {
         if messages.is_empty() {
             return Ok(messages);
@@ -8745,6 +8798,8 @@ fn normalize_message(value: &mut Value) {
     o.entry("thread_count").or_insert(json!(0));
     o.entry("streaming").or_insert(json!(false));
     o.entry("reactions").or_insert(json!([]));
+    o.entry("delivery").or_insert(json!([]));
+    o.entry("loaded_skills").or_insert(json!([]));
     let intent = o.get("intent").and_then(Value::as_str).unwrap_or("ack");
     let text = o
         .get("text")
@@ -9353,6 +9408,108 @@ mod tests {
     };
     use macbot_usage::{Totals, UsageRecord};
     use tempfile::tempdir;
+
+    #[tokio::test]
+    async fn loaded_skill_updates_source_message_history_and_replay_once_per_bot_assignment() {
+        let home = tempdir().unwrap();
+        let gateway = Gateway::new(GatewayConfig {
+            home: home.path().to_path_buf(),
+            ..Default::default()
+        });
+        let backend = ProductionBackend::open(home.path()).unwrap();
+        let sent = backend
+            .call(
+                "chat.send",
+                json!({
+                    "chat_id":"chat_main",
+                    "text":"/review-check apply these rules",
+                    "mentions":[],
+                    "client_request_id":"loaded-skill-source-message"
+                }),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        let source = sent["message"]["id"].as_str().unwrap();
+        let mut live_events = gateway.state.events.subscribe();
+        for (bot_id, assignment_id) in [
+            ("bot_main", Some("asg_review_main")),
+            ("bot_review", Some("asg_review_worker")),
+        ] {
+            backend
+                .record_loaded_skill(
+                    &gateway.state,
+                    "chat_main",
+                    source,
+                    json!({
+                        "name":"review-check",
+                        "bot_id":bot_id,
+                        "assignment_id":assignment_id,
+                        "loaded_at":"2026-10-12T01:02:03.000Z"
+                    }),
+                )
+                .await
+                .unwrap();
+        }
+        // Retrying the same successful load must not append another record or
+        // create another durable update event.
+        backend
+            .record_loaded_skill(
+                &gateway.state,
+                "chat_main",
+                source,
+                json!({
+                    "name":"review-check",
+                    "bot_id":"bot_main",
+                    "assignment_id":"asg_review_main",
+                    "loaded_at":"2026-10-12T01:02:03.000Z"
+                }),
+            )
+            .await
+            .unwrap();
+
+        let history = backend
+            .call(
+                "chat.history",
+                json!({"chat_id":"chat_main","limit":100}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        let restored = history["messages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|message| message["id"] == source)
+            .unwrap();
+        assert_eq!(restored["loaded_skills"].as_array().unwrap().len(), 2);
+        let wire_messages: Vec<macbot_protocol::Message> =
+            serde_json::from_value(history["messages"].clone()).unwrap();
+        let typed = wire_messages
+            .iter()
+            .find(|message| message.id == source)
+            .unwrap();
+        assert_eq!(typed.loaded_skills.len(), 2);
+        let events = backend.store.events_since(0).unwrap();
+        let updates = events
+            .iter()
+            .filter(|event| {
+                event.event == "message.updated" && event.data["message"]["id"] == source
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(updates.len(), 2);
+        assert_eq!(
+            updates.last().unwrap().data["message"]["loaded_skills"],
+            restored["loaded_skills"]
+        );
+        let mut live_updated = 0;
+        while let Ok(event) = live_events.try_recv() {
+            if event["event"] == "message.updated" && event["data"]["message"]["id"] == source {
+                live_updated += 1;
+            }
+        }
+        assert_eq!(live_updated, 2);
+    }
 
     #[test]
     fn project_create_result_and_events_use_the_protocol_shapes() {
@@ -13999,7 +14156,7 @@ mod tests {
         for bot in [&first, &second] {
             backend.call("assignment.create", json!({"bot_id":bot["bot"]["id"],"project_id":project["project"]["id"],"origin_chat_id":project["chat"]["id"],"title":"working", "instruction":"keep working", "from":"main"}), &gateway.state).await.unwrap();
         }
-        let sent = backend.call("chat.send", json!({"chat_id":project["chat"]["id"],"text":"邮箱登录优先", "mentions":[{"kind":"bot","bot_id":first["bot"]["id"],"instruction":null},{"kind":"bot","bot_id":second["bot"]["id"],"instruction":null}],"client_request_id":"steer-users"}), &gateway.state).await.unwrap();
+        let sent = backend.call("chat.send", json!({"chat_id":project["chat"]["id"],"text":"/delivery-check 邮箱登录优先", "mentions":[{"kind":"bot","bot_id":first["bot"]["id"],"instruction":null},{"kind":"bot","bot_id":second["bot"]["id"],"instruction":null}],"client_request_id":"steer-users"}), &gateway.state).await.unwrap();
         let canonical = sent["message"].clone();
         assert_eq!(canonical["delivery"].as_array().unwrap().len(), 2);
         assert!(canonical["delivery"]
@@ -14007,6 +14164,22 @@ mod tests {
             .unwrap()
             .iter()
             .all(|d| d["state"] == "queued"));
+        for delivery in canonical["delivery"].as_array().unwrap() {
+            backend
+                .record_loaded_skill(
+                    &gateway.state,
+                    project["chat"]["id"].as_str().unwrap(),
+                    canonical["id"].as_str().unwrap(),
+                    json!({
+                        "name":"delivery-check",
+                        "bot_id":delivery["bot_id"],
+                        "assignment_id":delivery["assignment_id"],
+                        "loaded_at":"2026-10-12T01:02:03.000Z"
+                    }),
+                )
+                .await
+                .unwrap();
+        }
         for delivery in canonical["delivery"].as_array().unwrap() {
             let mut transition = delivery.clone();
             for status in ["delivered", "read", "delivered"] {
@@ -14051,6 +14224,9 @@ mod tests {
             .unwrap()
             .iter()
             .all(|d| d["state"] == "read"));
+        assert_eq!(current["loaded_skills"].as_array().unwrap().len(), 2);
+        assert_eq!(current["loaded_skills"][0]["name"], "delivery-check");
+        assert_eq!(current["loaded_skills"][1]["name"], "delivery-check");
         let snapshots = backend.orchestrator.snapshot().unwrap();
         assert_eq!(
             snapshots["messages"][canonical["id"].as_str().unwrap()]["delivery"],

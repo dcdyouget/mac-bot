@@ -208,6 +208,33 @@ fn fixture_blocks_trace_events_and_frames_roundtrip_without_field_loss() {
 }
 
 #[test]
+fn loaded_skills_roundtrip_and_legacy_messages_default_to_empty() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../fixtures");
+    let legacy: Value =
+        serde_json::from_slice(&fs::read(root.join("objects/message.json")).unwrap()).unwrap();
+    assert!(legacy.get("loaded_skills").is_none());
+    let decoded: Message = serde_json::from_value(legacy).unwrap();
+    assert!(decoded.loaded_skills.is_empty());
+    let serialized = serde_json::to_value(decoded).unwrap();
+    assert!(serialized.get("loaded_skills").is_none());
+
+    let event: EventFrame = serde_json::from_slice(
+        &fs::read(root.join("events/message_loaded_skills_updated.json")).unwrap(),
+    )
+    .unwrap();
+    let EventData::Message { message } = event.data else {
+        panic!("expected message.updated event");
+    };
+    assert_eq!(message.loaded_skills.len(), 1);
+    assert_eq!(message.loaded_skills[0].name, "web-auth-patterns");
+    assert_eq!(message.loaded_skills[0].bot_id, "bot_code");
+    assert_eq!(
+        message.loaded_skills[0].assignment_id.as_deref(),
+        Some("asg_code")
+    );
+}
+
+#[test]
 fn login_scenario_lines_are_protocol_event_frames() {
     let path =
         Path::new(env!("CARGO_MANIFEST_DIR")).join("../fixtures/scenarios/login-feature.jsonl");

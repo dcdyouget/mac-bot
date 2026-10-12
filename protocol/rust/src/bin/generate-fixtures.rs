@@ -30,6 +30,21 @@ fn chat() -> Value {
 fn message() -> Value {
     json!({"id":"msg_1","chat_id":"chat_main","seq":1,"sender":{"kind":"user"},"created_at":now(),"edited_at":null,"deleted":false,"reply_to":null,"quote":null,"thread_count":0,"mentions":[],"blocks":[{"type":"text","markdown":"hi"}],"fallback_text":"hi","intent":null,"assignment_id":null,"streaming":false,"delivery":[],"reactions":[]})
 }
+fn loaded_skill_message() -> Value {
+    let mut value = message();
+    value["id"] = json!("msg_skill_request");
+    value["chat_id"] = json!("chat_login");
+    value["seq"] = json!(7);
+    value["blocks"] = json!([{"type":"text","markdown":"/web-auth-patterns 按这个规范做"}]);
+    value["fallback_text"] = json!("/web-auth-patterns 按这个规范做");
+    value["loaded_skills"] = json!([{
+        "name":"web-auth-patterns",
+        "bot_id":"bot_code",
+        "assignment_id":"asg_code",
+        "loaded_at":now()
+    }]);
+    value
+}
 fn project() -> Value {
     json!({"id":"prj_login","chat_id":"chat_login","name":"登录功能","slug":"login","goal":"给 App 加邮箱登录","flow":["产品","编码","测试"],"deadline":"2026-10-12","home_path":"~/MacBot/projects/login/","status":"active","lead_bot_id":"bot_main","members":[],"created_by":{"kind":"user"},"created_at":now(),"updated_at":now(),"done_at":null})
 }
@@ -559,6 +574,11 @@ fn events(root: &Path) -> Result<(), Box<dyn std::error::Error>> {
             json!({"stream":"asg_1","call_id":"call_1","chunk":"20 tests passed"}),
         ),
         ("sync_cursor", "sync.cursor", json!({})),
+        (
+            "message_loaded_skills_updated",
+            "message.updated",
+            json!({"message":loaded_skill_message()}),
+        ),
     ];
     for (i, (name, event, mut data)) in values.into_iter().enumerate() {
         if event == "sync.cursor" {

@@ -9,6 +9,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import bot.mac.mobile.core.protocol.str
+import kotlinx.serialization.json.JsonObject
 
 class ChatSkillDraftTest {
     @Test
@@ -47,5 +48,47 @@ class ChatSkillDraftTest {
         ).jsonArray.map { it.jsonObject }
 
         assertEquals(listOf("web-auth-patterns"), filterSlashSkills(skills, "WEB").map { it.str("name") })
+    }
+
+    @Test
+    fun sentSkillPrefixBecomesChipBodyAndOnlyValidPrefixIsRecognized() {
+        assertEquals(ChatMessageSkillPrefix("web-auth-patterns", "@编码 补上找回密码"), parseChatMessageSkillPrefix("/web-auth-patterns @编码 补上找回密码"))
+        assertEquals(ChatMessageSkillPrefix("web-auth-patterns", ""), parseChatMessageSkillPrefix("/web-auth-patterns"))
+        assertNull(parseChatMessageSkillPrefix("plain /web-auth-patterns"))
+        assertNull(parseChatMessageSkillPrefix("/UpperCase do work"))
+    }
+
+    @Test
+    fun sentPrefixIsOnlyAChipForEnabledOrHistoricallyLoadedSkills() {
+        val enabled = setOf("web-auth-patterns")
+        assertEquals(
+            ChatMessageSkillPrefix("web-auth-patterns", "do work"),
+            resolveChatMessageSkillPrefix("/web-auth-patterns do work", enabled, emptySet()),
+        )
+        assertNull(resolveChatMessageSkillPrefix("/unknown do work", enabled, emptySet()))
+        assertNull(resolveChatMessageSkillPrefix("/disabled do work", enabled, emptySet()))
+        assertEquals(
+            ChatMessageSkillPrefix("deleted-skill", "do work"),
+            resolveChatMessageSkillPrefix("/deleted-skill do work", enabled, setOf("deleted-skill")),
+        )
+        assertNull(resolveChatMessageSkillPrefix("/tmp/report.md", enabled, emptySet()))
+        assertNull(resolveChatMessageSkillPrefix("please use /web-auth-patterns", enabled, emptySet()))
+    }
+
+    @Test
+    fun loadedSkillsAreOptionalTolerantAndGroupedByNameAcrossBots() {
+        val message = Json.parseToJsonElement(
+            """{"loaded_skills":[
+                {"name":"web-auth-patterns","bot_id":"bot-a","assignment_id":"task-a","loaded_at":"2026-10-12T09:00:00Z","future_field":true},
+                {"name":"web-auth-patterns","bot_id":"bot-b","assignment_id":null,"loaded_at":"2026-10-12T09:01:00Z"},
+                {"name":"pdf-tools","bot_id":"bot-b","assignment_id":"task-b","loaded_at":"2026-10-12T09:02:00Z"},
+                {"name":"invalid","loaded_at":"2026-10-12T09:03:00Z"},
+                null
+            ]}""",
+        ).jsonObject
+
+        assertEquals(listOf("web-auth-patterns", "pdf-tools"), loadedSkillNames(message))
+        assertEquals(emptyList(), loadedSkillNames(JsonObject(emptyMap())))
+        assertEquals(emptyList(), loadedSkillNames(Json.parseToJsonElement("""{"loaded_skills":"unsupported"}""").jsonObject))
     }
 }

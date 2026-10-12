@@ -1095,6 +1095,23 @@ internal fun ChatMessageRow(
         (entry as? JsonObject)?.takeIf { it.str("type") == "text" }?.str("markdown")?.takeIf(String::isNotBlank)
     }.joinToString(" ")
     val messageBody = blockText.ifBlank { message.str("fallback_text") }
+    val loadedNames = if (isUser) loadedSkillNames(message) else emptyList()
+    val enabledSkillNames = state.skills.asSequence()
+        .filter { it.boolean("enabled") }
+        .map { it.str("name") }
+        .filter(String::isNotBlank)
+        .toSet()
+    val messageSkillPrefix = if (isUser) resolveChatMessageSkillPrefix(messageBody, enabledSkillNames, loadedNames.toSet()) else null
+    val visibleSkillNames = (listOfNotNull(messageSkillPrefix?.skillName) + loadedNames).distinct()
+    val firstTextBlockIndex = if (messageSkillPrefix == null) -1 else blocks.indexOfFirst { entry ->
+        (entry as? JsonObject)?.let { it.str("type") == "text" && it.str("markdown").isNotBlank() } == true
+    }
+    val displayBlocks = if (firstTextBlockIndex < 0) blocks else blocks.mapIndexed { index, entry ->
+        if (index != firstTextBlockIndex) entry else {
+            val block = entry as? JsonObject ?: return@mapIndexed entry
+            JsonObject(block + ("markdown" to JsonPrimitive(messageSkillPrefix?.body.orEmpty())))
+        }
+    }
     val spokenBody = messageBody.ifBlank { if (blocks.isNotEmpty()) stringResource(Res.string.chat_message_accessibility_card) else "" }
     val messageDescription = stringResource(Res.string.chat_message_accessibility, if (isUser) stringResource(Res.string.common_you) else senderLabel, spokenTime, spokenBody)
     val standaloneTask = blocks.singleOrNull()?.let { it as? JsonObject }?.takeIf { it.str("type") == "task_card" }
@@ -1203,6 +1220,23 @@ internal fun ChatMessageRow(
                     }
                 }
                 if (message.boolean("streaming")) Text(stringResource(Res.string.chat_typing), style = MaterialTheme.typography.labelMedium)
+                if (visibleSkillNames.isNotEmpty()) Row(
+                    Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    visibleSkillNames.forEach { skillName ->
+                        MessageSkillChip(skillName)
+                        if (skillName in loadedNames) {
+                            Text(
+                                stringResource(Res.string.chat_slash_loaded, skillName),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = palette.textSecondary,
+                                maxLines = 1,
+                            )
+                        }
+                    }
+                }
                 val fallback = message.str("fallback_text")
                 val unknown = blocks.any { element ->
                     val block = element as? JsonObject ?: return@any true
@@ -1286,7 +1320,7 @@ internal fun ChatMessageRow(
                     }
                 }
                 var questionStackRendered = false
-                blocks.forEach { element ->
+                displayBlocks.forEach { element ->
                     (element as? JsonObject)?.let { block ->
                         if (block.str("type") == "question" && questionBlocks.size > 1) {
                             if (!questionStackRendered) questionStackRendered = true
@@ -1424,6 +1458,26 @@ private val KnownBlockTypes = setOf(
     "text", "image", "file", "task_card", "completion", "progress", "blocked", "question", "project_card", "review_card",
     "delegation", "approval", "approval_ref", "takeover_request", "bot_dm_ref", "system", "loop_paused", "link_preview",
 )
+
+@Composable
+private fun MessageSkillChip(name: String) {
+    val palette = LocalMobilePalette.current
+    Surface(
+        color = palette.accentSoft,
+        contentColor = palette.accent,
+        shape = RoundedCornerShape(8.dp),
+        modifier = Modifier.widthIn(max = 220.dp),
+    ) {
+        Row(
+            Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            LucideIcon(LucideIconKind.Zap, Modifier.size(14.dp))
+            Text(name, style = MaterialTheme.typography.labelMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+    }
+}
 
 @Composable
 private fun BlockView(

@@ -1,13 +1,36 @@
 import { useState } from 'react'
-import { AlertTriangle, Check, ChevronRight, Circle, Clock3, File, Folder, Globe, MessageCircle, Reply, Target, X } from 'lucide-react'
+import { AlertTriangle, Check, ChevronRight, Circle, Clock3, File, Folder, Globe, MessageCircle, Reply, Target, X, Zap } from 'lucide-react'
 import { t } from '../i18n'
 import type { Json } from '../types'
 import { getTaskCardStatus } from './messageBlocksTaskCard'
+import { getSkillMessageDelivery, parseForcedSkillText, type LoadedSkillRecord, type SkillMessageDelivery } from './skillMessage.model'
 
 export type ArtifactRef = { artifact_id: string; title: string; path_or_url: string; bot_id?: string; kind?: string }
 
 type ProjectData = { id?: string; chat_id?: string; name?: string; status?: string; done_at?: string | null; members?: { bot_id?: string }[] }
 type BotMap = Record<string, { id: string; name?: string; is_main?: boolean }>
+
+export function SkillMessageText({ text, knownSkillNames }: { text: string; knownSkillNames: string[] }) {
+  const parsed = parseForcedSkillText(text, knownSkillNames)
+  if (!parsed) return <>{text}</>
+  return <span className="skill-message-line"><span className="skill-message-chip"><Zap size={13} />/{parsed.name}</span>{parsed.text && <span className="skill-message-body">{parsed.text}</span>}</span>
+}
+
+export function SkillMessageDeliveryStatus({ deliveries, bots }: { deliveries: SkillMessageDelivery[]; bots: BotMap }) {
+  const values = getSkillMessageDelivery(deliveries, Object.fromEntries(Object.values(bots).map((bot) => [bot.id, bot.name ?? t('common.bot')])))
+  if (!values.length) return null
+  return <div className="message-send-status skill-message-status">{values.map(({ state, botName }, index) => <span className={`skill-message-delivery skill-delivery-${state}`} key={`${state}-${botName}-${index}`}>
+    {state === 'queued' ? <Clock3 size={11} /> : <Check size={11} />}
+    {state === 'queued' ? t('chat.delivery.queued') : state === 'read' ? t('chat.delivery.read').replace('{bot}', botName) : t('chat.status.sent')}
+  </span>)}</div>
+}
+
+export function SkillMessageLoadedStatus({ loadedSkills, bots }: { loadedSkills: LoadedSkillRecord[]; bots: BotMap }) {
+  if (!loadedSkills.length) return null
+  return <div className="message-send-status skill-message-status">{loadedSkills.map((loadedSkill, index) => <span className="skill-message-delivery skill-delivery-read" key={`${loadedSkill.name}-${loadedSkill.bot_id}-${loadedSkill.assignment_id ?? ''}-${index}`}>
+    <Check size={11} />{t('chat.slash.loaded').replace('{name}', loadedSkill.name)}<small>{bots[loadedSkill.bot_id]?.name ?? loadedSkill.bot_id}</small>
+  </span>)}</div>
+}
 
 export function ProjectCard({ projectId, context, note, project, bots, onOpen }: { projectId: string; context?: string; note?: string | null; project?: ProjectData; bots: BotMap; onOpen: (projectId: string, chatId?: string) => Promise<void> }) {
   const [busy, setBusy] = useState(false)

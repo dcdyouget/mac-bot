@@ -349,6 +349,15 @@ data class Invocations7d(override val raw: JsonObject) : RawProtocolModel {
 }
 object Invocations7dSerializer : RawModelSerializer<Invocations7d>(::Invocations7d)
 
+@Serializable(with = LoadedSkillSerializer::class)
+data class LoadedSkill(override val raw: JsonObject) : RawProtocolModel {
+    val assignmentId: String? get() = raw.stringOrNull("assignment_id")
+    val botId: String get() = raw.str("bot_id")
+    val loadedAt: String get() = raw.str("loaded_at")
+    val name: String get() = raw.str("name")
+}
+object LoadedSkillSerializer : RawModelSerializer<LoadedSkill>(::LoadedSkill)
+
 @Serializable(with = MainBotSettingsSerializer::class)
 data class MainBotSettings(override val raw: JsonObject) : RawProtocolModel {
     val autoCreateProject: Boolean get() = raw.boolean("auto_create_project")
@@ -399,6 +408,7 @@ data class Message(override val raw: JsonObject) : RawProtocolModel {
     val fallbackText: String get() = raw.str("fallback_text")
     val id: String get() = raw.str("id")
     val intent: String? get() = raw.stringOrNull("intent")
+    val loadedSkills: List<LoadedSkill>? get() = if (raw["loaded_skills"] == null) null else raw.arr("loaded_skills").mapNotNull { (it as? JsonObject)?.let(::LoadedSkill) }
     val mentions: List<Mention> get() = raw.arr("mentions").mapNotNull { (it as? JsonObject)?.let(::Mention) }
     val quote: Quote? get() = raw["quote"]?.jsonObject?.let(::Quote)
     val reactions: List<Reaction> get() = raw.arr("reactions").mapNotNull { (it as? JsonObject)?.let(::Reaction) }

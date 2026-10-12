@@ -565,6 +565,12 @@ impl MockState {
     }
 
     fn restore_event(&mut self, seq: u64, event_name: &str, data: Value) {
+        let mut data = data;
+        if matches!(event_name, "message.created" | "message.updated") {
+            if let Some(message) = data.get_mut("message").and_then(Value::as_object_mut) {
+                message.entry("loaded_skills").or_insert(json!([]));
+            }
+        }
         self.emit_persisted(seq, event_name, data.clone());
         match event_name {
             "bot.created" | "bot.updated" => {
@@ -642,7 +648,12 @@ impl MockState {
         }
     }
 
-    fn emit(&mut self, event: &str, data: Value) -> Value {
+    fn emit(&mut self, event: &str, mut data: Value) -> Value {
+        if matches!(event, "message.created" | "message.updated") {
+            if let Some(message) = data.get_mut("message").and_then(Value::as_object_mut) {
+                message.entry("loaded_skills").or_insert(json!([]));
+            }
+        }
         self.seq += 1;
         let value = self.emit_persisted(self.seq, event, data);
         if event == "trace.item" {

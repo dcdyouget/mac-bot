@@ -1364,6 +1364,7 @@ mod tests {
         let request = crate::execution::ExecutionRequest {
             run_id: "run-shared".into(),
             assignment_id: None,
+            source_message_id: None,
             chat_id: "chat-a".into(),
             bot_id: "bot-a".into(),
             model: "mock/model".into(),

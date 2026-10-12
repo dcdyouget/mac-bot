@@ -393,7 +393,17 @@ pub struct Message {
     pub assignment_id: Option<Id>,
     pub streaming: bool,
     pub delivery: Vec<Delivery>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub loaded_skills: Vec<LoadedSkill>,
     pub reactions: Vec<Reaction>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
+pub struct LoadedSkill {
+    pub name: String,
+    pub bot_id: Id,
+    pub assignment_id: Option<Id>,
+    pub loaded_at: Time,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
@@ -2923,6 +2933,8 @@ pub enum MethodParams {
 
 #[derive(Debug, Clone, Serialize, JsonSchema, PartialEq)]
 #[serde(untagged)]
+// This wire-result enum keeps existing inline variants to preserve its public Rust API.
+#[allow(clippy::large_enum_variant)]
 pub enum MethodResult {
     SessionResume(SessionResumeResult),
     Ping(PingResult),

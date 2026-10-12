@@ -51,6 +51,10 @@ pub enum ExecutionError {
 pub struct ExecutionRequest {
     pub run_id: String,
     pub assignment_id: Option<String>,
+    /// Exact user message that admitted this execution, when one exists.
+    /// Used for durable annotations that must be attached to their source.
+    #[serde(default)]
+    pub source_message_id: Option<String>,
     pub chat_id: String,
     pub bot_id: String,
     pub model: String,
@@ -4639,6 +4643,7 @@ mod tests {
         ExecutionRequest {
             run_id: "run_mock".into(),
             assignment_id: None,
+            source_message_id: None,
             chat_id: "chat_mock".into(),
             bot_id: "bot_mock".into(),
             model: "mock/model".into(),

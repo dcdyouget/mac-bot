@@ -1,0 +1,43 @@
+{
+  "data": {
+    "message": {
+      "assignment_id": null,
+      "blocks": [
+        {
+          "markdown": "/web-auth-patterns 按这个规范做",
+          "type": "text"
+        }
+      ],
+      "chat_id": "chat_login",
+      "created_at": "2026-10-09T10:19:02.312Z",
+      "deleted": false,
+      "delivery": [],
+      "edited_at": null,
+      "fallback_text": "/web-auth-patterns 按这个规范做",
+      "id": "msg_skill_request",
+      "intent": null,
+      "loaded_skills": [
+        {
+          "assignment_id": "asg_code",
+          "bot_id": "bot_code",
+          "loaded_at": "2026-10-09T10:19:02.312Z",
+          "name": "web-auth-patterns"
+        }
+      ],
+      "mentions": [],
+      "quote": null,
+      "reactions": [],
+      "reply_to": null,
+      "sender": {
+        "kind": "user"
+      },
+      "seq": 7,
+      "streaming": false,
+      "thread_count": 0
+    }
+  },
+  "event": "message.updated",
+  "kind": "evt",
+  "seq": 43,
+  "v": 1
+}

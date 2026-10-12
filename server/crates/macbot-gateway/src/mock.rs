@@ -42,7 +42,8 @@ pub(crate) async fn mock_call(method: &str, params: Value, state: &GatewayState)
         }
     }
 
-    let result = dispatch(method, params, &mut data, state).await?;
+    let mut result = dispatch(method, params, &mut data, state).await?;
+    ensure_loaded_skills_defaults(&mut result);
     if method.starts_with("skill.") {
         persist_mock_skills(&state.home, &data)
             .map_err(|_| rpc_error("internal", "failed to persist mock skills", None))?;
@@ -544,6 +545,25 @@ fn request_signature(method: &str, params: &Value) -> String {
         object.remove("client_request_id");
     }
     format!("{method}:{}", params)
+}
+
+fn ensure_loaded_skills_defaults(value: &mut Value) {
+    match value {
+        Value::Object(object) => {
+            if object.contains_key("id") && object.contains_key("sender") {
+                object.entry("loaded_skills").or_insert(json!([]));
+            }
+            for child in object.values_mut() {
+                ensure_loaded_skills_defaults(child);
+            }
+        }
+        Value::Array(items) => {
+            for item in items {
+                ensure_loaded_skills_defaults(item);
+            }
+        }
+        _ => {}
+    }
 }
 
 fn extra_get(state: &MockState, key: &str) -> Vec<Value> {
@@ -3257,7 +3277,14 @@ fn chat_history(state: &MockState, params: &Value) -> RpcResult {
         .get("chat_id")
         .and_then(Value::as_str)
         .unwrap_or("chat_main");
-    let messages = state.messages.get(chat_id).cloned().unwrap_or_default();
+    let mut messages = state.messages.get(chat_id).cloned().unwrap_or_default();
+    for message in &mut messages {
+        message
+            .as_object_mut()
+            .expect("mock messages are objects")
+            .entry("loaded_skills")
+            .or_insert(json!([]));
+    }
     let (messages, has_more) = paged(&messages, params, "seq", 50, 100);
     Ok(json!({"messages":messages,"has_more":has_more}))
 }
@@ -3725,7 +3752,7 @@ fn send_chat(state: &mut MockState, params: &Value, home: &std::path::Path) -> R
         blocks.push(json!({"type":"text","markdown":text}));
     }
     blocks.extend(attachments);
-    let message = json!({"id":id("msg"),"chat_id":chat_id,"seq":seq,"sender":{"kind":"user"},"created_at":created_at,"edited_at":null,"deleted":false,"reply_to":null,"quote":quote,"thread_count":0,"mentions":mentions,"blocks":blocks,"fallback_text":fallback_text,"intent":null,"assignment_id":null,"streaming":false,"delivery":delivery,"reactions":[]});
+    let message = json!({"id":id("msg"),"chat_id":chat_id,"seq":seq,"sender":{"kind":"user"},"created_at":created_at,"edited_at":null,"deleted":false,"reply_to":null,"quote":quote,"thread_count":0,"mentions":mentions,"blocks":blocks,"fallback_text":fallback_text,"intent":null,"assignment_id":null,"streaming":false,"delivery":delivery,"loaded_skills":[],"reactions":[]});
     if let Some(locale) = params.get("client_locale").and_then(Value::as_str) {
         state.client_locales.insert(
             message["id"].as_str().unwrap().to_owned(),
@@ -3738,6 +3765,20 @@ fn send_chat(state: &mut MockState, params: &Value, home: &std::path::Path) -> R
         .or_default()
         .push(message.clone());
     state.emit("message.created", json!({"message":message.clone()}));
+    let loaded_skills = mock_explicit_skill_loads(state, &chat_id, &text, &mentions);
+    let mut message = message;
+    if !loaded_skills.is_empty() {
+        message["loaded_skills"] = json!(loaded_skills);
+        if let Some(messages) = state.messages.get_mut(&chat_id) {
+            if let Some(existing) = messages
+                .iter_mut()
+                .find(|item| item.get("id") == message.get("id"))
+            {
+                *existing = message.clone();
+            }
+        }
+        state.emit("message.updated", json!({"message":message.clone()}));
+    }
     let updated_chat = if let Some(chat) = state
         .chats
         .iter_mut()
@@ -3757,6 +3798,75 @@ fn send_chat(state: &mut MockState, params: &Value, home: &std::path::Path) -> R
         state.emit("assignment.updated", json!({"assignment":assignment}));
     }
     Ok(json!({"message":message}))
+}
+
+/// The mock treats chat.send as one successful model-context admission for
+/// each explicitly addressed Bot, allowing clients to verify the durable
+/// loaded-skill contract without a model provider.
+fn mock_explicit_skill_loads(
+    state: &MockState,
+    chat_id: &str,
+    text: &str,
+    mentions: &Value,
+) -> Vec<Value> {
+    let Some((name, _)) = macbot_skills::forced_invocation(text) else {
+        return Vec::new();
+    };
+    let Some(skill) = extra_get(state, "skills")
+        .into_iter()
+        .find(|skill| skill.get("name").and_then(Value::as_str) == Some(name))
+    else {
+        return Vec::new();
+    };
+    if skill.get("enabled").and_then(Value::as_bool) != Some(true) {
+        return Vec::new();
+    }
+    let mut bot_ids = mentions
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|mention| mention.get("kind").and_then(Value::as_str) == Some("bot"))
+        .filter_map(|mention| mention.get("bot_id").and_then(Value::as_str))
+        .map(str::to_owned)
+        .collect::<Vec<_>>();
+    if bot_ids.is_empty() {
+        let private_bot_id = state
+            .chats
+            .iter()
+            .find(|chat| chat.get("id").and_then(Value::as_str) == Some(chat_id))
+            .filter(|chat| chat.get("kind").and_then(Value::as_str) != Some("project"))
+            .and_then(|chat| chat.get("bot_id").and_then(Value::as_str))
+            .or_else(|| {
+                state
+                    .bots
+                    .iter()
+                    .find(|bot| bot.get("is_main").and_then(Value::as_bool) == Some(true))
+                    .and_then(|bot| bot.get("id").and_then(Value::as_str))
+            });
+        if let Some(bot_id) = private_bot_id {
+            bot_ids.push(bot_id.to_owned());
+        }
+    }
+    bot_ids.sort();
+    bot_ids.dedup();
+    let disabled = skill
+        .get("disabled_bot_ids")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let loaded_at = now();
+    bot_ids
+        .into_iter()
+        .filter(|bot_id| !disabled.iter().any(|id| id.as_str() == Some(bot_id)))
+        .map(|bot_id| {
+            json!({
+                "name":name,
+                "bot_id":bot_id,
+                "assignment_id":null,
+                "loaded_at":loaded_at
+            })
+        })
+        .collect()
 }
 
 fn message_delete(state: &mut MockState, params: &Value) -> RpcResult {
@@ -6677,6 +6787,176 @@ mod contract_tests {
             .messages
             .get("chat_main")
             .is_some_and(|messages| !messages.is_empty()));
+    }
+
+    #[tokio::test]
+    async fn mock_explicit_skill_loads_are_durable_per_bot_and_replay_with_history() {
+        let gateway = gateway().await;
+        call(
+            &gateway,
+            "skill.create",
+            json!({"name":"slash-proof","content":"---\nname: slash-proof\ndescription: Proof skill\n---\nUse this skill."}),
+        )
+        .await;
+        let bots = call(&gateway, "bot.list", json!({"include_hidden":true})).await;
+        let bot_ids = bots["bots"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|bot| bot["id"].as_str())
+            .take(2)
+            .map(str::to_owned)
+            .collect::<Vec<_>>();
+        assert_eq!(bot_ids.len(), 2, "fixture must include two Bots");
+
+        let mut live_events = gateway.state.events.subscribe();
+        let sent = call(
+            &gateway,
+            "chat.send",
+            json!({
+                "chat_id":"chat_login",
+                "text":"/slash-proof use the shared checklist",
+                "mentions":[
+                    {"kind":"bot","bot_id":bot_ids[0]},
+                    {"kind":"bot","bot_id":bot_ids[1]}
+                ],
+                "client_request_id":"mock-loaded-skill-two-bots"
+            }),
+        )
+        .await;
+        let message = sent["message"].clone();
+        assert_eq!(message["loaded_skills"].as_array().unwrap().len(), 2);
+        assert!(message["loaded_skills"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|record| {
+                record["name"] == "slash-proof"
+                    && record["assignment_id"].is_null()
+                    && record["loaded_at"].is_string()
+            }));
+        let recorded_bots = message["loaded_skills"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|record| record["bot_id"].as_str())
+            .collect::<std::collections::HashSet<_>>();
+        assert_eq!(recorded_bots.len(), 2);
+
+        let mut saw_updated = false;
+        for _ in 0..3 {
+            let event = tokio::time::timeout(std::time::Duration::from_secs(1), live_events.recv())
+                .await
+                .expect("send events should be broadcast")
+                .unwrap();
+            if event["event"] == "message.updated"
+                && event["data"]["message"]["id"] == message["id"]
+            {
+                saw_updated = true;
+                assert_eq!(
+                    event["data"]["message"]["loaded_skills"],
+                    message["loaded_skills"]
+                );
+            }
+        }
+        assert!(
+            saw_updated,
+            "successful skill admission emits message.updated"
+        );
+
+        let history = call(
+            &gateway,
+            "chat.history",
+            json!({"chat_id":"chat_login","limit":100}),
+        )
+        .await;
+        let restored = history["messages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|item| item["id"] == message["id"])
+            .expect("history restores the updated source message");
+        assert_eq!(restored["loaded_skills"], message["loaded_skills"]);
+        let replay_events = gateway
+            .state
+            .inner
+            .read()
+            .await
+            .events
+            .iter()
+            .cloned()
+            .collect::<Vec<_>>();
+        assert!(replay_events.iter().any(|event| {
+            event["event"] == "message.updated"
+                && event["data"]["message"]["id"] == message["id"]
+                && event["data"]["message"]["loaded_skills"] == message["loaded_skills"]
+        }));
+        let resume = call(&gateway, "session.resume", json!({"last_seq":0})).await;
+        assert_eq!(resume["mode"], "replay");
+    }
+
+    #[tokio::test]
+    async fn mock_unknown_or_bot_disabled_explicit_skill_is_not_recorded() {
+        let gateway = gateway().await;
+        call(
+            &gateway,
+            "skill.create",
+            json!({"name":"limited-skill","content":"---\nname: limited-skill\ndescription: Limited\n---\nBody"}),
+        )
+        .await;
+        let bots = call(&gateway, "bot.list", json!({"include_hidden":true})).await;
+        let bot_id = bots["bots"][0]["id"].as_str().unwrap();
+        call(
+            &gateway,
+            "skill.set_enabled",
+            json!({"name":"limited-skill","enabled":false,"bot_id":bot_id}),
+        )
+        .await;
+        let mut events = gateway.state.events.subscribe();
+        let missing = call(
+            &gateway,
+            "chat.send",
+            json!({"chat_id":"chat_main","text":"/missing-skill continue","mentions":[],"client_request_id":"mock-missing-skill"}),
+        )
+        .await["message"]
+            .clone();
+        let disabled = call(
+            &gateway,
+            "chat.send",
+            json!({"chat_id":"chat_main","text":"/limited-skill continue","mentions":[],"client_request_id":"mock-disabled-skill"}),
+        )
+        .await["message"]
+            .clone();
+        assert_eq!(missing["loaded_skills"], json!([]));
+        assert_eq!(disabled["loaded_skills"], json!([]));
+        let history = call(
+            &gateway,
+            "chat.history",
+            json!({"chat_id":"chat_main","limit":100}),
+        )
+        .await;
+        for id in [
+            missing["id"].as_str().unwrap(),
+            disabled["id"].as_str().unwrap(),
+        ] {
+            let stored = history["messages"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|item| item["id"].as_str() == Some(id))
+                .unwrap();
+            assert_eq!(stored["loaded_skills"], json!([]));
+        }
+        while let Ok(event) = events.try_recv() {
+            assert!(
+                !(event["event"] == "message.updated"
+                    && [
+                        missing["id"].as_str().unwrap(),
+                        disabled["id"].as_str().unwrap()
+                    ]
+                    .contains(&event["data"]["message"]["id"].as_str().unwrap_or("")))
+            );
+        }
     }
 
     #[tokio::test]

@@ -67,6 +67,12 @@
         }
       ]
     },
+    "loaded_skills": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/LoadedSkill"
+      }
+    },
     "mentions": {
       "type": "array",
       "items": {
@@ -673,6 +679,31 @@
         "done",
         "blocked"
       ]
+    },
+    "LoadedSkill": {
+      "type": "object",
+      "required": [
+        "bot_id",
+        "loaded_at",
+        "name"
+      ],
+      "properties": {
+        "assignment_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "bot_id": {
+          "type": "string"
+        },
+        "loaded_at": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        }
+      }
     },
     "LoopState": {
       "type": "string",

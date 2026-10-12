@@ -1,6 +1,7 @@
 package bot.mac.mobile.feature.chat
 
 import kotlinx.serialization.json.JsonObject
+import bot.mac.mobile.core.protocol.Message
 
 private const val PERSISTED_SKILL_DRAFT_MARKER = "macbot-chat-draft-v1\n"
 
@@ -8,6 +9,32 @@ internal data class ChatSkillDraft(
     val skillName: String?,
     val text: String,
 )
+
+internal data class ChatMessageSkillPrefix(val skillName: String, val body: String)
+
+/** Parses the persisted `/<skill>` prefix from a sent message without treating prose slashes as skills. */
+internal fun parseChatMessageSkillPrefix(value: String): ChatMessageSkillPrefix? {
+    if (!value.startsWith('/')) return null
+    val end = value.indexOfFirst(Char::isWhitespace).let { if (it < 0) value.length else it }
+    if (end <= 1) return null
+    val name = value.substring(1, end)
+    if (name.any { !(it in 'a'..'z' || it in '0'..'9' || it == '-') }) return null
+    return ChatMessageSkillPrefix(name, value.substring(end).trimStart())
+}
+
+/** Unknown or disabled skills stay ordinary message text; a historical successful load is authoritative. */
+internal fun resolveChatMessageSkillPrefix(
+    value: String,
+    enabledSkillNames: Set<String>,
+    loadedNames: Set<String>,
+): ChatMessageSkillPrefix? = parseChatMessageSkillPrefix(value)?.takeIf {
+    it.skillName in enabledSkillNames || it.skillName in loadedNames
+}
+
+/** Returns unique valid names; a missing/old-server field and malformed entries are safely ignored. */
+internal fun loadedSkillNames(message: JsonObject): List<String> {
+    return Message(message).loadedSkills.map { it.name }.distinct()
+}
 
 /** Stores a selected skill separately from editable prose while preserving the old draft format. */
 internal fun serializeChatSkillDraft(skillName: String?, text: String): String =
