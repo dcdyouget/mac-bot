@@ -103,6 +103,8 @@ async fn dispatch(
         // Acceptance-only test control for an empty main-chat state. Never
         // expose this operation through protocol or production adapters.
         "mock.clear_main_chat" => clear_mock_main_chat(state, &params),
+        "mock.use_complete_profile" => use_complete_mock_profile(state),
+        "mock.set_memory_scenario" => set_mock_memory_scenario(state, &params),
         "message.delete" => message_delete(state, &params),
         "message.edit" => message_edit(state, &params),
         "message.steer" => message_steer(state, &params),
@@ -1557,10 +1559,20 @@ fn ensure_mock_user_memory(state: &mut MockState) {
             "memory_user_entries",
             vec![
                 json!({"id":"mem_mock_1","content":"回复用中文，代码和注释用英文。","version":1,"source":{"by":{"kind":"system"},"chat_id":"chat_login","message_id":"msg_opening"},"updated_by":{"kind":"system"},"created_at":"2026-10-09T10:20:00Z","updated_at":"2026-10-09T10:20:00Z"}),
-                json!({"id":"mem_mock_2","content":"不喜欢长篇报告：先给结论，细节放后面。","version":2,"source":{"by":{"kind":"system"},"chat_id":"chat_main","message_id":"msg_main_welcome"},"updated_by":{"kind":"user"},"created_at":"2026-10-08T21:40:00Z","updated_at":"2026-10-10T09:15:00Z"}),
+                json!({"id":"mem_mock_2","content":"不喜欢长篇报告：先给结论，细节放后面。","version":2,"source":{"by":{"kind":"system"},"chat_id":"chat_main","message_id":"msg_main_welcome"},"updated_by":{"kind":"system"},"created_at":"2026-10-08T21:40:00Z","updated_at":"2026-10-10T09:15:00Z"}),
                 json!({"id":"mem_mock_3","content":"周末不要推送非紧急通知。","version":1,"source":{"by":{"kind":"user"},"chat_id":null,"message_id":null},"updated_by":{"kind":"user"},"created_at":"2026-10-06T09:15:00Z","updated_at":"2026-10-06T09:15:00Z"}),
+                json!({"id":"mem_mock_4","content":"旧版本 Bot 记录：讨论时先说明结论和依据。","version":1,"source":{"by":{"kind":"bot","bot_id":"bot_product"},"chat_id":"chat_login","message_id":"msg_legacy_memory"},"updated_by":{"kind":"system"},"created_at":"2026-10-03T08:00:00Z","updated_at":"2026-10-03T08:00:00Z"}),
+                json!({"id":"mem_mock_conflict","content":"冲突演示：此条版本已在其他设备更新。","version":1,"source":{"by":{"kind":"system"},"chat_id":"chat_main","message_id":"msg_main_welcome"},"updated_by":{"kind":"system"},"created_at":"2026-10-04T08:00:00Z","updated_at":"2026-10-10T09:15:00Z"}),
+                json!({"id":"mem_mock_quota_1","content":format!("{}{}", "长期偏好：回答尽量先给直接结论，再说明必要依据。" , "；".repeat(400)),"version":1,"source":{"by":{"kind":"system"},"chat_id":"chat_main","message_id":"msg_main_welcome"},"updated_by":{"kind":"system"},"created_at":"2026-10-02T08:00:00Z","updated_at":"2026-10-02T08:00:00Z"}),
+                json!({"id":"mem_mock_quota_2","content":format!("{}{}", "文档偏好：结构清楚、少用冗长背景，代码示例保持简洁。" , "、".repeat(400)),"version":1,"source":{"by":{"kind":"system"},"chat_id":"chat_main","message_id":"msg_main_welcome"},"updated_by":{"kind":"system"},"created_at":"2026-10-01T08:00:00Z","updated_at":"2026-10-01T08:00:00Z"}),
+                json!({"id":"mem_mock_quota_3","content":format!("{}{}", "协作偏好：任务完成后说明结果以及后续动作。" , "，".repeat(200)),"version":1,"source":{"by":{"kind":"system"},"chat_id":"chat_login","message_id":"msg_opening"},"updated_by":{"kind":"system"},"created_at":"2026-09-30T08:00:00Z","updated_at":"2026-09-30T08:00:00Z"}),
             ],
         );
+        // The seeded list intentionally sits close to its 1,500-character
+        // allowance. This switch makes the quota-full path deterministic even
+        // when a user edits one of the long examples first.
+        extra_set(state, "mock_force_quota_full", vec![json!(true)]);
+        extra_set(state, "mock_conflict_once", vec![json!(true)]);
     }
     if extra_get(state, "memory_user_profile").is_empty() {
         extra_set(
@@ -1575,6 +1587,23 @@ fn ensure_mock_user_memory(state: &mut MockState) {
                 "version":1,
                 "updated_by":{"kind":"system"},
                 "updated_at":now()
+            })],
+        );
+    }
+    if extra_get(state, "memory_user_profile_complete").is_empty() {
+        extra_set(
+            state,
+            "memory_user_profile_complete",
+            vec![json!({
+                "name":"小明",
+                "language":"zh-CN",
+                "identity":"产品经理",
+                "timezone":"Asia/Shanghai",
+                "onboarded":true,
+                "version":2,
+                "updated_by":{"kind":"user"},
+                "updated_at":"2026-10-10T09:15:00Z",
+                "evidence":{"chat_id":"chat_main","message_id":"msg_main_welcome","text":"我不喜欢长篇报告：先给结论，细节放后面。"}
             })],
         );
     }
@@ -1605,6 +1634,32 @@ fn ensure_mock_profile_greeting(state: &mut MockState) {
     }
 }
 
+fn use_complete_mock_profile(state: &mut MockState) -> RpcResult {
+    ensure_mock_user_memory(state);
+    let profile = extra_get(state, "memory_user_profile_complete")
+        .into_iter()
+        .next()
+        .ok_or_else(|| rpc_error("not_found", "complete mock profile is unavailable", None))?;
+    extra_set(state, "memory_user_profile", vec![profile.clone()]);
+    state.emit("memory.profile.updated", json!({"profile":profile}));
+    Ok(json!({"profile":profile}))
+}
+
+fn set_mock_memory_scenario(state: &mut MockState, params: &Value) -> RpcResult {
+    for (param, key) in [
+        ("quota_full", "mock_force_quota_full"),
+        ("conflict_once", "mock_conflict_once"),
+    ] {
+        if let Some(enabled) = params.get(param).and_then(Value::as_bool) {
+            extra_set(state, key, vec![json!(enabled)]);
+        }
+    }
+    Ok(json!({
+        "quota_full":extra_get(state, "mock_force_quota_full").first().and_then(Value::as_bool).unwrap_or(false),
+        "conflict_once":extra_get(state, "mock_conflict_once").first().and_then(Value::as_bool).unwrap_or(false),
+    }))
+}
+
 fn mock_main_chat_is_cleared(state: &MockState) -> bool {
     extra_get(state, "mock_main_chat_cleared")
         .first()
@@ -1619,6 +1674,22 @@ fn user_memory_quota(state: &MockState) -> Value {
         .map(|content| content.chars().count() as u64)
         .sum::<u64>();
     json!({"used_chars":used_chars,"limit_chars":1500})
+}
+
+fn user_memory_quota_entries(state: &MockState) -> Vec<Value> {
+    extra_get(state, "memory_user_entries")
+        .into_iter()
+        .map(|mut entry| {
+            if let Some(object) = entry.as_object_mut() {
+                let entry_id = object.get("id").cloned().unwrap_or(Value::Null);
+                object.insert("entry_id".into(), entry_id);
+                object.insert("scope".into(), json!("user"));
+                object.insert("kind".into(), json!("user_preference"));
+                object.entry("version").or_insert(json!(1));
+            }
+            entry
+        })
+        .collect()
 }
 
 fn user_memory_list(state: &MockState) -> RpcResult {
@@ -1642,6 +1713,17 @@ fn user_memory_create(state: &mut MockState, params: &Value) -> RpcResult {
             "invalid_params",
             "content must contain 1 to 500 characters",
             None,
+        ));
+    }
+    if extra_get(state, "mock_force_quota_full")
+        .first()
+        .and_then(Value::as_bool)
+        == Some(true)
+    {
+        return Err(rpc_error(
+            "quota_full",
+            "user memory quota is full",
+            Some(json!({"entries":user_memory_quota_entries(state)})),
         ));
     }
     let quota = user_memory_quota(state);
@@ -1678,12 +1760,40 @@ fn user_memory_update(state: &mut MockState, params: &Value) -> RpcResult {
         .iter()
         .position(|entry| entry["id"] == request.entry_id)
         .ok_or_else(|| rpc_error("not_found", "memory entry not found", None))?;
+    if request.entry_id == "mem_mock_conflict"
+        && extra_get(state, "mock_conflict_once")
+            .first()
+            .and_then(Value::as_bool)
+            == Some(true)
+    {
+        let current_version = entries[index]["version"].as_u64().unwrap_or(1);
+        entries[index]["version"] = json!(current_version.saturating_add(1));
+        let current = entries[index].clone();
+        extra_set(state, "memory_user_entries", entries);
+        extra_set(state, "mock_conflict_once", vec![json!(false)]);
+        return Err(rpc_error(
+            "conflict",
+            "memory entry version conflict",
+            Some(json!({"current":current})),
+        ));
+    }
     let current = entries[index].clone();
     if current["version"].as_u64() != Some(request.expected_version) {
         return Err(rpc_error(
             "conflict",
             "memory entry version conflict",
             Some(json!({"current":current})),
+        ));
+    }
+    if extra_get(state, "mock_force_quota_full")
+        .first()
+        .and_then(Value::as_bool)
+        == Some(true)
+    {
+        return Err(rpc_error(
+            "quota_full",
+            "user memory quota is full",
+            Some(json!({"entries":user_memory_quota_entries(state)})),
         ));
     }
     let used = user_memory_quota(state)["used_chars"]
@@ -6216,7 +6326,13 @@ mod contract_tests {
     async fn mock_user_memory_and_profile_enforce_versions_and_emit_user_events() {
         let gateway = gateway().await;
         let initial = call(&gateway, "memory.user.list", json!({"owner_id":"ignored"})).await;
-        assert_eq!(initial["entries"].as_array().unwrap().len(), 3);
+        assert!(initial["entries"].as_array().unwrap().len() >= 6);
+        call(
+            &gateway,
+            "mock.set_memory_scenario",
+            json!({"quota_full":false}),
+        )
+        .await;
         let history = call(
             &gateway,
             "chat.history",
@@ -6348,6 +6464,59 @@ mod contract_tests {
                 "memory.user.deleted"
             ]
         );
+    }
+
+    #[tokio::test]
+    async fn mock_memory_scenarios_expose_quota_conflict_and_complete_profile() {
+        let gateway = gateway().await;
+        let quota = gateway
+            .rpc("memory.user.create", json!({"content":"new preference"}))
+            .await
+            .unwrap_err();
+        assert_eq!(quota.code, "quota_full");
+        let quota_entries = quota
+            .details
+            .and_then(|details| details.get("entries").and_then(Value::as_array).cloned())
+            .unwrap();
+        assert!(quota_entries.len() >= 6);
+        assert!(quota_entries.iter().all(|entry| {
+            entry["scope"] == "user"
+                && entry["kind"] == "user_preference"
+                && entry["version"].as_u64().is_some()
+        }));
+
+        let conflict = gateway
+            .rpc(
+                "memory.user.update",
+                json!({"entry_id":"mem_mock_conflict","content":"edited","expected_version":1}),
+            )
+            .await
+            .unwrap_err();
+        assert_eq!(conflict.code, "conflict");
+        assert_eq!(conflict.details.unwrap()["current"]["version"], 2);
+
+        call(
+            &gateway,
+            "mock.set_memory_scenario",
+            json!({"quota_full":false,"conflict_once":false}),
+        )
+        .await;
+        let updated = call(
+            &gateway,
+            "memory.user.update",
+            json!({"entry_id":"mem_mock_conflict","content":"edited","expected_version":2}),
+        )
+        .await;
+        assert_eq!(updated["entry"]["version"], 3);
+
+        let empty_profile = call(&gateway, "memory.profile.get", json!({})).await;
+        assert_eq!(empty_profile["profile"]["onboarded"], false);
+        let complete_profile = call(&gateway, "mock.use_complete_profile", json!({})).await;
+        assert_eq!(complete_profile["profile"]["name"], "小明");
+        assert_eq!(complete_profile["profile"]["language"], "zh-CN");
+        assert_eq!(complete_profile["profile"]["identity"], "产品经理");
+        assert_eq!(complete_profile["profile"]["onboarded"], true);
+        assert!(complete_profile["profile"]["evidence"].is_object());
     }
 
     #[tokio::test]
