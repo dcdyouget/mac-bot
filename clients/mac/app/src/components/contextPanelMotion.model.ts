@@ -1,7 +1,7 @@
 export type ContextPanelPhase = 'open' | 'closing' | 'closed'
 export type ContextPanelEvent = 'close' | 'finish_close' | 'open' | 'invalidate'
 
-export const CONTEXT_PANEL_TRANSITION_MS = 200
+export const CONTEXT_PANEL_TRANSITION_MS = 360
 
 export function transitionContextPanel(
   phase: ContextPanelPhase,

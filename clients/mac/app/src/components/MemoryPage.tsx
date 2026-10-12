@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { AlertCircle, Check, ChevronLeft, ChevronRight, Clock3, Pencil, Plus, Search, Sparkles, Trash2, Undo2, UserRound } from 'lucide-react'
-import { t, type CopyKey } from '../i18n'
-import { reconcileUserProfileConflict, type UserProfileConflict } from './userProfileConflict'
+import { AlertCircle, Check, ChevronLeft, ChevronRight, Clock3, Pencil, Plus, Search, Sparkles, Trash2, Undo2 } from 'lucide-react'
+import { t } from '../i18n'
+import { applySavedProfileField, flushUserProfileSaveQueue, reconcileUserProfileConflict, type UserProfileConflict } from './userProfileConflict'
+import { isMemoryQuotaAtLimit, shouldSaveOnEnter } from './memoryPageModel'
 import './MemoryPage.css'
 
 export type MemorySender = { kind: 'user' | 'system' } | { kind: 'bot'; bot_id: string }
@@ -48,14 +49,13 @@ type EditableProfileField = 'name' | 'language' | 'identity'
 type ProfileForm = Pick<UserProfile, EditableProfileField>
 type ParsedError = { code?: string; current?: UserMemoryEntry | UserProfile; message: string }
 
-const copy = (key: string, fallback: string) => {
-  const value = t(key as CopyKey)
-  return typeof value === 'string' ? value : fallback
-}
 const charCount = (text: string) => [...text].length
 const formatDate = (value: string) => {
   const date = new Date(value)
-  return Number.isNaN(date.getTime()) ? value : new Intl.DateTimeFormat(undefined, { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(date)
+  if (Number.isNaN(date.getTime())) return value
+  const parts = new Intl.DateTimeFormat('en-US', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(date)
+  const part = (type: Intl.DateTimeFormatPartTypes) => parts.find((item) => item.type === type)?.value ?? ''
+  return `${part('month')}/${part('day')} ${part('hour')}:${part('minute')}`
 }
 const senderKind = (sender: MemorySender) => sender?.kind ?? 'user'
 const isProfile = (value: UserMemoryEntry | UserProfile | undefined): value is UserProfile => Boolean(value && 'timezone' in value && 'name' in value)
@@ -82,7 +82,6 @@ export function MemoryPage(props: MemoryPageProps) {
   const { profile, entries, quota, chats = {}, bots = {}, loading = false, loadError, onReload, onUpdateProfile, onCreate, onUpdate, onDelete, onOpenSource, onBack } = props
   const [profileForm, setProfileForm] = useState<ProfileForm>({ name: profile?.name ?? null, language: profile?.language ?? null, identity: profile?.identity ?? null })
   const [profileSaved, setProfileSaved] = useState<EditableProfileField | null>(null)
-  const [profileSaving, setProfileSaving] = useState<EditableProfileField | null>(null)
   const [profileConflict, setProfileConflict] = useState<UserProfileConflict | null>(null)
   const [profileError, setProfileError] = useState<string | null>(null)
   const [query, setQuery] = useState('')
@@ -97,8 +96,12 @@ export function MemoryPage(props: MemoryPageProps) {
   const [undoEntry, setUndoEntry] = useState<UserMemoryEntry | null>(null)
   const [localQuota, setLocalQuota] = useState(quota)
   const undoTimer = useRef<number | null>(null)
-  const profileVersion = useRef(profile?.version ?? 0)
-  const profileSnapshot = useRef(profile)
+  const profileSnapshot = useRef<UserProfile | null>(null)
+  const profileFormRef = useRef<ProfileForm>({ name: profile?.name ?? null, language: profile?.language ?? null, identity: profile?.identity ?? null })
+  const profileSaveLock = useRef(false)
+  const pendingProfileSaves = useRef<Partial<ProfileForm>>({})
+  const profileReloadRequested = useRef(false)
+  const [profileReloading, setProfileReloading] = useState(false)
   const entryOverrides = useRef<Record<string, UserMemoryEntry>>({})
   const hiddenEntries = useRef<Set<string>>(new Set())
   const [localEntries, setLocalEntries] = useState<UserMemoryEntry[]>(entries)
@@ -119,18 +122,27 @@ export function MemoryPage(props: MemoryPageProps) {
   useEffect(() => {
     if (!profile) return
     const previous = profileSnapshot.current
+    const currentForm = profileFormRef.current
     profileSnapshot.current = profile
-    profileVersion.current = profile.version
-    setProfileConflict((current) => reconcileUserProfileConflict(previous, profile, profileForm, current))
-    setProfileForm((current) => {
-      const fields = Object.keys(current) as EditableProfileField[]
-      const next = Object.fromEntries(fields.map((key) => [
-        key,
-        previous && current[key] !== previous[key] ? current[key] : profile[key],
-      ])) as ProfileForm
-      return fields.every((key) => current[key] === next[key]) ? current : next
-    })
-  }, [profile, profileForm])
+    if (profileReloadRequested.current || !previous) {
+      profileReloadRequested.current = false
+      const next = { name: profile.name, language: profile.language, identity: profile.identity }
+      profileFormRef.current = next
+      setProfileForm(next)
+      setProfileConflict(null)
+      setProfileError(null)
+      setProfileReloading(false)
+      return
+    }
+    setProfileConflict((current) => reconcileUserProfileConflict(previous, profile, currentForm, current))
+    const fields = Object.keys(currentForm) as EditableProfileField[]
+    const next = Object.fromEntries(fields.map((key) => [
+      key,
+      currentForm[key] !== previous[key] ? currentForm[key] : profile[key],
+    ])) as ProfileForm
+    profileFormRef.current = next
+    setProfileForm(next)
+  }, [profile])
 
   useEffect(() => () => { if (undoTimer.current !== null) window.clearTimeout(undoTimer.current) }, [])
   useEffect(() => { setLocalQuota(quota) }, [quota])
@@ -147,11 +159,11 @@ export function MemoryPage(props: MemoryPageProps) {
     .filter((entry) => entry.content.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()))
     .sort((a, b) => b.updated_at.localeCompare(a.updated_at)), [localEntries, query])
   const quotaPercent = localQuota && localQuota.limit_chars > 0 ? Math.min(100, localQuota.used_chars / localQuota.limit_chars * 100) : 0
+  const quotaAtLimit = isMemoryQuotaAtLimit(localQuota)
 
   async function run(action: () => Promise<void>, conflictContext?: { operation: 'update' | 'delete'; mine: string }) {
     setBusy(true)
     setError(null)
-    setQuotaFull(false)
     try { await action() } catch (reason) {
       const parsed = parseError(reason)
       if (parsed.code === 'quota_full') setQuotaFull(true)
@@ -161,39 +173,54 @@ export function MemoryPage(props: MemoryPageProps) {
   }
 
   async function saveProfile(field: EditableProfileField, nextValue?: string | null) {
-    if (!profile || profileSaving !== null || (profileConflict && field in profileConflict.mine)) return
-    const value = nextValue === undefined ? profileForm[field] : nextValue
-    if (value === profile[field]) return
-    setProfileSaving(field)
-    setProfileSaved(null)
-    setProfileError(null)
-    setProfileConflict(null)
-    const patch: UserProfilePatch = { [field]: value } as UserProfilePatch
+    if (!profile || profileConflict) return
+    const value = nextValue === undefined ? profileFormRef.current[field] : nextValue
+    pendingProfileSaves.current[field] = value
+    if (profileSaveLock.current) return
+    profileSaveLock.current = true
     try {
-      const updated = await onUpdateProfile(patch, profileVersion.current)
-      profileVersion.current = updated.version
-      setProfileForm({ name: updated.name, language: updated.language, identity: updated.identity })
-      setProfileSaved(field)
-      window.setTimeout(() => setProfileSaved((current) => current === field ? null : current), 1800)
-    } catch (reason) {
-      const parsed = parseError(reason)
-      if (parsed.code === 'conflict' && isProfile(parsed.current)) setProfileConflict({ current: parsed.current, mine: patch, open: false })
-      else setProfileError(parsed.code === 'quota_full' ? copy('memory.quota_full', '记忆已满，请先删除或合并几条') : parsed.message)
-    } finally { setProfileSaving(null) }
+      setProfileError(null)
+      await flushUserProfileSaveQueue(
+        pendingProfileSaves.current,
+        () => profileSnapshot.current ?? profile,
+        onUpdateProfile,
+        () => { setProfileSaved(null) },
+        (pendingField, pendingValue, updated) => {
+          const freshest = profileSnapshot.current
+          if (!freshest || updated.version >= freshest.version) profileSnapshot.current = updated
+          const savedProfile = profileSnapshot.current ?? updated
+          const next = applySavedProfileField(profileFormRef.current, pendingField, pendingValue, savedProfile)
+          profileFormRef.current = next
+          setProfileForm(next)
+          setProfileSaved(pendingField)
+          window.setTimeout(() => setProfileSaved((saved) => saved === pendingField ? null : saved), 1800)
+        },
+        (_pendingField, patch, reason) => {
+          const parsed = parseError(reason)
+          if (parsed.code === 'conflict' && isProfile(parsed.current)) setProfileConflict({ current: parsed.current, mine: patch, open: false })
+          else setProfileError(parsed.code === 'quota_full' ? t('memory.quota_full') : parsed.message)
+        },
+      )
+    } finally {
+      profileSaveLock.current = false
+    }
   }
 
-  async function retryProfileMine() {
-    if (!profileConflict) return
+  function updateProfileField(field: EditableProfileField, value: string | null) {
+    const next = { ...profileFormRef.current, [field]: value }
+    profileFormRef.current = next
+    setProfileForm(next)
+  }
+
+  async function reloadProfile() {
+    profileReloadRequested.current = true
+    setProfileReloading(true)
     try {
-      const updated = await onUpdateProfile(profileConflict.mine, profileConflict.current.version)
-      profileVersion.current = updated.version
-      setProfileForm({ name: updated.name, language: updated.language, identity: updated.identity })
-      setProfileConflict(null)
-      setProfileSaved((Object.keys(profileConflict.mine)[0] as EditableProfileField | undefined) ?? null)
-    } catch (reason) {
-      const parsed = parseError(reason)
-      if (parsed.code === 'conflict' && isProfile(parsed.current)) setProfileConflict({ current: parsed.current, mine: profileConflict.mine, open: false })
-      else setProfileError(parsed.message)
+      await onReload()
+    } catch {
+      profileReloadRequested.current = false
+    } finally {
+      setProfileReloading(false)
     }
   }
 
@@ -204,12 +231,14 @@ export function MemoryPage(props: MemoryPageProps) {
       if (newEntry) {
         const result = await onCreate(content)
         setLocalQuota(result.quota)
+        setQuotaFull(false)
         entryOverrides.current[result.entry.id] = result.entry
         hiddenEntries.current.delete(result.entry.id)
         setLocalEntries((current) => [result.entry, ...current.filter((entry) => entry.id !== result.entry.id)])
       } else if (editBase) {
         const result = await onUpdate(editBase.id, content, editBase.version)
         setLocalQuota(result.quota)
+        setQuotaFull(false)
         entryOverrides.current[result.entry.id] = result.entry
         hiddenEntries.current.delete(result.entry.id)
         setLocalEntries((current) => current.map((entry) => entry.id === result.entry.id ? result.entry : entry).sort((a, b) => b.updated_at.localeCompare(a.updated_at)))
@@ -224,7 +253,6 @@ export function MemoryPage(props: MemoryPageProps) {
     setEditBase(null)
     setNewEntry(false)
     setEntryConflict(null)
-    setQuotaFull(false)
   }
 
   function beginEdit(entry: UserMemoryEntry) {
@@ -233,7 +261,6 @@ export function MemoryPage(props: MemoryPageProps) {
     setEditBase(entry)
     setNewEntry(false)
     setEntryConflict(null)
-    setQuotaFull(false)
     setError(null)
   }
 
@@ -243,7 +270,6 @@ export function MemoryPage(props: MemoryPageProps) {
     setEditBase(null)
     setNewEntry(true)
     setEntryConflict(null)
-    setQuotaFull(false)
     setError(null)
   }
 
@@ -251,11 +277,11 @@ export function MemoryPage(props: MemoryPageProps) {
     await run(async () => {
       const result = await onDelete(entry.id, entry.version)
       setLocalQuota(result.quota)
+      setQuotaFull(false)
       hiddenEntries.current.add(entry.id)
       entryOverrides.current[entry.id] = entry
       setLocalEntries((current) => current.filter((item) => item.id !== entry.id))
       setUndoEntry(entry)
-      setQuotaFull(false)
       if (undoTimer.current !== null) window.clearTimeout(undoTimer.current)
       undoTimer.current = window.setTimeout(() => setUndoEntry(null), 5000)
     }, { operation: 'delete', mine: entry.content })
@@ -266,6 +292,7 @@ export function MemoryPage(props: MemoryPageProps) {
     await run(async () => {
       const result = await onCreate(undoEntry.content)
       setLocalQuota(result.quota)
+      setQuotaFull(false)
       entryOverrides.current[result.entry.id] = result.entry
       hiddenEntries.current.delete(result.entry.id)
       setLocalEntries((current) => [result.entry, ...current.filter((entry) => entry.id !== result.entry.id)].sort((a, b) => b.updated_at.localeCompare(a.updated_at)))
@@ -289,6 +316,7 @@ export function MemoryPage(props: MemoryPageProps) {
       if (operation === 'delete') {
         const result = await onDelete(current.id, current.version)
         setLocalQuota(result.quota)
+        setQuotaFull(false)
         hiddenEntries.current.add(current.id)
         entryOverrides.current[current.id] = current
         setLocalEntries((items) => items.filter((entry) => entry.id !== current.id))
@@ -297,6 +325,8 @@ export function MemoryPage(props: MemoryPageProps) {
         undoTimer.current = window.setTimeout(() => setUndoEntry(null), 5000)
       } else {
         const result = await onUpdate(current.id, mine.trim(), current.version)
+        setLocalQuota(result.quota)
+        setQuotaFull(false)
         entryOverrides.current[result.entry.id] = result.entry
         setLocalEntries((items) => items.map((entry) => entry.id === result.entry.id ? result.entry : entry))
       }
@@ -305,55 +335,57 @@ export function MemoryPage(props: MemoryPageProps) {
   }
 
   return <section className="memory-page">
-    <header className="memory-page-toolbar">{onBack && <button type="button" onClick={onBack}><ChevronLeft size={15} />{copy('nav.settings', '设置')}</button>}<strong>{copy('settings.section.memory', '记忆')}</strong></header>
+    <header className="memory-page-toolbar">{onBack && <button type="button" onClick={onBack}><ChevronLeft size={15} />{t('nav.settings')}</button>}<strong>{t('settings.section.memory')}</strong></header>
     <div className="memory-scroll">
-      {loadError && <div className="memory-error" role="alert"><AlertCircle size={14} /><span>{loadError}</span><button type="button" onClick={() => void onReload()}>重试</button></div>}
+      {loadError && <div className="memory-error" role="alert"><AlertCircle size={14} /><span>{loadError}</span><button type="button" onClick={() => void onReload()}>{t('common.retry')}</button></div>}
       {error && <div className="memory-error" role="alert"><AlertCircle size={14} /><span>{error}</span></div>}
       <div className="memory-content">
-        <p className="memory-description">{copy('memory.desc', '这里是用户记忆：所有 Bot 共享的、关于你的习惯和偏好。「记忆整理」会根据你说的话自动记下，你也可以直接修改、删除或添加。修改后，所有 Bot 在下一次思考前就会知道。')}</p>
+        <p className="memory-description">{t('memory.desc')}</p>
+
+        {profileConflict && <div className="memory-conflict-banner memory-profile-conflict" role="alert"><AlertCircle size={15} /><button type="button" disabled={profileReloading} title={t('memory.profile.conflict_reload')} onClick={() => void reloadProfile()}>{t('memory.profile.conflict_banner').replace('{version}', String(profileConflict.current.version))}</button></div>}
 
         <section className="memory-card memory-profile-card">
-          <h2>{copy('memory.profile.title', '关于你')}</h2>
-          {!profile && <div className="memory-loading">{loading ? '正在读取用户档案…' : '暂无用户档案'}</div>}
+          <h2>{t('memory.profile.title')}</h2>
+          {!profile && (loading
+            ? <div className="memory-profile-skeleton" role="status" aria-label={t('memory.page.profile_loading')}><span /><span /><span /><span /></div>
+            : <div className="memory-loading">{t('memory.page.profile_empty')}</div>)}
           {profile && <>
-            {profileConflict && <div className="memory-conflict-banner"><AlertCircle size={15} /><span>{copy('memory.conflict', '{who} 刚刚也修改了这条记忆（版本 {n}）。查看对方的版本后再决定保存哪一份').replace('{who}', senderName(profileConflict.current.updated_by, bots)).replace('{n}', String(profileConflict.current.version))}</span><button type="button" onClick={() => setProfileConflict((current) => current ? { ...current, open: !current.open } : current)}>查看对方的版本</button></div>}
-            {profileConflict?.open && <div className="memory-conflict-compare"><div><small>我的版本</small><span>{(profileConflict.mine.name !== undefined ? profileConflict.mine.name : profile.name) ?? '—'} · {(profileConflict.mine.language !== undefined ? profileConflict.mine.language : profile.language) ?? '—'} · {(profileConflict.mine.identity !== undefined ? profileConflict.mine.identity : profile.identity) ?? '—'}</span></div><div><small>对方的版本</small><span>{profileConflict.current.name ?? '—'} · {profileConflict.current.language ?? '—'} · {profileConflict.current.identity ?? '—'}</span></div><div><button type="button" onClick={() => { setProfileForm((current) => ({ ...current, ...Object.fromEntries(Object.keys(profileConflict.mine).map((key) => [key, profileConflict.current[key as EditableProfileField]])) })); profileVersion.current = profileConflict.current.version; setProfileConflict(null) }}>{copy('memory.conflict.theirs', '用对方的')}</button><button type="button" onClick={() => void retryProfileMine()}>{copy('memory.conflict.mine', '用我的')}</button></div></div>}
             {profileError && <div className="memory-inline-error">{profileError}</div>}
             <div className="memory-profile-fields">
-              <label><span>{copy('memory.profile.name', '称呼')}</span><input disabled={profileSaving !== null} maxLength={20} placeholder={copy('memory.profile.name_hint', 'Bot 怎么叫你')} value={profileForm.name ?? ''} onChange={(event) => setProfileForm((current) => ({ ...current, name: event.target.value || null }))} onBlur={() => void saveProfile('name')} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); void saveProfile('name') } }} />{profileSaved === 'name' && <Check className="memory-saved" size={14} />}</label>
-              <label><span>{copy('memory.profile.language', '语言')}</span><select disabled={profileSaving !== null} value={profileForm.language ?? ''} onChange={(event) => { const language = event.target.value || null; setProfileForm((current) => ({ ...current, language })); void saveProfile('language', language) }}><option value="">{copy('memory.profile.language_system', '跟随系统')}</option><option value="zh-CN">简体中文</option><option value="zh-TW">繁體中文</option><option value="en">English</option><option value="ja">日本語</option>{profileForm.language && !['zh-CN', 'zh-TW', 'en', 'ja'].includes(profileForm.language) && <option value={profileForm.language}>{profileForm.language}</option>}</select>{profileSaved === 'language' && <Check className="memory-saved" size={14} />}</label>
-              <label><span>{copy('memory.profile.identity', '身份')}</span><input disabled={profileSaving !== null} maxLength={100} placeholder={copy('memory.profile.identity_hint', '一句话介绍你，例如「独立开发者，主要做 Rust 和 Android」')} value={profileForm.identity ?? ''} onChange={(event) => setProfileForm((current) => ({ ...current, identity: event.target.value || null }))} onBlur={() => void saveProfile('identity')} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); void saveProfile('identity') } }} />{profileSaved === 'identity' && <Check className="memory-saved" size={14} />}</label>
-              <div className="memory-timezone"><span>{copy('memory.profile.timezone', '时区')}</span><span className="memory-readonly"><Clock3 size={13} />{copy('memory.profile.timezone_value', '{tz} · 跟随 Host').replace('{tz}', profile.timezone)}</span></div>
+              <label><span>{t('memory.profile.name')}</span><input disabled={profileReloading} maxLength={20} placeholder={t('memory.profile.name_placeholder')} value={profileForm.name ?? ''} onChange={(event) => updateProfileField('name', event.target.value || null)} onBlur={() => void saveProfile('name')} onKeyDown={(event) => { if (shouldSaveOnEnter({ key: event.key, isComposing: event.nativeEvent.isComposing, keyCode: event.keyCode })) { event.preventDefault(); void saveProfile('name') } }} />{profileSaved === 'name' && <Check className="memory-saved" size={14} aria-label={t('memory.profile.save_success')} />}</label>
+              <label><span>{t('memory.profile.language')}</span><select disabled={profileReloading} value={profileForm.language ?? ''} onChange={(event) => { const language = event.target.value || null; updateProfileField('language', language); void saveProfile('language', language) }}><option value="">{t('memory.profile.language.system_option')}</option><option value="zh-CN">{t('memory.profile.language.zh_cn')}</option><option value="en-US">{t('memory.profile.language.en_us')}</option><option value="ja-JP">{t('memory.profile.language.ja_jp')}</option><option value="ko-KR">{t('memory.profile.language.ko_kr')}</option>{profileForm.language && !['zh-CN', 'en-US', 'ja-JP', 'ko-KR'].includes(profileForm.language) && <option value={profileForm.language}>{profileForm.language}</option>}</select>{profileSaved === 'language' && <Check className="memory-saved" size={14} aria-label={t('memory.profile.save_success')} />}</label>
+              <label><span>{t('memory.profile.identity')}</span><input disabled={profileReloading} maxLength={100} placeholder={t('memory.profile.identity_placeholder')} value={profileForm.identity ?? ''} onChange={(event) => updateProfileField('identity', event.target.value || null)} onBlur={() => void saveProfile('identity')} onKeyDown={(event) => { if (shouldSaveOnEnter({ key: event.key, isComposing: event.nativeEvent.isComposing, keyCode: event.keyCode })) { event.preventDefault(); void saveProfile('identity') } }} />{profileSaved === 'identity' && <Check className="memory-saved" size={14} aria-label={t('memory.profile.save_success')} />}</label>
+              <div className="memory-timezone"><span>{t('memory.profile.timezone')}</span><span className="memory-readonly"><Clock3 size={13} />{t('memory.profile.timezone_readonly').replace('{tz}', profile.timezone)}</span></div>
             </div>
           </>}
         </section>
 
         <section className="memory-card memory-usage-card">
-          <div className="memory-usage-heading"><strong>{copy('memory.usage', '用量')}</strong><code>{copy('memory.usage_value', '{used} / {limit} 字').replace('{used}', (localQuota?.used_chars ?? 0).toLocaleString()).replace('{limit}', (localQuota?.limit_chars ?? 1500).toLocaleString())}</code></div>
+          <div className="memory-usage-heading"><strong>{t('memory.usage')}</strong><code>{t('memory.usage_value').replace('{used}', (localQuota?.used_chars ?? 0).toLocaleString()).replace('{limit}', (localQuota?.limit_chars ?? 1500).toLocaleString())}</code></div>
           <div className="memory-progress"><span className={quotaPercent >= 100 ? 'full' : quotaPercent >= 90 ? 'near' : ''} style={{ width: `${quotaPercent}%` }} /></div>
-          <p>{copy('memory.usage_hint', '接近上限时，Bot 会自己合并相近的条目；你也可以删掉不需要的。')}</p>
+          <p>{t('memory.quota.warning_text')}</p>
         </section>
 
-        <div className="memory-tools"><label className="memory-search"><Search size={14} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={copy('memory.search', '搜索记忆')} /></label><button className="memory-button memory-button-primary" type="button" onClick={beginCreate}><Plus size={14} />{copy('memory.add', '添加')}</button></div>
-        {quotaFull && <div className="memory-quota-error" role="alert">{copy('memory.quota_full', '记忆已满，请先删除或合并几条')}</div>}
-        {entryConflict && <div className="memory-conflict-banner"><AlertCircle size={15} /><span>{copy('memory.conflict', '{who} 刚刚也修改了这条记忆（版本 {n}）。查看对方的版本后再决定保存哪一份').replace('{who}', senderName(entryConflict.current.updated_by, bots)).replace('{n}', String(entryConflict.current.version))}</span><button type="button" onClick={() => setEntryConflict((current) => current ? { ...current, open: !current.open } : current)}>查看对方的版本</button></div>}
-        {entryConflict?.open && <div className="memory-compare"><div><small>我的版本</small><p>{entryConflict.operation === 'delete' ? copy('memory.delete_entry', '删除这条记忆') : entryConflict.mine}</p></div><div><small>对方的版本</small><p>{entryConflict.current.content}</p></div><footer><button type="button" onClick={chooseTheirs}>{copy('memory.conflict.theirs', '用对方的')}</button><button type="button" className="memory-button-primary" disabled={busy} onClick={() => void keepMine()}>{copy('memory.conflict.mine', '用我的')}</button></footer></div>}
+        <div className="memory-tools"><label className="memory-search"><Search size={14} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t('memory.search')} /></label><button className="memory-button memory-button-primary" type="button" onClick={beginCreate}><Plus size={14} />{t('memory.add')}</button></div>
+        {(quotaFull || quotaAtLimit) && <div className="memory-quota-error" role="alert">{t('memory.quota_full')}</div>}
+        {entryConflict && <div className="memory-conflict-banner"><AlertCircle size={15} /><span>{t('memory.conflict').replace('{who}', senderName(entryConflict.current.updated_by, bots)).replace('{n}', String(entryConflict.current.version))}</span><button type="button" onClick={() => setEntryConflict((current) => current ? { ...current, open: !current.open } : current)}>{t('memory.conflict.view_versions')}</button></div>}
+        {entryConflict?.open && <div className="memory-compare"><div><small>{t('memory.conflict.mine_label')}</small><p>{entryConflict.operation === 'delete' ? t('memory.delete_entry') : entryConflict.mine}</p></div><div><small>{t('memory.conflict.theirs_label')}</small><p>{entryConflict.current.content}</p></div><footer><button type="button" onClick={chooseTheirs}>{t('memory.conflict.theirs')}</button><button type="button" className="memory-button-primary" disabled={busy} onClick={() => void keepMine()}>{t('memory.conflict.mine')}</button></footer></div>}
         <div className="memory-list" aria-busy={loading}>
           {newEntry && <MemoryEditor content={editContent} busy={busy} onChange={setEditContent} onSave={() => void saveEntry()} onCancel={cancelEdit} />}
-          {loading && !localEntries.length && <div className="memory-list-state">正在读取用户记忆…</div>}
-          {!loading && !filteredEntries.length && !newEntry && <div className="memory-list-state">{query ? '没有匹配的记忆' : '还没有用户记忆，点击「添加」创建一条。'}</div>}
+          {loading && !localEntries.length && <div className="memory-list-state">{t('memory.page.loading')}</div>}
+          {!loading && !filteredEntries.length && !newEntry && <div className="memory-list-state">{query ? t('memory.page.search_empty') : t('memory.page.empty')}</div>}
           {filteredEntries.map((entry) => editingId === entry.id ? <MemoryEditor key={entry.id} content={editContent} busy={busy} onChange={setEditContent} onSave={() => void saveEntry()} onCancel={cancelEdit} /> : <MemoryRow key={entry.id} entry={entry} bots={bots} chatTitle={entry.source.chat_id ? chats[entry.source.chat_id] : undefined} query={query} onEdit={() => beginEdit(entry)} onDelete={() => void deleteEntry(entry)} onOpenSource={onOpenSource} />)}
         </div>
       </div>
     </div>
-    {undoEntry && <div className="memory-toast" role="status"><Check size={14} /><span>{copy('memory.deleted', '已删除一条记忆')}</span><button type="button" onClick={() => void undoDelete()} disabled={busy}><Undo2 size={13} />{copy('memory.undo', '撤销')}</button></div>}
+    {undoEntry && <div className="memory-toast" role="status"><Check size={14} /><span>{t('memory.deleted')}</span><button type="button" onClick={() => void undoDelete()} disabled={busy}><Undo2 size={13} />{t('memory.undo')}</button></div>}
   </section>
 }
 
 function senderName(sender: MemorySender, bots: Record<string, string>) {
-  if (sender.kind === 'system') return '记忆整理'
-  if (sender.kind === 'bot') return bots[sender.bot_id] ?? 'Bot'
-  return '你'
+  if (sender.kind === 'system') return t('memory.source.system_name')
+  if (sender.kind === 'bot') return bots[sender.bot_id] ?? t('common.bot')
+  return t('common.you')
 }
 
 function highlight(content: string, query: string) {
@@ -377,22 +409,22 @@ function highlight(content: string, query: string) {
 
 function MemoryRow({ entry, bots, chatTitle, query, onEdit, onDelete, onOpenSource }: { entry: UserMemoryEntry; bots: Record<string, string>; chatTitle?: string; query: string; onEdit: () => void; onDelete: () => void; onOpenSource?: (chatId: string, messageId: string | null) => Promise<void> }) {
   const by = senderKind(entry.source.by)
-  const sourceChatTitle = chatTitle ?? '打开会话'
+  const sourceChatTitle = chatTitle ?? t('memory.page.open_source')
   return <article className="memory-row">
-    <div className="memory-row-main"><p>{highlight(entry.content, query)}</p><div className="memory-source-line">
-      {by === 'system' ? <><Sparkles size={14} /><span>{copy('memory.source.curator', '记忆整理 根据')}</span>{entry.source.chat_id && <><span>·</span><button type="button" className="memory-source-link" onClick={() => void onOpenSource?.(entry.source.chat_id!, entry.source.message_id)}>{sourceChatTitle}<ChevronRight size={12} /></button></>}</>
-        : by === 'bot' ? <><span className="memory-bot-avatar">{senderName(entry.source.by, bots).slice(0, 1)}</span><span>{copy('memory.source.bot', '{bot} 记下').replace('{bot}', senderName(entry.source.by, bots))}</span>{entry.source.chat_id && <><span>·</span><button type="button" className="memory-source-link" onClick={() => void onOpenSource?.(entry.source.chat_id!, entry.source.message_id)}>{sourceChatTitle}<ChevronRight size={12} /></button></>}</>
-          : <><UserRound size={14} /><span>{copy('memory.source.user', '你手动添加')}</span></>}
+    <div className="memory-row-main"><button className="memory-entry-content" type="button" onClick={onEdit} aria-label={t('memory.edit_entry')}>{highlight(entry.content, query)}</button><div className="memory-source-line">
+      {by === 'system' ? <><Sparkles size={16} /><span>{t('memory.source.curator')}</span>{entry.source.chat_id && <><span>·</span><button type="button" className="memory-source-link" onClick={() => void onOpenSource?.(entry.source.chat_id!, entry.source.message_id)}>{sourceChatTitle}<ChevronRight size={12} /></button></>}</>
+        : by === 'bot' ? <><span className="memory-bot-avatar">{senderName(entry.source.by, bots).slice(0, 1)}</span><span>{t('memory.source.bot').replace('{name}', senderName(entry.source.by, bots))}</span>{entry.source.chat_id && <><span>·</span><button type="button" className="memory-source-link" onClick={() => void onOpenSource?.(entry.source.chat_id!, entry.source.message_id)}>{sourceChatTitle}<ChevronRight size={12} /></button></>}</>
+          : <span>{t('memory.source.user')}</span>}
       <span>·</span><time dateTime={entry.updated_at}>{formatDate(entry.updated_at)}</time>
     </div></div>
-    <div className="memory-row-actions"><button type="button" aria-label="编辑记忆" title="编辑" onClick={onEdit}><Pencil size={14} /></button><button type="button" aria-label={copy('memory.delete_entry', '删除这条记忆')} title={copy('memory.delete_entry', '删除这条记忆')} onClick={onDelete}><Trash2 size={14} /></button></div>
+    <div className="memory-row-actions"><button type="button" aria-label={t('memory.edit_entry')} title={t('memory.edit_entry')} onClick={onEdit}><Pencil size={14} /></button><button type="button" aria-label={t('memory.delete_entry')} title={t('memory.delete_entry')} onClick={onDelete}><Trash2 size={14} /></button></div>
   </article>
 }
 
 function MemoryEditor({ content, busy, onChange, onSave, onCancel }: { content: string; busy: boolean; onChange: (value: string) => void; onSave: () => void; onCancel: () => void }) {
-  return <form className="memory-editor" onSubmit={(event) => { event.preventDefault(); onSave() }} onKeyDown={(event) => { if (event.key === 'Escape') { event.preventDefault(); onCancel() } else if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') { event.preventDefault(); onSave() } }}>
-    <textarea autoFocus maxLength={500} value={content} onChange={(event) => onChange(event.target.value)} aria-label="记忆内容" />
-    <div className="memory-editor-footer"><span>{copy('memory.edit.count', '{count} / 500 字 · ⌘↵ 保存').replace('{count}', String(charCount(content)))}</span><div><button type="button" disabled={busy} onClick={onCancel}>{copy('common.cancel', '取消')}</button><button type="submit" className="memory-button-primary" disabled={busy || !content.trim() || charCount(content) > 500}>{busy ? '保存中…' : '保存'}</button></div></div>
-    {charCount(content) > 500 && <small className="memory-inline-error">最多 500 字</small>}
+  return <form className="memory-editor" onSubmit={(event) => { event.preventDefault(); onSave() }} onKeyDown={(event) => { if (event.key === 'Escape') { event.preventDefault(); onCancel() } else if ((event.metaKey || event.ctrlKey) && shouldSaveOnEnter({ key: event.key, isComposing: event.nativeEvent.isComposing, keyCode: event.keyCode })) { event.preventDefault(); onSave() } }}>
+    <textarea autoFocus maxLength={500} value={content} onChange={(event) => onChange(event.target.value)} aria-label={t('memory.editor.content_label')} />
+    <div className="memory-editor-footer"><span>{t('memory.edit.count').replace('{count}', String(charCount(content)))}</span><div><button type="button" disabled={busy} onClick={onCancel}>{t('common.cancel')}</button><button type="submit" className="memory-button-primary" disabled={busy || !content.trim() || charCount(content) > 500}>{busy ? t('memory.editor.saving') : t('memory.editor.save')}</button></div></div>
+    {charCount(content) > 500 && <small className="memory-inline-error">{t('memory.editor.max_length')}</small>}
   </form>
 }

@@ -3,7 +3,7 @@ import test from 'node:test'
 import { CONTEXT_PANEL_TRANSITION_MS, transitionContextPanel } from './contextPanelMotion.model.ts'
 
 test('close retains the panel through the animation, then unmounts it', () => {
-  assert.equal(CONTEXT_PANEL_TRANSITION_MS, 200)
+  assert.equal(CONTEXT_PANEL_TRANSITION_MS, 360)
   assert.equal(transitionContextPanel('open', 'close'), 'closing')
   assert.equal(transitionContextPanel('closing', 'finish_close'), 'closed')
 })

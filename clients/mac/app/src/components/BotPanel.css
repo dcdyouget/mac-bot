@@ -5,8 +5,11 @@
 .bot-panel-icon:hover { background: var(--bg-hover); color: var(--text-primary); }
 .bot-panel-scroll { display: flex; min-height: 0; flex: 1; flex-direction: column; gap: 12px; overflow: auto; padding: 14px 12px 18px; scrollbar-width: thin; }
 .bot-profile { display: flex; flex: none; flex-direction: column; align-items: center; gap: 5px; padding: 7px 2px 13px; text-align: center; }
-.bot-panel-avatar { display: inline-flex; flex: none; align-items: center; justify-content: center; overflow: hidden; border: 1px solid color-mix(in srgb, var(--accent) 24%, transparent); border-radius: 50%; color: var(--text-primary); font-size: 25px; font-weight: 650; }
+.bot-panel-avatar { position: relative; display: inline-flex; flex: none; align-items: center; justify-content: center; overflow: hidden; border: 1px solid color-mix(in srgb, var(--accent) 24%, transparent); border-radius: 50%; color: var(--text-primary); font-size: 25px; font-weight: 650; }
 .bot-panel-avatar.main { box-shadow: inset 0 0 0 2px var(--bg-sidebar); }
+.bot-panel-glasses { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+.bot-panel-glasses rect { fill: rgba(255,255,255,.22); stroke: var(--avatar-glasses); stroke-width: 5; }
+.bot-panel-glasses path { fill: none; stroke: var(--avatar-glasses); stroke-width: 5; stroke-linecap: round; }
 .bot-profile > strong { max-width: 100%; overflow: hidden; font-size: 15px; font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
 .bot-profile > span:not(.bot-panel-avatar) { max-width: 100%; overflow: hidden; color: var(--text-secondary); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
 .bot-profile-actions { display: flex; align-items: center; gap: 5px; margin-top: 4px; }

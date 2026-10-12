@@ -107,7 +107,7 @@ function inlineMarkdown(text: string, keyPrefix: string) {
   return nodes
 }
 
-function MarkdownPreview({ content }: { content: string }) {
+export function MarkdownPreview({ content }: { content: string }) {
   const lines = content.split(/\r?\n/)
   const blocks: React.ReactNode[] = []
   let paragraph: string[] = []
