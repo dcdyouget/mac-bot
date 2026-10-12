@@ -919,12 +919,29 @@ mod tests {
             ..Default::default()
         };
         let (_, body) = wire_request(ApiKind::AnthropicMessages, &request);
-        assert_eq!(body["system"], "rules");
+        assert_eq!(body["system"][0]["text"], "rules");
         assert_eq!(
             body["messages"][0]["content"][0]["source"]["media_type"],
             "image/png"
         );
         assert_eq!(body["messages"][1]["content"][0]["tool_use_id"], "c");
+    }
+
+    #[test]
+    fn anthropic_system_cache_breakpoint_is_preserved() {
+        let request = ModelRequest {
+            model: "m".into(),
+            messages: vec![
+                json!({"role":"system","content":"L0-L1"}),
+                json!({"role":"system","content":"L2","cache_control":{"type":"ephemeral"}}),
+                json!({"role":"system","content":"L3-L4"}),
+            ],
+            max_output: 10,
+            ..Default::default()
+        };
+        let (_, body) = wire_request(ApiKind::AnthropicMessages, &request);
+        assert_eq!(body["system"][1]["cache_control"]["type"], "ephemeral");
+        assert!(body["system"][0].get("cache_control").is_none());
     }
     #[test]
     fn responses_tool_call_id_is_preserved() {

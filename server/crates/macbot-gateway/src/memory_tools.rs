@@ -1676,6 +1676,61 @@ mod tests {
     use std::sync::Mutex as StdMutex;
     use tempfile::tempdir;
 
+    fn memory_change(value: Value) -> MemoryChange {
+        serde_json::from_value(value).unwrap()
+    }
+
+    #[test]
+    fn memory_tool_preserves_not_allowed_error_code() {
+        let result = into_memory_result(Err(FeatureError::NotAllowed("scope is forbidden".into())));
+        assert_eq!(result.details["code"], "not_allowed");
+        assert!(result.is_error);
+    }
+
+    #[test]
+    fn incremental_messages_keep_final_entry_state_filter_self_and_catalog_large_items() {
+        let changes = vec![
+            memory_change(json!({
+                "operation_id":"a1","revision":1,"op":"add","entry_id":"u1",
+                "target":{"scope":"user","owner_id":"local-user"},"kind":"user_preference","content":"old",
+                "actor":{"kind":"user"},"source":{},"at":"2026-10-12T00:00:00Z"
+            })),
+            memory_change(json!({
+                "operation_id":"a2","revision":2,"op":"replace","entry_id":"u1",
+                "target":{"scope":"user","owner_id":"local-user"},"kind":"user_preference","content":"final preference",
+                "actor":{"kind":"user"},"source":{},"at":"2026-10-12T00:00:01Z"
+            })),
+            memory_change(json!({
+                "operation_id":"a3","revision":3,"op":"add","entry_id":"b1",
+                "target":{"scope":"bot","owner_id":"bot-a"},"kind":"bot_experience","content":"current bot own write",
+                "actor":{"kind":"bot","bot_id":"bot-a","run_id":"run-current"},"source":{},"at":"2026-10-12T00:00:02Z"
+            })),
+            memory_change(json!({
+                "operation_id":"a4","revision":4,"op":"add","entry_id":"p1",
+                "target":{"scope":"project","owner_id":"project-a"},"kind":"project_knowledge","content":"Decision: ship in two phases\nFurther detail",
+                "actor":{"kind":"bot","bot_id":"bot-b","run_id":"run-other"},"source":{},"at":"2026-10-12T00:00:03Z"
+            })),
+        ];
+        let update = render_memory_updates(
+            changes,
+            &[
+                MemoryTarget::user("local-user"),
+                MemoryTarget::bot("bot-a"),
+                MemoryTarget::project("project-a"),
+            ],
+            "bot-a",
+            "run-current",
+        )
+        .unwrap();
+        assert!(update.contains("revision=\"4\""));
+        assert_eq!(update.matches("u1").count(), 1);
+        assert!(update.contains("final preference"));
+        assert!(!update.contains("old"));
+        assert!(!update.contains("current bot own write"));
+        assert!(update.contains("p1 [project_knowledge] topic: Decision: ship in two phases"));
+        assert!(!update.contains("Further detail"));
+    }
+
     fn runtime() -> FeatureToolRuntime {
         let home = tempdir().unwrap().keep();
         let service = Arc::new(FeatureService::open(home, Vec::new()).unwrap());
@@ -1756,7 +1811,7 @@ mod tests {
             "version": 1,
             "content": "legacy alias"
         }))
-        .is_ok());
+        .is_err());
         assert!(validate_memory_tool_args(&json!({
             "scope": "bot",
             "bot_id": "bot-a",
@@ -1923,7 +1978,6 @@ mod tests {
             .find(|tool| tool.name() == "memory")
             .unwrap();
         let context = ToolContext::new("/tmp", "run-1", "/tmp/runs");
-        runtime.run_started("run-1").unwrap();
         let result = memory
             .call(
                 &context,
@@ -1941,7 +1995,6 @@ mod tests {
             .iter()
             .any(|event| event.event == "memory.updated"));
         assert_eq!(runtime.service.shared_memory.entries().unwrap().len(), 1);
-        runtime.run_failed("run-1").unwrap();
         assert_eq!(runtime.service.shared_memory.entries().unwrap().len(), 1);
 
         let current = runtime.service.shared_memory.entries().unwrap().remove(0);
@@ -2008,38 +2061,24 @@ mod tests {
     #[tokio::test]
     async fn memory_search_tool_does_not_leak_other_users_or_bots() {
         let runtime = runtime();
-        runtime.service.begin_memory_run("seed").unwrap();
-        runtime
-            .service
-            .stage_memory(
-                &MemoryActor::System,
-                "seed",
-                macbot_memory::MemoryRequest {
-                    target: MemoryTarget::user("user-other"),
+        for target in [MemoryTarget::user("user-other"), MemoryTarget::bot("bot-b")] {
+            runtime
+                .service
+                .shared_memory
+                .add(macbot_memory::MemoryRequest {
+                    target: target.clone(),
                     action: macbot_memory::MemoryAction::Add,
-                    content: "secret other user".into(),
+                    content: format!("secret {}", target.owner_id),
                     id: None,
-                    kind: Some(macbot_memory::MemoryKind::UserPreference),
+                    kind: Some(if target.scope == MemoryScope::User {
+                        macbot_memory::MemoryKind::UserPreference
+                    } else {
+                        macbot_memory::MemoryKind::BotExperience
+                    }),
                     source: MemorySource::default(),
-                },
-            )
-            .unwrap();
-        runtime
-            .service
-            .stage_memory(
-                &MemoryActor::System,
-                "seed",
-                macbot_memory::MemoryRequest {
-                    target: MemoryTarget::bot("bot-b"),
-                    action: macbot_memory::MemoryAction::Add,
-                    content: "secret other bot".into(),
-                    id: None,
-                    kind: Some(macbot_memory::MemoryKind::BotExperience),
-                    source: MemorySource::default(),
-                },
-            )
-            .unwrap();
-        runtime.service.commit_memory_run("seed").unwrap();
+                })
+                .unwrap();
+        }
         let search = runtime
             .tools()
             .into_iter()
@@ -2072,7 +2111,6 @@ mod tests {
             .find(|tool| tool.name() == "memory")
             .unwrap();
         let context = ToolContext::new("/tmp", "run-a", "/tmp/runs");
-        first.run_started("run-a").unwrap();
         assert!(!memory
             .call(
                 &context,
@@ -2080,7 +2118,6 @@ mod tests {
             )
             .await
             .is_error);
-        first.run_failed("run-a").unwrap();
 
         let search = second
             .tools()
@@ -2096,7 +2133,6 @@ mod tests {
         assert!(!hidden.is_error);
         assert_eq!(hidden.details["entries"].as_array().unwrap().len(), 0);
 
-        first.run_started("run-failed").unwrap();
         assert!(!memory
             .call(
                 &ToolContext::new("/tmp", "run-failed", "/tmp/runs"),
@@ -2104,7 +2140,6 @@ mod tests {
             )
             .await
             .is_error);
-        first.run_failed("run-failed").unwrap();
         assert!(
             service
                 .memory_search("must persist", Some(&MemoryTarget::bot("bot-a")))
@@ -2248,6 +2283,396 @@ mod tests {
         }
 
         async fn approval_required(&self, _: Value) {}
+    }
+
+    struct OrderedMaintenance {
+        calls: Arc<StdMutex<Vec<String>>>,
+        summarized: Arc<StdMutex<String>>,
+    }
+
+    #[async_trait]
+    impl macbot_memory::AsyncMaintenanceProvider for OrderedMaintenance {
+        async fn summarize(&self, text: &str) -> Result<String, macbot_memory::MemoryError> {
+            self.calls.lock().unwrap().push("summarize".into());
+            *self.summarized.lock().unwrap() = text.to_owned();
+            Ok("compact durable conversation".into())
+        }
+
+        async fn extract(
+            &self,
+            _text: &str,
+        ) -> Result<Vec<macbot_memory::MemoryDraft>, macbot_memory::MemoryError> {
+            self.calls.lock().unwrap().push("extract".into());
+            Ok(Vec::new())
+        }
+    }
+
+    #[tokio::test]
+    async fn context_window_segment_extracts_trims_summarizes_then_rebuilds_l2() {
+        let home = tempdir().unwrap().keep();
+        let service = Arc::new(FeatureService::open(home, Vec::new()).unwrap());
+        let calls = Arc::new(StdMutex::new(Vec::new()));
+        let summarized = Arc::new(StdMutex::new(String::new()));
+        service
+            .set_maintenance_provider(Some(Arc::new(OrderedMaintenance {
+                calls: calls.clone(),
+                summarized: summarized.clone(),
+            })))
+            .unwrap();
+        let mut warm_run = FeatureRunContext::bot("bot-a", "user-a");
+        warm_run.model_context_window = 100_000;
+        warm_run.run_id = Some("warm-run".into());
+        warm_run.chat_id = Some("chat-segment".into());
+        warm_run.session_id = Some("chat-segment".into());
+        let delegate = Arc::new(EventRecordingSink::default());
+        let sink = FeatureExecutionSink::new(
+            delegate.clone(),
+            FeatureToolRuntime::new(service.clone(), warm_run),
+        );
+        let request = crate::execution::ExecutionRequest {
+            run_id: "warm-run".into(),
+            assignment_id: None,
+            source_message_id: None,
+            chat_id: "chat-segment".into(),
+            bot_id: "bot-a".into(),
+            model: "mock/model".into(),
+            provider_id: "mock".into(),
+            project_id: None,
+            instruction: "finish the setup".into(),
+            messages: vec![json!({"role":"user","content":"starting"})],
+            max_turns: 1,
+            private: true,
+            allow_unsafe: false,
+            cwd: None,
+            routine: false,
+            price: None,
+            resume_approved: false,
+            subagent: false,
+            tools: None,
+            phase: None,
+            parent_run_id: None,
+            subagent_task: None,
+            save_full_requests: false,
+            resume_message: None,
+            client_locale: None,
+        };
+        sink.prepare_model_context(&request).await.unwrap().unwrap();
+        sink.model_context_checkpointed(&request).await;
+
+        let mut compact_run = FeatureRunContext::bot("bot-a", "user-a");
+        compact_run.model_context_window = 2;
+        compact_run.run_id = Some("compact-run".into());
+        compact_run.chat_id = Some("chat-segment".into());
+        compact_run.session_id = Some("chat-segment".into());
+        let sink =
+            FeatureExecutionSink::new(delegate, FeatureToolRuntime::new(service, compact_run));
+        let mut compact_request = request;
+        compact_request.run_id = "compact-run".into();
+        compact_request.messages = vec![
+            json!({"role":"tool","content":"z".repeat(500)}),
+            json!({"role":"user","content":"u1"}),
+            json!({"role":"assistant","content":"a1"}),
+            json!({"role":"tool","content":"recent tool output"}),
+            json!({"role":"user","content":"current question"}),
+        ];
+        let context = sink
+            .prepare_model_context(&compact_request)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(*calls.lock().unwrap(), vec!["extract", "summarize"]);
+        assert!(summarized.lock().unwrap().contains(&"z".repeat(240)));
+        assert!(!summarized.lock().unwrap().contains(&"z".repeat(241)));
+        assert!(context["compaction_summary"].as_str().is_some());
+        assert_eq!(context["system_blocks"].as_array().unwrap().len(), 2);
+    }
+
+    #[tokio::test]
+    async fn oversized_first_context_extracts_before_summarizing() {
+        let home = tempdir().unwrap().keep();
+        let service = Arc::new(FeatureService::open(home, Vec::new()).unwrap());
+        let calls = Arc::new(StdMutex::new(Vec::new()));
+        let summarized = Arc::new(StdMutex::new(String::new()));
+        service
+            .set_maintenance_provider(Some(Arc::new(OrderedMaintenance {
+                calls: calls.clone(),
+                summarized: summarized.clone(),
+            })))
+            .unwrap();
+        let mut run = FeatureRunContext::bot("bot-a", "user-a");
+        run.model_context_window = 2;
+        run.run_id = Some("first-oversized-run".into());
+        run.chat_id = Some("first-oversized-chat".into());
+        run.session_id = Some("first-oversized-chat".into());
+        let sink = FeatureExecutionSink::new(
+            Arc::new(EventRecordingSink::default()),
+            FeatureToolRuntime::new(service, run),
+        );
+        let request = crate::execution::ExecutionRequest {
+            run_id: "first-oversized-run".into(),
+            assignment_id: None,
+            source_message_id: None,
+            chat_id: "first-oversized-chat".into(),
+            bot_id: "bot-a".into(),
+            model: "mock/model".into(),
+            provider_id: "mock".into(),
+            project_id: None,
+            instruction: "summarize current work".into(),
+            messages: vec![json!({"role":"user","content":"x".repeat(500)})],
+            max_turns: 1,
+            private: true,
+            allow_unsafe: false,
+            cwd: None,
+            routine: false,
+            price: None,
+            resume_approved: false,
+            subagent: false,
+            tools: None,
+            phase: None,
+            parent_run_id: None,
+            subagent_task: None,
+            save_full_requests: false,
+            resume_message: None,
+            client_locale: None,
+        };
+        let context = sink.prepare_model_context(&request).await.unwrap().unwrap();
+        assert_eq!(*calls.lock().unwrap(), vec!["extract", "summarize"]);
+        assert!(summarized.lock().unwrap().contains(&"x".repeat(240)));
+        assert_eq!(context["system_blocks"].as_array().unwrap().len(), 2);
+        assert!(context["compaction_summary"].as_str().is_some());
+    }
+
+    #[tokio::test]
+    async fn private_project_find_selection_opens_segment_and_loads_project_catalog() {
+        let home = tempdir().unwrap().keep();
+        let service = Arc::new(FeatureService::open(home, Vec::new()).unwrap());
+        let calls = Arc::new(StdMutex::new(Vec::new()));
+        let summarized = Arc::new(StdMutex::new(String::new()));
+        service
+            .set_maintenance_provider(Some(Arc::new(OrderedMaintenance {
+                calls: calls.clone(),
+                summarized: summarized.clone(),
+            })))
+            .unwrap();
+        service
+            .add_project_record(macbot_memory::ProjectRecord {
+                id: "project-atlas".into(),
+                name: "Atlas project".into(),
+                goal: "Build the Atlas service".into(),
+                content: "Atlas service architecture".into(),
+            })
+            .unwrap();
+        service
+            .memory_rpc(
+                &MemoryActor::main("main-bot"),
+                json!({
+                    "operation_id":"project-memory-seed",
+                    "run_id":"project-seed-run",
+                    "scope":"project",
+                    "project_id":"project-atlas",
+                    "action":"add",
+                    "kind":"project",
+                    "content":"Atlas architecture: event-driven gateway"
+                }),
+            )
+            .unwrap();
+
+        let mut run = FeatureRunContext::main("main-bot", "local-user");
+        run.private = true;
+        run.run_id = Some("private-project-run".into());
+        run.chat_id = Some("private-project-chat".into());
+        run.session_id = Some("private-project-chat".into());
+        let runtime = FeatureToolRuntime::new(service, run);
+        let sink = runtime.execution_sink(Arc::new(EventRecordingSink::default()));
+        let request = crate::execution::ExecutionRequest {
+            run_id: "private-project-run".into(),
+            assignment_id: None,
+            source_message_id: None,
+            chat_id: "private-project-chat".into(),
+            bot_id: "main-bot".into(),
+            model: "mock/model".into(),
+            provider_id: "mock".into(),
+            project_id: None,
+            instruction: "work on Atlas".into(),
+            messages: vec![json!({"role":"user","content":"work on Atlas"})],
+            max_turns: 1,
+            private: true,
+            allow_unsafe: false,
+            cwd: None,
+            routine: false,
+            price: None,
+            resume_approved: false,
+            subagent: false,
+            tools: None,
+            phase: None,
+            parent_run_id: None,
+            subagent_task: None,
+            save_full_requests: false,
+            resume_message: None,
+            client_locale: None,
+        };
+        sink.prepare_model_context(&request).await.unwrap();
+        sink.model_context_checkpointed(&request).await;
+
+        let project_find = runtime
+            .tools()
+            .into_iter()
+            .find(|tool| tool.name() == "project_find")
+            .unwrap();
+        let context = ToolContext::new("/tmp", "private-project-run", "/tmp/runs");
+        let found = project_find.call(&context, json!({"query":"Atlas"})).await;
+        assert!(!found.is_error);
+        assert_eq!(found.details["projects"][0]["id"], "project-atlas");
+        let selected = project_find
+            .call(
+                &context,
+                json!({"query":"Atlas","project_id":"project-atlas"}),
+            )
+            .await;
+        assert!(!selected.is_error);
+        assert_eq!(selected.details["selected_project_id"], "project-atlas");
+
+        let next_context = sink.prepare_model_context(&request).await.unwrap().unwrap();
+        assert_eq!(*calls.lock().unwrap(), vec!["extract", "summarize"]);
+        assert!(next_context["system_blocks"][0]["content"]
+            .as_str()
+            .unwrap()
+            .contains("Atlas architecture"));
+    }
+
+    #[tokio::test]
+    async fn memory_delta_is_visible_again_in_a_later_run_of_the_same_segment() {
+        let home = tempdir().unwrap().keep();
+        let run_checkpoint_path = home.join("data/memory/segments/run-one.json");
+        let service = Arc::new(FeatureService::open(home.clone(), Vec::new()).unwrap());
+        let bot_entry = service
+            .memory_rpc(
+                &MemoryActor::bot("bot-a"),
+                json!({
+                    "operation_id":"seed-entry",
+                    "run_id":"seed-run",
+                    "scope":"bot",
+                    "bot_id":"bot-a",
+                    "action":"add",
+                    "kind":"bot_experience",
+                    "content":"old durable guidance"
+                }),
+            )
+            .unwrap();
+        let delegate = Arc::new(EventRecordingSink::default());
+        let mut run_context = FeatureRunContext::bot("bot-a", "local-user");
+        run_context.run_id = Some("run-one".into());
+        run_context.chat_id = Some("same-chat".into());
+        run_context.session_id = Some("same-chat".into());
+        run_context.host_timezone = Some("America/Los_Angeles".into());
+        let sink = FeatureExecutionSink::new(
+            delegate.clone(),
+            FeatureToolRuntime::new(service.clone(), run_context),
+        );
+        let mut request = crate::execution::ExecutionRequest {
+            run_id: "run-one".into(),
+            assignment_id: None,
+            source_message_id: None,
+            chat_id: "same-chat".into(),
+            bot_id: "bot-a".into(),
+            model: "mock/model".into(),
+            provider_id: "mock".into(),
+            project_id: None,
+            instruction: "help me".into(),
+            messages: vec![json!({"role":"user","content":"hello"})],
+            max_turns: 1,
+            private: true,
+            allow_unsafe: false,
+            cwd: None,
+            routine: false,
+            price: None,
+            resume_approved: false,
+            subagent: false,
+            tools: None,
+            phase: None,
+            parent_run_id: None,
+            subagent_task: None,
+            save_full_requests: false,
+            resume_message: None,
+            client_locale: None,
+        };
+        let initial_context = sink.prepare_model_context(&request).await.unwrap().unwrap();
+        assert!(initial_context["system_blocks"][1]["content"]
+            .as_str()
+            .unwrap()
+            .contains("America/Los_Angeles"));
+        sink.model_context_checkpointed(&request).await;
+        assert!(run_checkpoint_path.exists());
+        let run_checkpoint: Value =
+            serde_json::from_slice(&std::fs::read(&run_checkpoint_path).unwrap()).unwrap();
+        assert_eq!(
+            run_checkpoint["seen_revision"],
+            service.shared_memory.revision().unwrap()
+        );
+        service
+            .user_memory_rpc(
+                "memory.user.create",
+                json!({"content":"prefers concise replies"}),
+                "UTC",
+            )
+            .unwrap();
+        service
+            .memory_rpc(
+                &MemoryActor::bot("bot-a"),
+                json!({
+                    "operation_id":"replace-entry",
+                    "run_id":"update-run",
+                    "scope":"bot",
+                    "bot_id":"bot-a",
+                    "action":"replace",
+                    "kind":"bot_experience",
+                    "id":bot_entry["entry_id"],
+                    "expected_version":bot_entry["version"],
+                    "content":"new durable guidance"
+                }),
+            )
+            .unwrap();
+        let first_update = sink.prepare_model_context(&request).await.unwrap().unwrap();
+        assert!(first_update["memory_update"]
+            .as_str()
+            .unwrap()
+            .contains("prefers concise replies"));
+        sink.model_context_checkpointed(&request).await;
+
+        request.run_id = "run-two".into();
+        request.messages = vec![json!({"role":"user","content":"another question"})];
+        let mut second_context = FeatureRunContext::bot("bot-a", "local-user");
+        second_context.run_id = Some("run-two".into());
+        second_context.chat_id = Some("same-chat".into());
+        second_context.session_id = Some("same-chat".into());
+        second_context.host_timezone = Some("Asia/Tokyo".into());
+        let second_sink =
+            FeatureExecutionSink::new(delegate, FeatureToolRuntime::new(service, second_context));
+        let second_update = second_sink
+            .prepare_model_context(&request)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            initial_context["system_blocks"][0]["content"],
+            second_update["system_blocks"][0]["content"]
+        );
+        assert!(second_update["memory_update"]
+            .as_str()
+            .unwrap()
+            .contains("prefers concise replies"));
+        assert!(second_update["system_blocks"][0]["content"]
+            .as_str()
+            .unwrap()
+            .contains("old durable guidance"));
+        assert!(second_update["system_blocks"][1]["content"]
+            .as_str()
+            .unwrap()
+            .contains("Asia/Tokyo"));
+        assert!(!second_update["system_blocks"][0]["content"]
+            .as_str()
+            .unwrap()
+            .contains("new durable guidance"));
     }
 
     #[tokio::test]

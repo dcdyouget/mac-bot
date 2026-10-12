@@ -8330,14 +8330,21 @@ mod model_resolution_tests {
 #[cfg(test)]
 mod persistence_tests {
     use super::{
-        host_default_locale, ComposedBackend, ExecutionRequest, ProductionBackend, RuntimeExecution,
+        host_default_locale, ComposedBackend, ExecutionEvent, ExecutionRequest, FeatureRunContext,
+        FeatureToolRuntime, ProductionBackend, ProjectFindToolBridge, RuntimeExecution,
     };
+    use crate::execution::ExecutionSink;
     use crate::features::FeatureService;
     use crate::{Gateway, GatewayConfig, RpcBackend};
     use async_trait::async_trait;
-    use macbot_memory::{AsyncMaintenanceProvider, MemoryError, MemorySource, MemoryTarget};
+    use macbot_memory::{
+        AsyncMaintenanceProvider, MemoryAction, MemoryError, MemoryKind, MemoryRequest,
+        MemorySource, MemoryTarget, ProjectRecord,
+    };
+    use macbot_tools::{Tool, ToolContext};
     use serde_json::{json, Value};
     use std::fs;
+    use std::path::PathBuf;
     use std::sync::atomic::Ordering;
     use std::sync::Arc;
     use tempfile::tempdir;
@@ -8350,6 +8357,24 @@ mod persistence_tests {
         async fn summarize(&self, _: &str) -> Result<String, MemoryError> {
             Ok("maintenance summary".into())
         }
+    }
+
+    #[derive(Default)]
+    struct NullExecutionSink;
+
+    #[async_trait]
+    impl ExecutionSink for NullExecutionSink {
+        async fn emit(&self, _: ExecutionEvent) {}
+
+        async fn send_group_message(&self, _: Value) -> Result<Value, String> {
+            Err("not used by project selection test".into())
+        }
+
+        async fn validate_send_msg_target(&self, _: &Value) -> Result<(), String> {
+            Ok(())
+        }
+
+        async fn approval_required(&self, _: Value) {}
     }
 
     async fn seeded_backend() -> (Arc<ProductionBackend>, crate::GatewayState, Vec<String>) {
@@ -8404,6 +8429,84 @@ mod persistence_tests {
             assignments.push(value["id"].as_str().unwrap().to_owned());
         }
         (backend, gateway.state, assignments)
+    }
+
+    #[tokio::test]
+    async fn project_find_bridge_selection_reaches_next_private_model_context() {
+        let home = tempdir().unwrap().keep();
+        let service = Arc::new(FeatureService::open(home, Vec::<PathBuf>::new()).unwrap());
+        service
+            .add_project_record(ProjectRecord {
+                id: "project-atlas".into(),
+                name: "Atlas project".into(),
+                goal: "Build the Atlas service".into(),
+                content: "Atlas event gateway".into(),
+            })
+            .unwrap();
+        service
+            .shared_memory
+            .add(MemoryRequest {
+                target: MemoryTarget::project("project-atlas"),
+                action: MemoryAction::Add,
+                content: "Atlas architecture uses an event gateway".into(),
+                id: None,
+                kind: Some(MemoryKind::Project),
+                source: MemorySource::default(),
+            })
+            .unwrap();
+
+        let mut run = FeatureRunContext::bot("worker-a", "local-user");
+        run.private = true;
+        run.run_id = Some("private-project-selection".into());
+        run.chat_id = Some("private-chat".into());
+        run.session_id = Some("private-chat".into());
+        let runtime = FeatureToolRuntime::new(service, run);
+        let bridge = ProjectFindToolBridge {
+            runtime: runtime.clone(),
+            visible_project_ids: vec!["project-atlas".into()],
+        };
+        let selected = bridge
+            .call(
+                &ToolContext::new("/tmp", "private-project-selection", "/tmp/runs"),
+                json!({"query":"Atlas","project_id":"project-atlas"}),
+            )
+            .await;
+        assert!(!selected.is_error);
+        assert_eq!(selected.details["selected_project_id"], "project-atlas");
+
+        let sink = runtime.execution_sink(Arc::new(NullExecutionSink));
+        let request = ExecutionRequest {
+            run_id: "private-project-selection".into(),
+            assignment_id: None,
+            source_message_id: None,
+            chat_id: "private-chat".into(),
+            bot_id: "worker-a".into(),
+            model: "mock/model".into(),
+            provider_id: "mock".into(),
+            project_id: None,
+            instruction: "work on Atlas".into(),
+            messages: vec![json!({"role":"user","content":"work on Atlas"})],
+            max_turns: 1,
+            private: true,
+            allow_unsafe: false,
+            cwd: None,
+            routine: false,
+            price: None,
+            resume_approved: false,
+            subagent: false,
+            tools: None,
+            phase: None,
+            parent_run_id: None,
+            subagent_task: None,
+            save_full_requests: false,
+            resume_message: None,
+            client_locale: None,
+        };
+        let context = sink.prepare_model_context(&request).await.unwrap().unwrap();
+        assert!(context["system_blocks"][0]["content"]
+            .as_str()
+            .unwrap()
+            .contains("Atlas architecture uses an event gateway"));
     }
 
     #[tokio::test]
@@ -8512,8 +8615,8 @@ mod persistence_tests {
 
         let private_access = composed.runtime.feature_access(&private);
         let group_access = composed.runtime.feature_access(&group);
-        assert_eq!(private_access.user_id.as_deref(), Some("user"));
-        assert_eq!(group_access.user_id.as_deref(), Some("user"));
+        assert_eq!(private_access.user_id.as_deref(), Some("local-user"));
+        assert_eq!(group_access.user_id.as_deref(), Some("local-user"));
         assert_eq!(group_access.project_id.as_deref(), Some(project_id));
         assert!(group_access.is_project_member(bot_id, project_id));
     }

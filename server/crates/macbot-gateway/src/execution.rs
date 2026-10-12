@@ -3181,6 +3181,81 @@ fn args_with_operation_id(call: &ToolCall, run_id: &str) -> Value {
     args
 }
 
+#[cfg(test)]
+mod prepared_context_tests {
+    use super::{apply_prepared_model_context, compact_model_messages, prepend_memory_update};
+    use serde_json::json;
+
+    #[test]
+    fn memory_update_precedes_first_user_message_and_preserves_tool_result_fields() {
+        let mut messages = vec![
+            json!({"role":"assistant","content":"thinking"}),
+            json!({"role":"user","content":"first"}),
+            json!({"role":"user","content":"second"}),
+        ];
+        prepend_memory_update(
+            &mut messages,
+            "<memory_update revision=\"3\">x</memory_update>",
+        );
+        assert_eq!(
+            messages[1]["content"],
+            "<memory_update revision=\"3\">x</memory_update>\n\nfirst"
+        );
+        assert_eq!(messages[2]["content"], "second");
+
+        let mut tool = json!({"role":"tool","tool_call_id":"c1","content":"result"});
+        prepend_memory_update(
+            std::slice::from_mut(&mut tool),
+            "<memory_update revision=\"4\">y</memory_update>",
+        );
+        assert_eq!(tool["tool_call_id"], "c1");
+        assert!(tool["content"]
+            .as_str()
+            .unwrap()
+            .starts_with("<memory_update"));
+    }
+
+    #[test]
+    fn structured_context_keeps_two_blocks_and_moves_dynamic_system_after_l3() {
+        let mut messages = vec![
+            json!({"role":"system","content":"locale directive"}),
+            json!({"role":"user","content":"hello"}),
+        ];
+        apply_prepared_model_context(
+            &mut messages,
+            json!({"system_blocks":[
+                {"level":2,"content":"L0-L2","cache_control":{"type":"ephemeral"}},
+                {"level":3,"content":"L3-L4"}
+            ],"memory_update":"<memory_update revision=\"2\">x</memory_update>"}),
+        );
+        assert_eq!(messages.iter().filter(|m| m["role"] == "system").count(), 2);
+        assert_eq!(messages[0]["cache_control"]["type"], "ephemeral");
+        assert!(messages[1]["content"]
+            .as_str()
+            .unwrap()
+            .contains("locale directive"));
+        assert!(messages[2]["content"]
+            .as_str()
+            .unwrap()
+            .starts_with("<memory_update"));
+    }
+
+    #[test]
+    fn compaction_keeps_recent_turns_after_summary_and_system_blocks() {
+        let mut messages = vec![json!({"role":"system","content":"rules"})];
+        for index in 0..12 {
+            messages.push(json!({"role":"user","content":format!("u{index}")}));
+        }
+        compact_model_messages(&mut messages, "summary", 4);
+        assert_eq!(
+            messages[1]["content"],
+            "Earlier conversation summary:\nsummary"
+        );
+        assert_eq!(messages.len(), 6);
+        assert_eq!(messages[2]["content"], "u8");
+    }
+}
+
 fn tool_message(call_id: &str, result: &ToolResult) -> Value {
     let text = result
         .content
@@ -6192,11 +6267,15 @@ mod tests {
             .filter_map(|entry| std::fs::read_to_string(entry.path()).ok())
             .filter_map(|text| serde_json::from_str::<Value>(&text).ok())
             .collect::<Vec<_>>();
-        assert!(checkpoints.iter().any(|job| job["checkpoint"]["messages"]
-            .as_array()
-            .is_some_and(|messages| messages.iter().any(|message| {
-                message["assistant_content"]["api_kind"] == "anthropic-messages"
-            }))));
+        assert!(checkpoints.iter().any(|job| {
+            job["checkpoint"]["messages"]
+                .as_array()
+                .is_some_and(|messages| {
+                    messages.iter().any(|message| {
+                        message["assistant_content"]["api_kind"] == "anthropic-messages"
+                    })
+                })
+        }));
         let usage_records = std::fs::read_dir(dir.path().join("data/usage/raw"))
             .unwrap()
             .flat_map(|entry| {

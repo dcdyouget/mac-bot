@@ -4562,11 +4562,37 @@ mod tests {
         // Crash point: memory snapshot committed, later event/changelog writes did not.
         service
             .shared_memory
-            .user_delete_persisted(
+            .transact_user_persisted_with_actor(
                 &service.memory_path,
-                &MemoryTarget::user("local-user"),
-                &entry_id,
-                previous.version,
+                Some(&operation_id),
+                &signature(
+                    "curator.delete",
+                    &json!({"entry_id":entry_id,"version":previous.version}),
+                ),
+                MemoryChangeActor {
+                    kind: MemoryChangeActorKind::System,
+                    bot_id: None,
+                    run_id: Some(operation_id.clone()),
+                },
+                |store| {
+                    store.apply_user_delete(
+                        &MemoryTarget::user("local-user"),
+                        &entry_id,
+                        previous.version,
+                    )?;
+                    Ok((
+                        json!({"entry_id":entry_id}),
+                        "memory.user.deleted".into(),
+                        json!({"entry_id":entry_id}),
+                        Some(user_memory_audit_data(
+                            operation_id.clone(),
+                            "delete",
+                            Some(&entry_id),
+                            Some(&previous.content),
+                            None,
+                        )),
+                    ))
+                },
             )
             .unwrap();
         drop(service);
@@ -4679,25 +4705,26 @@ mod tests {
             .shared_store
             .read_jsonl::<Value>(MEMORY_CHANGELOG_FILE)
             .unwrap();
-        assert_eq!(changelog.len(), 4);
+        assert_eq!(changelog.len(), 5);
         let find = |operation_id: &str| {
             changelog
                 .iter()
                 .find(|row| row["operation_id"] == operation_id)
                 .unwrap()
         };
-        let created = find("user-memory:manual-create");
-        assert_eq!(created["op"], "create");
+        let created = find("manual-create");
+        assert_eq!(created["op"], "add");
         assert_eq!(created["content"], "偏好 A");
         assert_eq!(created["prev_content"], Value::Null);
         assert_eq!(created["actor"]["kind"], "user");
         assert_eq!(created["source"]["by"]["kind"], "user");
         assert_eq!(created["source"]["chat_id"], Value::Null);
 
-        let updated = find("user-memory:manual-update");
+        let updated = find("manual-update");
+        assert_eq!(updated["op"], "replace");
         assert_eq!(updated["prev_content"], "偏好 A");
         assert_eq!(updated["content"], "偏好 B");
-        let profile = find("user-memory:manual-profile");
+        let profile = find("manual-profile");
         assert_eq!(profile["kind"], "user_profile");
         assert!(profile["prev_content"]
             .as_str()
@@ -4707,7 +4734,8 @@ mod tests {
             .as_str()
             .unwrap()
             .contains("\"name\":\"小林\""));
-        let deleted = find("user-memory:manual-delete");
+        let deleted = find("manual-delete");
+        assert_eq!(deleted["op"], "remove");
         assert_eq!(deleted["prev_content"], "偏好 B");
         assert_eq!(deleted["content"], "");
         let curator_state = service
@@ -4757,7 +4785,7 @@ mod tests {
         assert_eq!(
             changelog
                 .iter()
-                .filter(|row| row["operation_id"] == "user-memory:concurrent-memory-create")
+                .filter(|row| row["operation_id"] == "concurrent-memory-create")
                 .count(),
             1
         );
@@ -4842,7 +4870,7 @@ mod tests {
         assert_eq!(
             changelog
                 .iter()
-                .filter(|row| row["operation_id"] == "user-memory:crash-manual-delete")
+                .filter(|row| row["operation_id"] == "crash-manual-delete")
                 .count(),
             1
         );
@@ -5029,7 +5057,7 @@ mod tests {
             &MemoryActor::main("bot-main"), &MemoryAccess::user("local-user"),
             json!({"scope":"user","user_id":"local-user","run_id":"bot-run","content":"must not write user preference"}),
         );
-        assert!(matches!(bot_write, Err(FeatureError::Invalid(_))));
+        assert!(matches!(bot_write, Err(FeatureError::NotAllowed(_))));
     }
 
     #[test]
@@ -5048,6 +5076,7 @@ mod tests {
                 name: Some("Ari".into()),
                 language: Some("zh-CN".into()),
                 identity: Some("product designer".into()),
+                complete: false,
                 skip: false,
             })
             .unwrap();
@@ -5069,6 +5098,7 @@ mod tests {
             name: Some("Other".into()),
             language: None,
             identity: None,
+            complete: false,
             skip: false,
         });
         assert!(matches!(stale, Err(FeatureError::UserProfileConflict(_))));
@@ -5090,11 +5120,12 @@ mod tests {
         assert_eq!(initial.prompt, Some(ProfileOnboardingPrompt::Initialize));
         let reminder = service.profile_onboarding_status("UTC").unwrap();
         assert_eq!(reminder.prompt, Some(ProfileOnboardingPrompt::Reminder));
+        assert!(reminder.available);
         drop(service);
 
         let restored = FeatureService::open(home.clone(), Vec::<PathBuf>::new()).unwrap();
         let after_restart = restored.profile_onboarding_status("UTC").unwrap();
-        assert!(after_restart.available);
+        assert!(!after_restart.available);
         assert_eq!(after_restart.prompt, None);
         let skipped = restored
             .set_user_profile_onboarding(UserProfileOnboardingInput {
@@ -5104,6 +5135,7 @@ mod tests {
                 name: None,
                 language: None,
                 identity: None,
+                complete: false,
                 skip: true,
             })
             .unwrap();
@@ -5111,6 +5143,47 @@ mod tests {
         assert_eq!(skipped.result["profile"]["updated_by"]["kind"], "bot");
         assert_eq!(skipped.result["profile"]["timezone"], "Asia/Shanghai");
         assert!(!restored.profile_onboarding_status("UTC").unwrap().available);
+    }
+
+    #[test]
+    fn partial_profile_answer_stays_unonboarded_until_complete_or_skip() {
+        let service = service();
+        let initial = service.profile_onboarding_status("Asia/Shanghai").unwrap();
+        assert_eq!(initial.prompt, Some(ProfileOnboardingPrompt::Initialize));
+        let partial = service
+            .set_user_profile_onboarding(UserProfileOnboardingInput {
+                run_id: "run-profile-partial".into(),
+                bot_id: "main-bot".into(),
+                expected_version: 1,
+                name: Some("Ari".into()),
+                language: None,
+                identity: None,
+                complete: false,
+                skip: false,
+            })
+            .unwrap();
+        assert_eq!(partial.result["profile"]["name"], "Ari");
+        assert_eq!(partial.result["profile"]["onboarded"], false);
+
+        let reminder = service.profile_onboarding_status("UTC").unwrap();
+        assert_eq!(reminder.prompt, Some(ProfileOnboardingPrompt::Reminder));
+        assert!(reminder.available);
+        let completed = service
+            .set_user_profile_onboarding(UserProfileOnboardingInput {
+                run_id: "run-profile-complete".into(),
+                bot_id: "main-bot".into(),
+                expected_version: 2,
+                name: None,
+                language: Some("zh-CN".into()),
+                identity: None,
+                complete: true,
+                skip: false,
+            })
+            .unwrap();
+        assert_eq!(completed.result["profile"]["name"], "Ari");
+        assert_eq!(completed.result["profile"]["language"], "zh-CN");
+        assert_eq!(completed.result["profile"]["onboarded"], true);
+        assert!(!service.profile_onboarding_status("UTC").unwrap().available);
     }
 
     #[test]
@@ -5543,36 +5616,47 @@ mod tests {
     #[test]
     fn memory_actor_permissions_and_context_hook() {
         let service = service();
-        service.begin_memory_run("run-1").unwrap();
+        let actor = MemoryActor::bot("bot-a");
+        let add = |scope: &str, owner: &str, operation_id: &str| {
+            json!({
+                "scope":scope,
+                if scope == "bot" {"bot_id"} else {"project_id"}:owner,
+                "action":"add",
+                "kind":if scope == "bot" {"bot_experience"} else {"project"},
+                "content":"fact",
+                "run_id":"run-1",
+                "operation_id":operation_id
+            })
+        };
         service
-            .stage_memory(
-                &MemoryActor::bot("bot-a"),
-                "run-1",
-                MemoryRequest {
-                    target: MemoryTarget::bot("bot-a"),
-                    action: MemoryAction::Add,
-                    content: "fact".into(),
-                    id: None,
-                    kind: Some(MemoryKind::BotExperience),
-                    source: MemorySource::default(),
-                },
+            .memory_rpc_with_access(
+                &actor,
+                &MemoryAccess::user("u"),
+                add("bot", "bot-a", "run-1:call-bot"),
             )
             .unwrap();
         assert!(service
-            .stage_memory(
-                &MemoryActor::bot("bot-a"),
-                "run-1",
-                MemoryRequest {
-                    target: MemoryTarget::bot("bot-b"),
-                    action: MemoryAction::Add,
-                    content: "denied".into(),
-                    id: None,
-                    kind: Some(MemoryKind::BotExperience),
-                    source: MemorySource::default(),
-                },
+            .memory_rpc_with_access(
+                &actor,
+                &MemoryAccess::user("u"),
+                add("bot", "bot-b", "run-1:call-denied"),
             )
             .is_err());
-        service.commit_memory_run("run-1").unwrap();
+        assert!(service
+            .memory_rpc_with_access(
+                &actor,
+                &MemoryAccess::group("p", vec!["bot-b".into()]),
+                add("project", "p", "run-1:call-project-denied"),
+            )
+            .is_err());
+        service
+            .memory_rpc_with_access(
+                &actor,
+                &MemoryAccess::group("p", vec!["bot-a".into()]),
+                add("project", "p", "run-1:call-project"),
+            )
+            .unwrap();
+        assert_eq!(service.shared_memory.entries().unwrap().len(), 2);
         let package = service
             .context(&ContextRequest {
                 kind: macbot_memory::ConversationKind::Private,
@@ -5764,6 +5848,27 @@ mod tests {
         }
     }
 
+    struct RecordingMaintenanceRequest(Arc<std::sync::Mutex<Option<ModelRequest>>>);
+
+    #[async_trait]
+    impl ModelProvider for RecordingMaintenanceRequest {
+        async fn stream(
+            &self,
+            request: ModelRequest,
+            _events: mpsc::Sender<ModelEvent>,
+        ) -> macbot_providers::Result<Completion> {
+            *self.0.lock().unwrap() = Some(request);
+            Ok(Completion {
+                text: String::new(),
+                assistant_content: None,
+                thinking: String::new(),
+                tool_calls: Vec::new(),
+                usage: TokenUsage::default(),
+                stop_reason: "stop".into(),
+            })
+        }
+    }
+
     struct FailingMaintenance;
     #[async_trait]
     impl AsyncMaintenanceProvider for FailingMaintenance {
@@ -5827,6 +5932,26 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn maintenance_extract_calls_model_with_only_memory_tool() {
+        let captured = Arc::new(std::sync::Mutex::new(None));
+        let adapter = ModelMaintenanceAdapter::new(
+            Arc::new(RecordingMaintenanceRequest(Arc::clone(&captured))),
+            "mock",
+        );
+        assert!(adapter
+            .extract("a durable decision")
+            .await
+            .unwrap()
+            .is_empty());
+        let request = captured.lock().unwrap().clone().unwrap();
+        assert_eq!(request.tools.len(), 1);
+        assert_eq!(
+            request.tools[0]["function"]["name"],
+            Value::String("memory".into())
+        );
+    }
+
+    #[tokio::test]
     async fn maintenance_adapter_uses_model_provider_and_commits_summary() {
         let service = service();
         service
@@ -5853,7 +5978,7 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_eq!(result.content, "summarized work");
-        assert_eq!(events.len(), 1);
+        assert_eq!(events.len(), 2);
         assert_eq!(events[0].event, "memory.updated");
         assert_eq!(
             service
@@ -5863,7 +5988,7 @@ mod tests {
                 .iter()
                 .filter(|event| event.event == "memory.updated")
                 .count(),
-            1
+            2
         );
         assert!(service
             .maintain_worklog(&MemoryTarget::bot("bot-a"))
@@ -5900,7 +6025,7 @@ mod tests {
             .await;
 
         assert_eq!(report.committed.len(), 1);
-        assert_eq!(report.events.len(), 1);
+        assert_eq!(report.events.len(), 2);
         assert_eq!(report.events[0].event, "memory.updated");
         assert!(report.error.is_some());
         assert_eq!(
@@ -5911,51 +6036,41 @@ mod tests {
                 .iter()
                 .filter(|event| event.event == "memory.updated")
                 .count(),
-            1
+            2
         );
     }
 
     #[test]
     fn memory_access_separates_user_group_and_private_scopes() {
         let service = service();
-        service.begin_memory_run("access").unwrap();
         let actor = MemoryActor::bot("bot-a");
-        let user = MemoryRequest {
-            target: MemoryTarget::user("u"),
-            action: MemoryAction::Add,
-            content: "preference".into(),
-            id: None,
-            kind: Some(MemoryKind::UserPreference),
-            source: MemorySource::default(),
-        };
-        assert!(service
-            .stage_memory_with_access(&actor, &MemoryAccess::user("u"), "access", user)
-            .is_err());
-        let project = MemoryRequest {
-            target: MemoryTarget::project("p"),
-            action: MemoryAction::Add,
-            content: "group decision".into(),
-            id: None,
-            kind: Some(MemoryKind::Project),
-            source: MemorySource::default(),
-        };
-        assert!(service
-            .stage_memory_with_access(
-                &actor,
-                &MemoryAccess::group("p", vec!["bot-b".into()]),
-                "access",
-                project.clone()
-            )
-            .is_err());
-        assert!(service
-            .stage_memory_with_access(
-                &actor,
-                &MemoryAccess::group("p", vec!["bot-a".into()]),
-                "access",
-                project
-            )
-            .is_ok());
-        service.commit_memory_run("access").unwrap();
+        let user = service.memory_rpc_with_access(
+            &actor,
+            &MemoryAccess::user("u"),
+            json!({
+                "scope":"user", "user_id":"u", "action":"add",
+                "kind":"user_preference", "content":"preference", "operation_id":"access:user"
+            }),
+        );
+        assert!(matches!(user, Err(FeatureError::NotAllowed(_))));
+        let denied = service.memory_rpc_with_access(
+            &actor,
+            &MemoryAccess::group("p", vec!["bot-b".into()]),
+            json!({
+                "scope":"project", "project_id":"p", "action":"add",
+                "kind":"project", "content":"group decision", "operation_id":"access:denied"
+            }),
+        );
+        assert!(denied.is_err());
+        let allowed = service.memory_rpc_with_access(
+            &actor,
+            &MemoryAccess::group("p", vec!["bot-a".into()]),
+            json!({
+                "scope":"project", "project_id":"p", "action":"add",
+                "kind":"project", "content":"group decision", "operation_id":"access:allowed"
+            }),
+        );
+        assert!(allowed.is_ok());
         assert_eq!(service.shared_memory.entries().unwrap().len(), 1);
     }
 
@@ -5975,6 +6090,7 @@ mod tests {
                     "kind": "bot_experience",
                     "content": "source sentinel",
                     "run_id": "actual-run",
+                    "operation_id":"actual-run:call-1",
                     "source": {
                         "bot_id": "other-bot",
                         "run_id": "forged-run",
@@ -5993,11 +6109,61 @@ mod tests {
     }
 
     #[test]
-    fn compact_summary_is_staged_until_run_success() {
+    fn memory_tool_mutations_are_immediate_versioned_and_idempotent() {
+        let service = service();
+        let actor = MemoryActor::bot("bot-a");
+        let access = MemoryAccess::user("local-user");
+        let (created, events) = service
+            .memory_mutation_with_access(
+                &actor,
+                &access,
+                json!({"scope":"bot","bot_id":"bot-a","kind":"bot_experience","content":"first","run_id":"r1","operation_id":"r1:c1"}),
+            )
+            .unwrap();
+        assert_eq!(created["ok"], true);
+        assert_eq!(created["version"], 1);
+        assert_eq!(events.len(), 1);
+        let entry_id = created["entry_id"].as_str().unwrap();
+        assert_eq!(service.shared_memory.entries().unwrap().len(), 1);
+
+        let missing_version = service.memory_rpc_with_access(
+            &actor,
+            &access,
+            json!({"scope":"bot","bot_id":"bot-a","action":"replace","id":entry_id,"content":"missing version","run_id":"r1","operation_id":"r1:c2"}),
+        );
+        assert!(matches!(missing_version, Err(FeatureError::Invalid(_))));
+
+        let (updated, events) = service
+            .memory_mutation_with_access(
+                &actor,
+                &access,
+                json!({"scope":"bot","bot_id":"bot-a","action":"replace","id":entry_id,"expected_version":1,"content":"second","run_id":"r1","operation_id":"r1:c3"}),
+            )
+            .unwrap();
+        assert_eq!(updated["version"], 2);
+        assert_eq!(events.len(), 1);
+        assert_eq!(
+            service.shared_memory.entries().unwrap()[0].content,
+            "second"
+        );
+
+        let replay = service
+            .memory_mutation_with_access(
+                &actor,
+                &access,
+                json!({"scope":"bot","bot_id":"bot-a","action":"replace","id":entry_id,"expected_version":1,"content":"second","run_id":"r1","operation_id":"r1:c3"}),
+            )
+            .unwrap();
+        assert_eq!(replay.0, updated);
+        assert!(replay.1.is_empty());
+        assert_eq!(service.shared_memory.entries().unwrap()[0].version, 2);
+    }
+
+    #[test]
+    fn compact_summary_is_persisted_immediately() {
         let service = service();
         let actor = MemoryActor::bot("bot-a");
         let access = MemoryAccess::user("u");
-        service.begin_memory_run("compact-fail").unwrap();
         service
             .stage_context_summary(
                 &actor,
@@ -6012,28 +6178,6 @@ mod tests {
                 },
             )
             .unwrap();
-        assert!(service
-            .memory_search("compacted", Some(&MemoryTarget::bot("bot-a")))
-            .unwrap()
-            .is_empty());
-        service.rollback_memory_run("compact-fail").unwrap();
-        assert!(service
-            .memory_search("compacted", Some(&MemoryTarget::bot("bot-a")))
-            .unwrap()
-            .is_empty());
-
-        service.begin_memory_run("compact-ok").unwrap();
-        service
-            .stage_context_summary(
-                &actor,
-                &access,
-                "compact-ok",
-                MemoryTarget::bot("bot-a"),
-                "compacted context",
-                MemorySource::default(),
-            )
-            .unwrap();
-        service.commit_memory_run("compact-ok").unwrap();
         assert_eq!(
             service
                 .memory_search("compacted", Some(&MemoryTarget::bot("bot-a")))
