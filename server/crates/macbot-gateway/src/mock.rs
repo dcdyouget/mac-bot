@@ -3784,7 +3784,18 @@ fn project_get(state: &MockState, params: &Value) -> RpcResult {
         .into_iter()
         .find(|item| item.get("project_id").and_then(Value::as_str) == Some(project_id))
         .unwrap_or_else(|| {
-            json!({"project_id":project_id,"members":[],"artifacts":[],"highlights":highlights,"updated_at":now()})
+            let updated_at = now();
+            json!({
+                "project_id":project_id,
+                "text":"",
+                "version":0,
+                "text_updated_by":{"kind":"user"},
+                "text_updated_at":updated_at,
+                "members":[],
+                "artifacts":[],
+                "highlights":highlights,
+                "updated_at":updated_at
+            })
         });
     Ok(json!({"project":project,"announcement":announcement}))
 }
@@ -5442,6 +5453,48 @@ mod contract_tests {
                 .collect::<Vec<_>>(),
             ["art_mock_brief", "art_mock_build", "art_mock_report"]
         );
+    }
+
+    #[tokio::test]
+    async fn mock_project_without_announcement_returns_explicit_empty_text() {
+        let gateway = gateway().await;
+        let result = call(&gateway, "project.get", json!({"project_id":"prj_web"})).await;
+        assert_eq!(result["project"]["chat_id"], "chat_web");
+
+        let raw_announcement = &result["announcement"];
+        for required in [
+            "project_id",
+            "text",
+            "version",
+            "text_updated_by",
+            "text_updated_at",
+            "members",
+            "artifacts",
+            "highlights",
+            "updated_at",
+        ] {
+            assert!(
+                raw_announcement.get(required).is_some(),
+                "missing {required}"
+            );
+        }
+        assert!(raw_announcement["text"].is_string());
+        assert_eq!(raw_announcement["text"], "");
+        let text_updated_at = raw_announcement["text_updated_at"]
+            .as_str()
+            .expect("text_updated_at should be a string");
+        chrono::DateTime::parse_from_rfc3339(text_updated_at)
+            .expect("text_updated_at should be RFC3339");
+        assert_eq!(
+            raw_announcement["text_updated_at"],
+            raw_announcement["updated_at"]
+        );
+
+        let announcement: Announcement = serde_json::from_value(raw_announcement.clone()).unwrap();
+        assert_eq!(announcement.project_id, "prj_web");
+        assert_eq!(announcement.text, "");
+        assert_eq!(announcement.members.len(), 0);
+        assert_eq!(announcement.artifacts.len(), 0);
     }
 
     #[tokio::test]
