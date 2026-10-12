@@ -28,3 +28,8 @@
 - 已实现：`app/src/App.tsx:2710` 为消息时间线提供上下选择和 R/Q/⌘C 操作；`messageActions.model.ts` 在输入区、组合键和 IME 场景间过滤快捷键，并构造 `quote`、`quote_mode` 与回复目标 Bot mention。
 - 已实现：`app/src/components/ChatEntry.tsx:56` 的右键菜单包括表情、回复、引用、复制文字、引用到公告、查看工作详情、复制消息链接；仅用户消息追加删除。菜单支持 Escape 与方向键导航。
 - 已实现：输入框上方回复/引用条可取消，发送时调用协议 `chat.send.quote` / `quote_mode`，不创建线程。
+
+## §6 决策卡片堆叠与键盘操作
+
+- 已实现：消息连续 `question` block 在 `app/src/App.tsx:3455` 聚合为 QuestionDeck；未答题默认激活，答题成功后切至下一道待答题，题签可切换查看已答题目，答案状态驱动原地更新。
+- 补齐：聚焦卡片时按 1–9 选择对应选项，O 打开自由回答；多题堆叠卡片支持 ←/→ 切题。可编辑输入框中的按键仍留给文本编辑。

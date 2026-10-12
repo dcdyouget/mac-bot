@@ -3635,7 +3635,14 @@ function QuestionDeck({ questions, botName, onAnswer }: { questions: Question[];
     : questions.every((question) => question.state !== 'pending')
       ? t('block.question.expired')
       : t('block.question.title_deck').replace('{bot}', botName).replace('{n}', String(activeIndex + 1)).replace('{total}', String(questions.length))
-  return <section className="question-deck">
+  return <section className="question-deck" tabIndex={0} onKeyDown={(event) => {
+    if (event.target instanceof HTMLElement && event.target.matches('input, textarea, select, [contenteditable="true"]')) return
+    if (event.metaKey || event.ctrlKey || event.altKey || event.shiftKey || event.nativeEvent.isComposing) return
+    if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+      event.preventDefault()
+      setActiveIndex((index) => Math.max(0, Math.min(questions.length - 1, index + (event.key === 'ArrowRight' ? 1 : -1))))
+    }
+  }}>
     <header className="question-deck-header">{header}{!allAnswered && answeredCount > 0 && <> · {t('block.question.answered_count').replace('{count}', String(answeredCount))}</>}</header>
     <nav className="question-deck-tabs" aria-label={t('block.question.tab').replace('{n}', String(activeIndex + 1))}>
       {questions.map((question, index) => <button type="button" key={question.id} className={`${activeIndex === index ? 'active' : ''} ${question.state === 'answered' ? 'answered' : ''}`} onClick={() => setActiveIndex(index)}>{question.state === 'answered' && '✓ '}{t('block.question.tab').replace('{n}', String(index + 1))}</button>)}
@@ -3666,7 +3673,17 @@ function QuestionCard({ question, botName, onAnswer }: { question: Question; bot
   const title = question.state === 'answered'
     ? answer?.text ? t('block.question.you_replied') : !selectedIndexes.length ? '' : question.multi ? t('block.question.answered').replace('{letters}', letters).replace('{options}', selectedOptions.join('、')) : t('block.question.you_picked').replace('{letters}', letters)
     : question.state === 'expired' ? t('block.question.expired') : `${question.multi ? t('block.question.multi') : t('block.question.single')} · ${t('block.question.from').replace('{bot}', botName)}`
-  return <section className={`question-card question-${question.state}`}>
+  return <section className={`question-card question-${question.state}`} tabIndex={0} onKeyDown={(event) => {
+    if (event.target instanceof HTMLElement && event.target.matches('input, textarea, select, [contenteditable="true"]')) return
+    if (event.metaKey || event.ctrlKey || event.altKey || event.shiftKey || event.nativeEvent.isComposing || question.state !== 'pending') return
+    if (/^[1-9]$/.test(event.key)) {
+      const option = event.currentTarget.querySelectorAll<HTMLButtonElement>('.question-option')[Number(event.key) - 1]
+      if (option && !option.disabled) { event.preventDefault(); option.click() }
+    } else if (event.key.toLowerCase() === 'o' && question.allow_free_text) {
+      const other = event.currentTarget.querySelector<HTMLButtonElement>('.question-other-toggle')
+      if (other) { event.preventDefault(); other.click() }
+    }
+  }}>
     <div className="question-kicker">{question.state === 'answered' && <span className="question-check">✓</span>}{title}</div>
     <strong className="question-prompt">{question.text}</strong>
     <div className="question-options">{question.options.map((option, index) => {
