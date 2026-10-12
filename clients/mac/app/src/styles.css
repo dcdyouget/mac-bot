@@ -705,3 +705,35 @@ kbd { padding: 1px 5px; border-radius: 4px; box-shadow: 0 0 0 1px var(--border-d
 .message-group .bubble .message-reaction-pill.active { background: var(--accent); color: var(--accent-on); }
 .message-group .bubble .message-reaction-pill.active span { color: var(--accent-on); }
 .message-group .bubble:has(.message-reactions) .message-hover-tools { right: 46px; }
+
+/* v1.2 §3 — keep the composer above the scrolling message surface. */
+.composer-wrap {
+  position: absolute;
+  z-index: 4;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  display: flex;
+  justify-content: center;
+  padding: 8px 20px 16px;
+  background: linear-gradient(180deg, transparent, var(--bg-chat) 40%);
+}
+.message-scroll { padding-bottom: 132px; }
+.composer-box {
+  border-radius: var(--radius-composer);
+  background: var(--glass);
+  box-shadow: var(--elevation-float);
+  -webkit-backdrop-filter: blur(24px) saturate(var(--saturate));
+  backdrop-filter: blur(24px) saturate(var(--saturate));
+  transition: box-shadow var(--duration-normal) var(--ease-standard);
+}
+.composer-box:focus-within,
+.composer-box:has(textarea:not(:placeholder-shown)) {
+  box-shadow: var(--elevation-float), 0 0 0 3px var(--ring-focus);
+}
+.send-button {
+  transition: transform var(--duration-spring) var(--ease-spring), background var(--duration-fast) var(--ease-standard), box-shadow var(--duration-fast) var(--ease-standard);
+}
+.send-button:not(:disabled) { animation: pop var(--duration-spring) var(--ease-spring) both; box-shadow: 0 2px 8px rgb(30 50 90 / 30%); }
+.send-button:active { transform: scale(.97); }
+[data-material='opaque'] .composer-box { background: var(--bg-elevated); -webkit-backdrop-filter: none; backdrop-filter: none; }
