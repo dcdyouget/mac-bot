@@ -1,0 +1,221 @@
+Failed connection handshake with /127.0.0.1:63663.
+java.io.IOException: Did not receive connection preamble within 10s
+	at org.gradle.internal.remote.internal.inet.TcpIncomingConnector$Receiver.waitForHandshake(TcpIncomingConnector.java:166)
+	at org.gradle.internal.remote.internal.inet.TcpIncomingConnector$Receiver.run(TcpIncomingConnector.java:127)
+	at org.gradle.internal.concurrent.ExecutorPolicy$CatchAndRecordFailures.onExecute(ExecutorPolicy.java:65)
+	at org.gradle.internal.concurrent.AbstractManagedExecutor$1.run(AbstractManagedExecutor.java:47)
+	at java.base/java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1144)
+	at java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:642)
+	at java.base/java.lang.Thread.run(Thread.java:1583)
+> Task :androidApp:preBuild UP-TO-DATE
+> Task :androidApp:preDebugBuild UP-TO-DATE
+> Task :shared:kmpPartiallyResolvedDependenciesChecker
+> Task :shared:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :shared:convertXmlValueResourcesForAndroidMain NO-SOURCE
+> Task :shared:copyNonXmlValueResourcesForAndroidMain NO-SOURCE
+> Task :androidApp:generateDebugResources UP-TO-DATE
+> Task :shared:prepareComposeResourcesTaskForAndroidMain NO-SOURCE
+> Task :shared:generateResourceAccessorsForAndroidMain NO-SOURCE
+> Task :androidApp:packageDebugResources UP-TO-DATE
+> Task :shared:convertXmlValueResourcesForCommonMain UP-TO-DATE
+> Task :androidApp:javaPreCompileDebug UP-TO-DATE
+> Task :shared:copyNonXmlValueResourcesForCommonMain NO-SOURCE
+> Task :androidApp:mapDebugSourceSetPaths UP-TO-DATE
+> Task :shared:prepareComposeResourcesTaskForCommonMain UP-TO-DATE
+> Task :androidApp:createDebugCompatibleScreenManifests UP-TO-DATE
+> Task :shared:generateResourceAccessorsForCommonMain UP-TO-DATE
+> Task :androidApp:extractDeepLinksDebug UP-TO-DATE
+> Task :androidApp:preDebugUnitTestBuild UP-TO-DATE
+> Task :shared:generateActualResourceCollectorsForAndroidMain UP-TO-DATE
+> Task :shared:androidPreBuild UP-TO-DATE
+> Task :shared:preAndroidMainBuild UP-TO-DATE
+> Task :shared:generateAndroidMainEmptyResourceFiles UP-TO-DATE
+> Task :androidApp:javaPreCompileDebugUnitTest UP-TO-DATE
+> Task :shared:copyAndroidMainComposeResourcesToAndroidAssets UP-TO-DATE
+> Task :shared:packageAndroidMainResources UP-TO-DATE
+> Task :shared:parseAndroidMainLocalResources UP-TO-DATE
+> Task :shared:generateAndroidMainRFile UP-TO-DATE
+> Task :shared:generateComposeResClass UP-TO-DATE
+> Task :shared:generateExpectResourceCollectorsForCommonMain UP-TO-DATE
+> Task :androidApp:processDebugNavigationResources UP-TO-DATE
+> Task :androidApp:parseDebugLocalResources UP-TO-DATE
+> Task :androidApp:generateDebugRFile UP-TO-DATE
+> Task :androidApp:compileDebugNavigationResources UP-TO-DATE
+> Task :androidApp:mergeDebugResources UP-TO-DATE
+> Task :androidApp:generateDebugAssets UP-TO-DATE
+> Task :androidApp:mergeDebugNativeDebugMetadata NO-SOURCE
+> Task :androidApp:generateDebugGlobalSynthetics UP-TO-DATE
+> Task :androidApp:checkDebugDuplicateClasses UP-TO-DATE
+> Task :androidApp:desugarDebugFileDependencies UP-TO-DATE
+> Task :androidApp:mergeExtDexDebug UP-TO-DATE
+> Task :androidApp:mergeDebugJniLibFolders UP-TO-DATE
+> Task :androidApp:validateSigningDebug UP-TO-DATE
+> Task :androidApp:writeDebugAppMetadata UP-TO-DATE
+> Task :androidApp:writeDebugSigningConfigVersions UP-TO-DATE
+> Task :shared:androidJar UP-TO-DATE
+> Task :shared:generateAndroidHostTestAssets UP-TO-DATE
+> Task :shared:generateAndroidMainAssets UP-TO-DATE
+> Task :shared:mergeAndroidMainAssets UP-TO-DATE
+> Task :shared:preAndroidHostTestBuild UP-TO-DATE
+> Task :androidApp:mergeDebugAssets UP-TO-DATE
+> Task :androidApp:compressDebugAssets UP-TO-DATE
+> Task :shared:mergeAndroidHostTestAssets UP-TO-DATE
+> Task :shared:writeAndroidMainAarMetadata UP-TO-DATE
+> Task :androidApp:checkDebugAarMetadata UP-TO-DATE
+> Task :shared:checkAndroidHostTestAarMetadata UP-TO-DATE
+> Task :shared:mapAndroidMainSourceSetPaths UP-TO-DATE
+> Task :shared:compileAndroidMainLibraryResources UP-TO-DATE
+> Task :shared:mapAndroidHostTestSourceSetPaths UP-TO-DATE
+> Task :shared:generateAndroidHostTestResources UP-TO-DATE
+> Task :shared:mergeAndroidHostTestResources UP-TO-DATE
+> Task :shared:processAndroidMainManifest UP-TO-DATE
+> Task :androidApp:processDebugMainManifest UP-TO-DATE
+> Task :androidApp:processDebugManifest UP-TO-DATE
+> Task :androidApp:processDebugManifestForPackage UP-TO-DATE
+> Task :shared:mergeAndroidHostTestManifest UP-TO-DATE
+> Task :shared:processAndroidHostTestManifest UP-TO-DATE
+> Task :shared:processAndroidHostTestResources UP-TO-DATE
+> Task :shared:packageAndroidHostTestForUnitTest UP-TO-DATE
+> Task :shared:generateAndroidHostTestConfig UP-TO-DATE
+> Task :shared:convertXmlValueResourcesForAndroidHostTest NO-SOURCE
+> Task :shared:copyNonXmlValueResourcesForAndroidHostTest NO-SOURCE
+> Task :shared:prepareComposeResourcesTaskForAndroidHostTest NO-SOURCE
+> Task :shared:generateResourceAccessorsForAndroidHostTest NO-SOURCE
+> Task :shared:convertXmlValueResourcesForCommonTest NO-SOURCE
+> Task :shared:copyNonXmlValueResourcesForCommonTest NO-SOURCE
+> Task :shared:prepareComposeResourcesTaskForCommonTest NO-SOURCE
+> Task :shared:generateResourceAccessorsForCommonTest NO-SOURCE
+> Task :shared:processAndroidHostTestJavaRes UP-TO-DATE
+> Task :shared:mergeAndroidMainJniLibFolders UP-TO-DATE
+> Task :shared:mergeAndroidMainNativeLibs NO-SOURCE
+> Task :shared:copyAndroidMainJniLibsProjectOnly UP-TO-DATE
+> Task :androidApp:processDebugResources UP-TO-DATE
+> Task :androidApp:packageDebugUnitTestForUnitTest UP-TO-DATE
+> Task :androidApp:mergeDebugUnitTestManifest UP-TO-DATE
+> Task :androidApp:processDebugUnitTestManifest UP-TO-DATE
+> Task :androidApp:generateDebugUnitTestConfig UP-TO-DATE
+> Task :androidApp:mergeDebugNativeLibs UP-TO-DATE
+> Task :androidApp:stripDebugDebugSymbols UP-TO-DATE
+Failed connection handshake with /127.0.0.1:63686.
+java.io.IOException: Did not receive connection preamble within 10s
+	at org.gradle.internal.remote.internal.inet.TcpIncomingConnector$Receiver.waitForHandshake(TcpIncomingConnector.java:166)
+	at org.gradle.internal.remote.internal.inet.TcpIncomingConnector$Receiver.run(TcpIncomingConnector.java:127)
+	at org.gradle.internal.concurrent.ExecutorPolicy$CatchAndRecordFailures.onExecute(ExecutorPolicy.java:65)
+	at org.gradle.internal.concurrent.AbstractManagedExecutor$1.run(AbstractManagedExecutor.java:47)
+	at java.base/java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1144)
+	at java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:642)
+	at java.base/java.lang.Thread.run(Thread.java:1583)
+
+> Task :shared:compileAndroidMain
+w: file:///private/tmp/macbot-v1.0-memory-android/clients/mobile/shared/src/commonMain/kotlin/bot/mac/mobile/App.kt:87:21 'val LocalClipboardManager: ProvidableCompositionLocal<ClipboardManager>' is deprecated. Use LocalClipboard instead which supports suspend functions.
+w: file:///private/tmp/macbot-v1.0-memory-android/clients/mobile/shared/src/commonMain/kotlin/bot/mac/mobile/core/state/MobileState.kt:185:38 Elvis operator (?:) always returns the left operand of non-nullable type 'Long'.
+w: file:///private/tmp/macbot-v1.0-memory-android/clients/mobile/shared/src/commonMain/kotlin/bot/mac/mobile/core/state/MobileState.kt:191:65 Elvis operator (?:) always returns the left operand of non-nullable type 'Long'.
+w: file:///private/tmp/macbot-v1.0-memory-android/clients/mobile/shared/src/commonMain/kotlin/bot/mac/mobile/core/ui/FilePreview.kt:64:21 'val LocalClipboardManager: ProvidableCompositionLocal<ClipboardManager>' is deprecated. Use LocalClipboard instead which supports suspend functions.
+w: file:///private/tmp/macbot-v1.0-memory-android/clients/mobile/shared/src/commonMain/kotlin/bot/mac/mobile/core/ui/MarkdownText.kt:90:5 'fun ClickableText(text: AnnotatedString, modifier: Modifier = ..., style: TextStyle = ..., softWrap: Boolean = ..., overflow: TextOverflow = ..., maxLines: Int = ..., onTextLayout: (TextLayoutResult) -> Unit = ..., onClick: (Int) -> Unit): Unit' is deprecated. Use Text or BasicText and pass an AnnotatedString that contains a LinkAnnotation. Check LinkAnnotation's documentation for more details and samples.
+w: file:///private/tmp/macbot-v1.0-memory-android/clients/mobile/shared/src/commonMain/kotlin/bot/mac/mobile/core/ui/MarkdownText.kt:103:21 'val LocalClipboardManager: ProvidableCompositionLocal<ClipboardManager>' is deprecated. Use LocalClipboard instead which supports suspend functions.
+w: file:///private/tmp/macbot-v1.0-memory-android/clients/mobile/shared/src/commonMain/kotlin/bot/mac/mobile/core/ui/MarkdownText.kt:172:21 Unnecessary non-null assertion (!!) on a non-null receiver of type 'StringBuilder'.
+w: file:///private/tmp/macbot-v1.0-memory-android/clients/mobile/shared/src/commonMain/kotlin/bot/mac/mobile/feature/bots/BotsScreen.kt:178:86 Unnecessary safe call on a non-null receiver of type 'JsonObject'.
+w: file:///private/tmp/macbot-v1.0-memory-android/clients/mobile/shared/src/commonMain/kotlin/bot/mac/mobile/feature/bots/BotsScreen.kt:185:33 Unnecessary safe call on a non-null receiver of type 'JsonObject'.
+w: file:///private/tmp/macbot-v1.0-memory-android/clients/mobile/shared/src/commonMain/kotlin/bot/mac/mobile/feature/bots/BotsScreen.kt:186:32 Unnecessary safe call on a non-null receiver of type 'JsonObject'.
+w: file:///private/tmp/macbot-v1.0-memory-android/clients/mobile/shared/src/commonMain/kotlin/bot/mac/mobile/feature/chat/ChatScreen.kt:202:51 Unnecessary safe call on a non-null receiver of type 'JsonObject'.
+w: file:///private/tmp/macbot-v1.0-memory-android/clients/mobile/shared/src/commonMain/kotlin/bot/mac/mobile/feature/chat/ChatScreen.kt:305:85 Unnecessary safe call on a non-null receiver of type 'JsonObject'.
+w: file:///private/tmp/macbot-v1.0-memory-android/clients/mobile/shared/src/commonMain/kotlin/bot/mac/mobile/feature/chat/ChatScreen.kt:371:48 Unnecessary non-null assertion (!!) on a non-null receiver of type 'Long'.
+w: file:///private/tmp/macbot-v1.0-memory-android/clients/mobile/shared/src/commonMain/kotlin/bot/mac/mobile/feature/chat/ChatScreen.kt:462:117 Unnecessary safe call on a non-null receiver of type 'JsonObject'.
+w: file:///private/tmp/macbot-v1.0-memory-android/clients/mobile/shared/src/commonMain/kotlin/bot/mac/mobile/feature/chat/ChatScreen.kt:473:61 Unnecessary safe call on a non-null receiver of type 'JsonObject'.
+w: file:///private/tmp/macbot-v1.0-memory-android/clients/mobile/shared/src/commonMain/kotlin/bot/mac/mobile/feature/chat/ChatScreen.kt:754:52 Unnecessary safe call on a non-null receiver of type 'PickedFile'.
+w: file:///private/tmp/macbot-v1.0-memory-android/clients/mobile/shared/src/commonMain/kotlin/bot/mac/mobile/feature/chat/ChatScreen.kt:1166:21 'val LocalClipboardManager: ProvidableCompositionLocal<ClipboardManager>' is deprecated. Use LocalClipboard instead which supports suspend functions.
+w: file:///private/tmp/macbot-v1.0-memory-android/clients/mobile/shared/src/commonMain/kotlin/bot/mac/mobile/feature/chat/ChatScreen.kt:1897:31 Unnecessary safe call on a non-null receiver of type 'JsonObject'.
+w: file:///private/tmp/macbot-v1.0-memory-android/clients/mobile/shared/src/commonMain/kotlin/bot/mac/mobile/feature/chat/ChatScreen.kt:2164:44 Unnecessary safe call on a non-null receiver of type 'JsonObject'.
+w: file:///private/tmp/macbot-v1.0-memory-android/clients/mobile/shared/src/commonMain/kotlin/bot/mac/mobile/feature/chat/ChatScreen.kt:2167:73 Unnecessary safe call on a non-null receiver of type 'JsonObject'.
+w: file:///private/tmp/macbot-v1.0-memory-android/clients/mobile/shared/src/commonMain/kotlin/bot/mac/mobile/feature/dashboard/DashboardScreen.kt:338:52 Elvis operator (?:) always returns the left operand of non-nullable type 'String'.
+w: file:///private/tmp/macbot-v1.0-memory-android/clients/mobile/shared/src/commonMain/kotlin/bot/mac/mobile/feature/dashboard/DashboardScreen.kt:357:34 Elvis operator (?:) always returns the left operand of non-nullable type 'String'.
+w: file:///private/tmp/macbot-v1.0-memory-android/clients/mobile/shared/src/commonMain/kotlin/bot/mac/mobile/feature/dashboard/DashboardScreen.kt:357:54 Elvis operator (?:) always returns the left operand of non-nullable type 'String'.
+w: file:///private/tmp/macbot-v1.0-memory-android/clients/mobile/shared/src/commonMain/kotlin/bot/mac/mobile/feature/dashboard/DashboardScreen.kt:358:62 Elvis operator (?:) always returns the left operand of non-nullable type 'String'.
+w: file:///private/tmp/macbot-v1.0-memory-android/clients/mobile/shared/src/commonMain/kotlin/bot/mac/mobile/feature/dashboard/DashboardScreen.kt:360:98 Elvis operator (?:) always returns the left operand of non-nullable type 'String'.
+w: file:///private/tmp/macbot-v1.0-memory-android/clients/mobile/shared/src/commonMain/kotlin/bot/mac/mobile/feature/dashboard/DashboardScreen.kt:361:100 Elvis operator (?:) always returns the left operand of non-nullable type 'String'.
+w: file:///private/tmp/macbot-v1.0-memory-android/clients/mobile/shared/src/commonMain/kotlin/bot/mac/mobile/feature/dashboard/DashboardScreen.kt:519:44 Unnecessary safe call on a non-null receiver of type 'Long'.
+w: file:///private/tmp/macbot-v1.0-memory-android/clients/mobile/shared/src/commonMain/kotlin/bot/mac/mobile/feature/dashboard/DashboardScreen.kt:520:40 Unnecessary safe call on a non-null receiver of type 'Long'.
+w: file:///private/tmp/macbot-v1.0-memory-android/clients/mobile/shared/src/commonMain/kotlin/bot/mac/mobile/feature/group/GroupInfoScreen.kt:151:49 Unnecessary safe call on a non-null receiver of type 'JsonObject'.
+w: file:///private/tmp/macbot-v1.0-memory-android/clients/mobile/shared/src/commonMain/kotlin/bot/mac/mobile/feature/memory/MemorySourceLogic.kt:8:17 'typealias Instant = Instant' is deprecated. This type is deprecated in favor of `kotlin.time.Instant`.
+w: file:///private/tmp/macbot-v1.0-memory-android/clients/mobile/shared/src/commonMain/kotlin/bot/mac/mobile/feature/routines/RoutinesScreen.kt:158:9 Expression is unused.
+w: file:///private/tmp/macbot-v1.0-memory-android/clients/mobile/shared/src/commonMain/kotlin/bot/mac/mobile/feature/search/SearchScreen.kt:146:47 Elvis operator (?:) always returns the left operand of non-nullable type 'String'.
+w: file:///private/tmp/macbot-v1.0-memory-android/clients/mobile/shared/src/commonMain/kotlin/bot/mac/mobile/feature/search/SearchScreen.kt:147:38 Elvis operator (?:) always returns the left operand of non-nullable type 'String'.
+w: file:///private/tmp/macbot-v1.0-memory-android/clients/mobile/shared/src/commonMain/kotlin/bot/mac/mobile/feature/search/SearchScreen.kt:147:58 Elvis operator (?:) always returns the left operand of non-nullable type 'String'.
+w: file:///private/tmp/macbot-v1.0-memory-android/clients/mobile/shared/src/commonMain/kotlin/bot/mac/mobile/feature/search/SearchScreen.kt:148:34 Unnecessary safe call on a non-null receiver of type 'String'.
+w: file:///private/tmp/macbot-v1.0-memory-android/clients/mobile/shared/src/commonMain/kotlin/bot/mac/mobile/feature/search/SearchScreen.kt:149:29 Unnecessary safe call on a non-null receiver of type 'String'.
+w: file:///private/tmp/macbot-v1.0-memory-android/clients/mobile/shared/src/commonMain/kotlin/bot/mac/mobile/feature/skills/SkillsScreen.kt:124:42 Elvis operator (?:) always returns the left operand of non-nullable type 'String'.
+w: file:///private/tmp/macbot-v1.0-memory-android/clients/mobile/shared/src/commonMain/kotlin/bot/mac/mobile/feature/skills/SkillsScreen.kt:125:47 Unnecessary safe call on a non-null receiver of type 'String'.
+w: file:///private/tmp/macbot-v1.0-memory-android/clients/mobile/shared/src/commonMain/kotlin/bot/mac/mobile/feature/skills/SkillsScreen.kt:125:107 Unnecessary safe call on a non-null receiver of type 'String'.
+w: file:///private/tmp/macbot-v1.0-memory-android/clients/mobile/shared/src/commonMain/kotlin/bot/mac/mobile/feature/skills/SkillsScreen.kt:214:54 Elvis operator (?:) always returns the left operand of non-nullable type 'String'.
+w: file:///private/tmp/macbot-v1.0-memory-android/clients/mobile/shared/src/commonMain/kotlin/bot/mac/mobile/feature/skills/SkillsScreen.kt:216:42 Unnecessary safe call on a non-null receiver of type 'String'.
+w: file:///private/tmp/macbot-v1.0-memory-android/clients/mobile/shared/src/commonMain/kotlin/bot/mac/mobile/feature/skills/SkillsScreen.kt:241:40 Elvis operator (?:) always returns the left operand of non-nullable type 'String'.
+w: file:///private/tmp/macbot-v1.0-memory-android/clients/mobile/shared/src/commonMain/kotlin/bot/mac/mobile/feature/skills/SkillsScreen.kt:242:47 Elvis operator (?:) always returns the left operand of non-nullable type 'String'.
+w: file:///private/tmp/macbot-v1.0-memory-android/clients/mobile/shared/src/commonMain/kotlin/bot/mac/mobile/feature/skills/SkillsScreen.kt:258:32 Elvis operator (?:) always returns the left operand of non-nullable type 'String'.
+w: file:///private/tmp/macbot-v1.0-memory-android/clients/mobile/shared/src/commonMain/kotlin/bot/mac/mobile/feature/skills/SkillsScreen.kt:259:39 Elvis operator (?:) always returns the left operand of non-nullable type 'String'.
+w: file:///private/tmp/macbot-v1.0-memory-android/clients/mobile/shared/src/commonMain/kotlin/bot/mac/mobile/feature/skills/SkillsScreen.kt:295:35 Elvis operator (?:) always returns the left operand of non-nullable type 'String'.
+w: file:///private/tmp/macbot-v1.0-memory-android/clients/mobile/shared/src/commonMain/kotlin/bot/mac/mobile/feature/skills/SkillsScreen.kt:361:60 Elvis operator (?:) always returns the left operand of non-nullable type 'String'.
+w: file:///private/tmp/macbot-v1.0-memory-android/clients/mobile/shared/src/commonMain/kotlin/bot/mac/mobile/feature/trace/TraceScreen.kt:414:34 Unnecessary safe call on a non-null receiver of type 'String'.
+w: file:///private/tmp/macbot-v1.0-memory-android/clients/mobile/shared/src/commonMain/kotlin/bot/mac/mobile/feature/trace/TraceScreen.kt:415:33 Unnecessary safe call on a non-null receiver of type 'String'.
+w: file:///private/tmp/macbot-v1.0-memory-android/clients/mobile/shared/src/commonMain/kotlin/bot/mac/mobile/feature/trace/TraceScreen.kt:437:75 Unnecessary safe call on a non-null receiver of type 'JsonObject'.
+w: file:///private/tmp/macbot-v1.0-memory-android/clients/mobile/shared/src/commonMain/kotlin/bot/mac/mobile/feature/trace/TraceScreen.kt:439:79 Unnecessary safe call on a non-null receiver of type 'JsonObject'.
+w: file:///private/tmp/macbot-v1.0-memory-android/clients/mobile/shared/src/commonMain/kotlin/bot/mac/mobile/feature/trace/TraceScreen.kt:440:81 Unnecessary safe call on a non-null receiver of type 'JsonObject'.
+w: file:///private/tmp/macbot-v1.0-memory-android/clients/mobile/shared/src/commonMain/kotlin/bot/mac/mobile/feature/trace/TraceScreen.kt:441:81 Unnecessary safe call on a non-null receiver of type 'JsonObject'.
+w: file:///private/tmp/macbot-v1.0-memory-android/clients/mobile/shared/src/commonMain/kotlin/bot/mac/mobile/feature/trace/TraceScreen.kt:442:77 Unnecessary safe call on a non-null receiver of type 'JsonObject'.
+w: file:///private/tmp/macbot-v1.0-memory-android/clients/mobile/shared/src/commonMain/kotlin/bot/mac/mobile/feature/trace/TraceScreen.kt:443:73 Unnecessary safe call on a non-null receiver of type 'JsonObject'.
+w: file:///private/tmp/macbot-v1.0-memory-android/clients/mobile/shared/src/commonMain/kotlin/bot/mac/mobile/feature/trace/TraceScreen.kt:444:71 Unnecessary safe call on a non-null receiver of type 'JsonObject'.
+w: file:///private/tmp/macbot-v1.0-memory-android/clients/mobile/shared/src/commonMain/kotlin/bot/mac/mobile/feature/trace/TraceScreen.kt:446:76 Unnecessary safe call on a non-null receiver of type 'JsonObject'.
+
+> Task :shared:processAndroidMainJavaRes UP-TO-DATE
+> Task :shared:bundleLibRuntimeToDirAndroidMain
+> Task :shared:bundleAndroidMainClassesToCompileJar
+> Task :shared:bundleAndroidMainClassesToRuntimeJar
+> Task :androidApp:compileDebugKotlin
+> Task :androidApp:compileDebugJavaWithJavac NO-SOURCE
+> Task :androidApp:bundleDebugClassesToRuntimeJar UP-TO-DATE
+> Task :androidApp:bundleDebugClassesToCompileJar UP-TO-DATE
+> Task :androidApp:processDebugJavaRes UP-TO-DATE
+> Task :androidApp:mergeDebugJavaResource UP-TO-DATE
+> Task :androidApp:dexBuilderDebug UP-TO-DATE
+> Task :androidApp:mergeProjectDexDebug UP-TO-DATE
+> Task :shared:compileAndroidHostTest
+> Task :androidApp:compileDebugUnitTestKotlin
+> Task :androidApp:compileDebugUnitTestJavaWithJavac NO-SOURCE
+> Task :androidApp:processDebugUnitTestJavaRes UP-TO-DATE
+Failed connection handshake with /127.0.0.1:63744.
+java.io.IOException: Did not receive connection preamble within 10s
+	at org.gradle.internal.remote.internal.inet.TcpIncomingConnector$Receiver.waitForHandshake(TcpIncomingConnector.java:166)
+	at org.gradle.internal.remote.internal.inet.TcpIncomingConnector$Receiver.run(TcpIncomingConnector.java:127)
+	at org.gradle.internal.concurrent.ExecutorPolicy$CatchAndRecordFailures.onExecute(ExecutorPolicy.java:65)
+	at org.gradle.internal.concurrent.AbstractManagedExecutor$1.run(AbstractManagedExecutor.java:47)
+	at java.base/java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1144)
+	at java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:642)
+	at java.base/java.lang.Thread.run(Thread.java:1583)
+> Task :androidApp:testDebugUnitTest
+> Task :androidApp:mergeLibDexDebug
+> Task :androidApp:packageDebug
+> Task :androidApp:createDebugApkListingFileRedirect UP-TO-DATE
+> Task :androidApp:assembleDebug
+Failed connection handshake with /127.0.0.1:63797.
+java.io.IOException: Did not receive connection preamble within 10s
+	at org.gradle.internal.remote.internal.inet.TcpIncomingConnector$Receiver.waitForHandshake(TcpIncomingConnector.java:166)
+	at org.gradle.internal.remote.internal.inet.TcpIncomingConnector$Receiver.run(TcpIncomingConnector.java:127)
+	at org.gradle.internal.concurrent.ExecutorPolicy$CatchAndRecordFailures.onExecute(ExecutorPolicy.java:65)
+	at org.gradle.internal.concurrent.AbstractManagedExecutor$1.run(AbstractManagedExecutor.java:47)
+	at java.base/java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1144)
+	at java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:642)
+	at java.base/java.lang.Thread.run(Thread.java:1583)
+> Task :shared:testAndroidHostTest
+> Task :shared:commonTest
+> Task :shared:androidUnitTest
+
+[Incubating] Problems report is available at: file:///private/tmp/macbot-v1.0-memory-android/clients/mobile/build/reports/problems/problems-report.html
+
+Deprecated Gradle features were used in this build, making it incompatible with Gradle 10.
+
+You can use '--warning-mode all' to show the individual deprecation warnings and determine if they come from your own scripts or plugins.
+
+For more on this, please refer to https://docs.gradle.org/9.8.1/userguide/command_line_interface.html#sec:command_line_warnings in the Gradle documentation.
+
+BUILD SUCCESSFUL in 40s
+84 actionable tasks: 12 executed, 72 up-to-date
+Consider enabling configuration cache to speed up this build: https://docs.gradle.org/9.8.1/userguide/configuration_cache_enabling.html
