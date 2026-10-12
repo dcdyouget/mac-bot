@@ -1008,6 +1008,7 @@ fn ensure_mock_defaults(state: &mut MockState, home: &std::path::Path) {
             })],
         );
     }
+    ensure_mock_usage_models(state);
     repair_login_members(state);
     repair_waiting_references(state, home);
     ensure_pending_review_fixture(state);
@@ -1023,6 +1024,44 @@ fn ensure_mock_defaults(state: &mut MockState, home: &std::path::Path) {
     ensure_mock_artifact_history(state, home);
     ensure_mock_routines(state);
     ensure_login_question_operation_scenarios(state);
+}
+
+/// Keep usage sample model IDs resolvable through provider.list, including
+/// when an existing mock home already has a provider or a partial model list.
+fn ensure_mock_usage_models(state: &mut MockState) {
+    let provider_id = extra_get(state, "providers")
+        .first()
+        .and_then(|provider| provider.get("id"))
+        .and_then(Value::as_str)
+        .unwrap_or("prv_mock")
+        .to_owned();
+    let mut models = extra_get(state, "models");
+    for (model_id, display_name, vision) in [
+        ("claude-sonnet", "Claude Sonnet", false),
+        ("deepseek-chat", "DeepSeek Chat", false),
+        ("claude-haiku", "Claude Haiku", false),
+        ("free-model", "免费模型", false),
+    ] {
+        let model_ref = format!("{provider_id}/{model_id}");
+        if models
+            .iter()
+            .any(|model| model.get("ref").and_then(Value::as_str) == Some(&model_ref))
+        {
+            continue;
+        }
+        models.push(json!({
+            "ref":model_ref,
+            "provider_id":provider_id,
+            "model_id":model_id,
+            "display_name":display_name,
+            "context_window":128000,
+            "max_output":8192,
+            "caps":{"vision":vision,"tools":true,"reasoning":false},
+            "price":null,
+            "enabled":true
+        }));
+    }
+    extra_set(state, "models", models);
 }
 
 /// Give the active web-redesign assignment a useful, deterministic trace for
@@ -2724,8 +2763,8 @@ fn usage_seed(now: DateTime<Utc>) -> Vec<UsageSample> {
         UsageSample {
             ts: now - Duration::hours(12),
             bot_id: "bot_main",
-            project_id: Some("project_alpha"),
-            model_id: "mock-model",
+            project_id: Some("prj_login"),
+            model_id: "claude-sonnet",
             phase: "work",
             input_tokens: 1_000,
             output_tokens: 400,
@@ -2736,9 +2775,9 @@ fn usage_seed(now: DateTime<Utc>) -> Vec<UsageSample> {
         },
         UsageSample {
             ts: now - Duration::days(1) - Duration::hours(3),
-            bot_id: "bot_worker",
-            project_id: Some("project_alpha"),
-            model_id: "fast-model",
+            bot_id: "bot_code",
+            project_id: Some("prj_login"),
+            model_id: "deepseek-chat",
             phase: "memory",
             input_tokens: 600,
             output_tokens: 200,
@@ -2750,8 +2789,8 @@ fn usage_seed(now: DateTime<Utc>) -> Vec<UsageSample> {
         UsageSample {
             ts: now - Duration::days(2),
             bot_id: "bot_main",
-            project_id: Some("project_beta"),
-            model_id: "mock-model",
+            project_id: Some("prj_web"),
+            model_id: "claude-sonnet",
             phase: "compact",
             input_tokens: 1_200,
             output_tokens: 300,
@@ -2762,9 +2801,9 @@ fn usage_seed(now: DateTime<Utc>) -> Vec<UsageSample> {
         },
         UsageSample {
             ts: now - Duration::days(3) - Duration::hours(4),
-            bot_id: "bot_worker",
-            project_id: Some("project_beta"),
-            model_id: "vision-model",
+            bot_id: "bot_test",
+            project_id: Some("prj_web"),
+            model_id: "claude-haiku",
             phase: "work",
             input_tokens: 800,
             output_tokens: 500,
@@ -2776,8 +2815,8 @@ fn usage_seed(now: DateTime<Utc>) -> Vec<UsageSample> {
         UsageSample {
             ts: now - Duration::days(4),
             bot_id: "bot_main",
-            project_id: Some("project_alpha"),
-            model_id: "fast-model",
+            project_id: Some("prj_login"),
+            model_id: "deepseek-chat",
             phase: "coordinate",
             input_tokens: 450,
             output_tokens: 180,
@@ -2788,9 +2827,9 @@ fn usage_seed(now: DateTime<Utc>) -> Vec<UsageSample> {
         },
         UsageSample {
             ts: now - Duration::days(5) - Duration::hours(2),
-            bot_id: "bot_worker",
-            project_id: Some("project_beta"),
-            model_id: "mock-model",
+            bot_id: "bot_code",
+            project_id: Some("prj_web"),
+            model_id: "deepseek-chat",
             phase: "work",
             input_tokens: 700,
             output_tokens: 250,
@@ -2801,8 +2840,8 @@ fn usage_seed(now: DateTime<Utc>) -> Vec<UsageSample> {
         },
         UsageSample {
             ts: now - Duration::days(6),
-            bot_id: "bot_worker",
-            project_id: Some("project_alpha"),
+            bot_id: "bot_product",
+            project_id: Some("prj_login"),
             model_id: "free-model",
             phase: "memory",
             input_tokens: 300,
@@ -2816,8 +2855,8 @@ fn usage_seed(now: DateTime<Utc>) -> Vec<UsageSample> {
         UsageSample {
             ts: now - Duration::days(9),
             bot_id: "bot_main",
-            project_id: Some("project_alpha"),
-            model_id: "mock-model",
+            project_id: Some("prj_login"),
+            model_id: "claude-sonnet",
             phase: "work",
             input_tokens: 500,
             output_tokens: 160,
@@ -2825,6 +2864,47 @@ fn usage_seed(now: DateTime<Utc>) -> Vec<UsageSample> {
             cache_write_tokens: 0,
             cost: Some(0.05),
             task_done: true,
+        },
+        // The prior 30-day dashboard window must contain resolvable activity
+        // so its comparison cards never render as an empty baseline.
+        UsageSample {
+            ts: now - Duration::days(35),
+            bot_id: "bot_code",
+            project_id: Some("prj_login"),
+            model_id: "deepseek-chat",
+            phase: "work",
+            input_tokens: 320,
+            output_tokens: 120,
+            cache_read_tokens: 20,
+            cache_write_tokens: 5,
+            cost: Some(0.04),
+            task_done: true,
+        },
+        UsageSample {
+            ts: now - Duration::days(44) - Duration::hours(2),
+            bot_id: "bot_test",
+            project_id: Some("prj_web"),
+            model_id: "claude-haiku",
+            phase: "verify",
+            input_tokens: 280,
+            output_tokens: 90,
+            cache_read_tokens: 10,
+            cache_write_tokens: 0,
+            cost: Some(0.03),
+            task_done: true,
+        },
+        UsageSample {
+            ts: now - Duration::days(56),
+            bot_id: "bot_product",
+            project_id: Some("prj_login"),
+            model_id: "free-model",
+            phase: "coordinate",
+            input_tokens: 190,
+            output_tokens: 70,
+            cache_read_tokens: 0,
+            cache_write_tokens: 0,
+            cost: None,
+            task_done: false,
         },
     ]
 }
@@ -8433,8 +8513,8 @@ mod contract_tests {
         )
         .await;
         let breakdown: UsageBreakdownResult = serde_json::from_value(breakdown).unwrap();
-        assert!(breakdown.rows.iter().any(|row| row.key == "project_alpha"));
-        assert!(breakdown.rows.iter().any(|row| row.key == "project_beta"));
+        assert!(breakdown.rows.iter().any(|row| row.key == "prj_login"));
+        assert!(breakdown.rows.iter().any(|row| row.key == "prj_web"));
         assert_eq!(
             breakdown
                 .rows
@@ -8460,5 +8540,126 @@ mod contract_tests {
             .rows
             .iter()
             .any(|row| row.key == "free-model" && row.usage.cost.is_none()));
+    }
+
+    #[tokio::test]
+    async fn dashboard_mock_dimensions_resolve_and_support_drilldown() {
+        let gateway = gateway().await;
+        let now = Utc::now();
+        let from = (now - Duration::days(30)).to_rfc3339();
+        let to = (now + Duration::hours(1)).to_rfc3339();
+
+        let bootstrap = call(&gateway, "bootstrap", json!({})).await;
+        let bot_ids = bootstrap["bots"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|bot| bot["id"].as_str())
+            .collect::<std::collections::HashSet<_>>();
+        let project_ids = bootstrap["projects"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|project| project["id"].as_str())
+            .collect::<std::collections::HashSet<_>>();
+        let providers = call(&gateway, "provider.list", json!({})).await;
+        let model_ids = providers["models"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|model| model["model_id"].as_str())
+            .collect::<std::collections::HashSet<_>>();
+
+        let summary = call(&gateway, "usage.summary", json!({"from":from,"to":to})).await;
+        let summary: UsageSummaryResult = serde_json::from_value(summary).unwrap();
+        assert!(summary.previous.usage.requests >= 3);
+        assert!(summary.previous.usage.input_tokens > 0);
+        assert!(summary.current.usage.requests > summary.previous.usage.requests);
+        assert!(
+            summary.current.usage.input_tokens + summary.current.usage.output_tokens
+                > summary.previous.usage.input_tokens + summary.previous.usage.output_tokens
+        );
+
+        for dimension in ["model", "bot", "project"] {
+            let result = call(
+                &gateway,
+                "usage.timeseries",
+                json!({
+                    "from":from,
+                    "to":to,
+                    "granularity":"day",
+                    "dimension":dimension,
+                    "metric":"tokens"
+                }),
+            )
+            .await;
+            let series = result["series"].as_array().unwrap();
+            assert!(!series.is_empty(), "{dimension} dimension must have usage");
+            assert!(series.iter().all(|item| {
+                item["values"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .any(|value| value.as_f64().unwrap_or_default() > 0.0)
+            }));
+            for item in series {
+                let key = item["key"].as_str().unwrap();
+                match dimension {
+                    "model" => assert!(model_ids.contains(key), "unresolvable model {key}"),
+                    "bot" => assert!(bot_ids.contains(key), "unresolvable bot {key}"),
+                    "project" => assert!(project_ids.contains(key), "unresolvable project {key}"),
+                    _ => unreachable!(),
+                }
+            }
+        }
+
+        let heatmap = call(
+            &gateway,
+            "usage.heatmap",
+            json!({"mode":"weekhour","from":from,"to":to,"metric":"tokens"}),
+        )
+        .await;
+        let matrix = heatmap["matrix"].as_array().unwrap();
+        assert_eq!(matrix.len(), 7);
+        assert!(matrix.iter().any(|day| {
+            day.as_array()
+                .unwrap()
+                .iter()
+                .any(|hour| hour.as_f64().unwrap_or_default() > 0.0)
+        }));
+
+        let drilled = call(
+            &gateway,
+            "usage.breakdown",
+            json!({"from":from,"to":to,"dimension":"project","drill":{"bot_id":"bot_code"}}),
+        )
+        .await;
+        let rows = drilled["rows"].as_array().unwrap();
+        assert!(rows.iter().any(|row| row["key"] == "prj_login"));
+        assert!(rows.iter().any(|row| row["key"] == "prj_web"));
+    }
+
+    #[tokio::test]
+    async fn mock_search_has_cross_entity_hits_and_empty_result() {
+        let gateway = gateway().await;
+        let hits = call(&gateway, "search", json!({"query":"登录","limit":100})).await;
+        let results = hits["results"].as_array().unwrap();
+        assert!(results.iter().any(|result| result["kind"] == "chat"));
+        assert!(results.iter().any(|result| result["kind"] == "message"));
+
+        let bot_hits = call(&gateway, "search", json!({"query":"编码","kinds":["bot"]})).await;
+        assert!(bot_hits["results"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|result| result["id"] == "bot_code"));
+
+        let no_hits = call(
+            &gateway,
+            "search",
+            json!({"query":"query-with-no-mock-match-4519","limit":100}),
+        )
+        .await;
+        assert!(no_hits["results"].as_array().unwrap().is_empty());
     }
 }
