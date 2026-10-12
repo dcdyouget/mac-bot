@@ -126,7 +126,7 @@ S.group = (p) => sbar(p) + header(p, `${p === 'i' ? gav(['Z', 'P', 'C', 'T'], 24
 S.mainchat = (p) => sbar(p) + header(p, `${p === 'i' ? av('Z', 24) : ''}总管`, { back: 1, backLabel: '消息', lead: p === 'i' ? 1 : 0, small: 1, sub: '主 Bot · 只协调，不干活', actions: ['panelR'] }).replace('<span class="t"', p === 'a' ? `${av('Z', 40)}<span style="width:12px"></span><span class="t"` : '<span class="t"') + `
   ${pinbar('review', 'target', '等你处理 1', '登录功能：验收')}
   <div class="content chat"><div class="msgs">
-    ${MB.msg('me', ['给 App 加个邮箱登录，周六前上线'], { time: '09:58' })}
+    ${MB.msg('me', ['给 App 加个邮箱登录，周六前上线'], { time: '09:58', tapback: [['👍', 1]] })}
     ${MB.msg('Z', ['好的，我拉了产品、编码、测试建群。', MB.group({ members: ['Z', 'P', 'C', 'T'], title: '登录功能', created: true, note: '给 App 加邮箱登录，周六前上线' })], { time: '09:58' })}
     ${MB.msg('Z', ['「登录功能」做完了，请你验收：', MB.review({ title: '登录功能', list: [['PRD', 'product/prd.md', 'P', 'file'], ['代码', 'code/', 'C', 'folder']] })], { time: '11:42' })}
   </div></div>` + comp(p, '给 总管 发消息');

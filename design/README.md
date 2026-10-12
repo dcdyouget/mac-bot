@@ -1,4 +1,4 @@
-# Mac Bot 视觉设计稿 v1.1
+# Mac Bot 视觉设计稿 v1.2
 
 > **改了什么见 [CHANGELOG.md](CHANGELOG.md)**（按版本记录改动和涉及的文件，实现前先看）。
 
@@ -43,7 +43,8 @@ open design/prototype/blocks.html     # 消息块目录（桌面 / 移动并排�
 
 | 参考 | 借鉴 | 不照搬 |
 |------|------|--------|
-| **Grok Bot** | 三栏、豆豆头像、任务卡片、A/B/C 提问、Allow once / Always / Deny | 黑白反色气泡：对比太强，改成 Telegram 式淡色气泡 |
+| **Grok Bot** | 三栏、豆豆头像、任务卡片、A/B/C 提问、Allow once / Always / Deny、悬浮的输入框和克制的界面框架（v1.2） | 黑白反色气泡：对比太强，改成 Telegram 式淡色气泡 |
+| **Apple 信息（iMessage）** | 实心渐变发出气泡、气泡小尾巴、Tapback 回应钉在气泡角上、玻璃质感的工具栏和日期胶囊、带回弹的动效（v1.2） | 纯蓝色：改为素雅的石板蓝渐变 |
 | **Telegram Desktop** | 聊天区独立底色、白色接收气泡、浅色发送气泡；连续消息合并、尾角收窄；时间嵌在气泡右下角；日期胶囊；悬停工具条 | 彩色用户名、强蓝绿色的发送气泡 |
 | **Zeron**（GPUI） | 毛玻璃侧栏、按注意力排序的会话列表、工作详情放在侧栏 | — |
 | **MonoCode** | composer 作为主输入、轨迹 / 终端输出的等宽深色块、标签式并行会话（Agent Computer 的标签页） | IDE 式密集布局 |

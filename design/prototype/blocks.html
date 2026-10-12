@@ -33,7 +33,7 @@ const M = MB;
 const ARTS = [['PRD', 'product/prd.md', 'P', 'file'], ['原型', 'product/prototype/', 'P', 'globe'], ['代码 · 已部署 localhost:3000', 'code/', 'C', 'folder']];
 const B = [
   ['文本', 'text', '正文按 Markdown 渲染：粗体、列表、行内代码、链接、代码块。同一个人的连续消息合并，组内第一条显示名字和头衔。', ['私聊里 Bot 的回复可以流式输出（message.delta）；群消息都是完整的一条'],
-    () => M.msg('R', ['<p>今天 HN 前三：</p><p>1. <b>Zed 1.0 发布</b></p><p>2. SQLite 的 <code>JSONB</code> 性能对比</p>'], { time: '10:07', role: true }) + M.msg('me', ['好的，谢谢'], { time: '10:08' })],
+    () => M.msg('R', ['<p>今天 HN 前三：</p><p>1. <b>Zed 1.0 发布</b></p><p>2. SQLite 的 <code>JSONB</code> 性能对比</p>'], { time: '10:07', role: true }) + M.msg('me', ['好的，谢谢'], { time: '10:08', tapback: [['❤️', 1]] })],
   ['时间与已读', '06 §2.1', '气泡里不放时间：组头带时间；与上一条相隔 ≥ 5 分钟插一行居中时间；桌面悬停气泡显示精确时间，手机向左拖动露出时间；已读只在我最后一条消息下方显示。', ['日期胶囊用于跨天'],
     () => M.day('今天') + M.msg('C', ['收到，开始实现。'], { time: '10:19', role: true }) + M.msg('C', ['依赖装好了。'], { time: '10:21', name: false }) + M.msg('me', ['先只做邮箱登录'], { time: '10:31', status: '已读' })],
   ['@ 提及', 'Message.mentions（行内）', '@Bot、@总管、@everyone 用链接色加粗；<b>@你</b>（kind=user）额外加一层浅底色高亮。', ['你在群里 @ 一个正在工作的 Bot = 插话，气泡下方显示送达状态（Message.delivery）'],
