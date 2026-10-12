@@ -29,6 +29,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import bot.mac.mobile.core.design.BotAvatar
@@ -70,6 +74,7 @@ fun GroupScreen(
     onLoopAction: (String, String) -> Unit = { _, _ -> },
     onTakeover: (String) -> Unit = {},
     onOpenGroupInfo: (String) -> Unit = {},
+    onCreateSkill: (String) -> Unit = {},
     editAnnouncementOnOpen: Boolean = false,
 ) {
     val state by repository.state.collectAsState()
@@ -83,7 +88,8 @@ fun GroupScreen(
     var changeProjectId by remember { mutableStateOf<String?>(null) }
     var showEdit by remember { mutableStateOf(false) }
     var showAnnouncementEditor by remember { mutableStateOf(false) }
-    var announcementText by remember(projectId) { mutableStateOf(announcement?.str("text").orEmpty()) }
+    var announcementText by remember(projectId) { mutableStateOf(TextFieldValue(announcement?.str("text").orEmpty())) }
+    val announcementEditorFocus = remember(projectId) { FocusRequester() }
     var announcementQuoteToAppend by remember(projectId) { mutableStateOf<String?>(null) }
     var announcementBaseVersion by remember(projectId) { mutableStateOf(announcement?.get("version")?.toString()?.trim('"')?.toLongOrNull() ?: 0L) }
     var announcementConflict by remember { mutableStateOf<JsonObject?>(null) }
@@ -94,14 +100,19 @@ fun GroupScreen(
 
     LaunchedEffect(announcement?.str("version"), showAnnouncementEditor) {
         if (!showAnnouncementEditor) {
-            announcementText = announcement?.str("text").orEmpty()
+            announcementText = TextFieldValue(announcement?.str("text").orEmpty())
         } else {
             announcementQuoteToAppend?.let { quote ->
                 val current = announcement?.str("text").orEmpty()
-                announcementText = listOf(current, quote).filter(String::isNotBlank).joinToString("\n\n")
+                val text = listOf(current, quote).filter(String::isNotBlank).joinToString("\n\n")
+                announcementText = TextFieldValue(text, TextRange(text.length))
                 announcementQuoteToAppend = null
             }
         }
+    }
+
+    LaunchedEffect(showAnnouncementEditor, projectId) {
+        if (showAnnouncementEditor) announcementEditorFocus.requestFocus()
     }
 
     if (showAnnouncementEditor) {
@@ -115,12 +126,12 @@ fun GroupScreen(
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             Button(onClick = { showAnnouncementEditor = false; announcementConflict = null }) { Text(stringResource(Res.string.common_back)) }
                             Text(stringResource(Res.string.group_announcement_edit_title), Modifier.weight(1f), style = MaterialTheme.typography.titleLarge)
-                            Button(enabled = !announcementSaving && announcementText.length <= 8000, onClick = {
+                            Button(enabled = !announcementSaving && announcementText.text.length <= 8000, onClick = {
                             announcementSaving = true
                             scope.launch {
                                 runCatching {
                                     repository.call("announcement.update", buildJsonObject {
-                                        put("project_id", projectId); put("text", announcementText); put("base_version", announcementBaseVersion)
+                                        put("project_id", projectId); put("text", announcementText.text); put("base_version", announcementBaseVersion)
                                     })
                                 }.onSuccess {
                                     announcementConflict = null
@@ -141,15 +152,31 @@ fun GroupScreen(
                     }
                     Text(stringResource(Res.string.feature_announcement_edit_hint), style = MaterialTheme.typography.bodySmall)
                     Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        listOf("#", "**", "• ", "1. ", "`", "[ ]()").forEach { syntax ->
-                            FilterChip(selected = false, onClick = { announcementText += syntax }, label = { Text(syntax) })
+                        listOf(
+                            "#" to AnnouncementMarkdownAction.HEADING,
+                            "B" to AnnouncementMarkdownAction.BOLD,
+                            "•" to AnnouncementMarkdownAction.BULLET,
+                            "1." to AnnouncementMarkdownAction.NUMBERED,
+                            "`" to AnnouncementMarkdownAction.CODE,
+                            "[ ]" to AnnouncementMarkdownAction.LINK,
+                        ).forEach { (label, action) ->
+                            FilterChip(selected = false, onClick = {
+                                val edit = applyAnnouncementMarkdownAction(
+                                    announcementText.text,
+                                    announcementText.selection.start,
+                                    announcementText.selection.end,
+                                    action,
+                                )
+                                announcementText = TextFieldValue(edit.text, TextRange(edit.selectionStart, edit.selectionEnd))
+                                announcementEditorFocus.requestFocus()
+                            }, label = { Text(label) })
                         }
                     }
                     OutlinedTextField(
-                        value = announcementText, onValueChange = { announcementText = it.take(8000) },
-                        modifier = Modifier.fillMaxWidth().weight(1f), minLines = 8,
+                        value = announcementText, onValueChange = { value -> announcementText = value.copy(text = value.text.take(8000)) },
+                        modifier = Modifier.fillMaxWidth().weight(1f).focusRequester(announcementEditorFocus), minLines = 8,
                         label = { Text(stringResource(Res.string.feature_announcement_body)) },
-                        supportingText = { Text(stringResource(Res.string.feature_announcement_version, announcement?.str("version").orEmpty(), announcementText.length)) },
+                        supportingText = { Text(stringResource(Res.string.feature_announcement_version, announcement?.str("version").orEmpty(), announcementText.text.length)) },
                     )
                     announcementConflict?.let { latest ->
                         Surface(color = MaterialTheme.colorScheme.errorContainer, shape = MaterialTheme.shapes.medium) {
@@ -157,7 +184,7 @@ fun GroupScreen(
                                 Text(stringResource(Res.string.feature_announcement_conflict), color = MaterialTheme.colorScheme.onErrorContainer)
                                 Text(latest.str("text"), maxLines = 5, color = MaterialTheme.colorScheme.onErrorContainer)
                                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    Button(onClick = { announcementText = latest.str("text"); announcementBaseVersion = latest["version"]?.toString()?.trim('"')?.toLongOrNull() ?: announcementBaseVersion; announcementConflict = null }) { Text(stringResource(Res.string.feature_announcement_load_latest)) }
+                                    Button(onClick = { val text = latest.str("text"); announcementText = TextFieldValue(text, TextRange(text.length)); announcementBaseVersion = latest["version"]?.toString()?.trim('"')?.toLongOrNull() ?: announcementBaseVersion; announcementConflict = null }) { Text(stringResource(Res.string.feature_announcement_load_latest)) }
                                     Button(onClick = { announcementBaseVersion = latest["version"]?.toString()?.trim('"')?.toLongOrNull() ?: announcementBaseVersion; announcementConflict = null }) { Text(stringResource(Res.string.feature_announcement_keep_draft)) }
                                 }
                             }
@@ -239,7 +266,7 @@ fun GroupScreen(
                         DropdownMenuItem(text = { Text(stringResource(Res.string.group_info)) }, onClick = { showGroupActions = false; onOpenGroupInfo(projectId) })
                         DropdownMenuItem(text = { Text(stringResource(Res.string.group_announcement_edit)) }, onClick = {
                             showGroupActions = false
-                            announcementText = announcement?.str("text").orEmpty()
+                            announcementText = TextFieldValue(announcement?.str("text").orEmpty())
                             announcementBaseVersion = announcement?.get("version")?.toString()?.trim('"')?.toLongOrNull() ?: 0L
                             showAnnouncementEditor = true
                         })
@@ -349,12 +376,14 @@ fun GroupScreen(
                     onOpenChat = onOpenChat,
                     onQuoteAnnouncement = { quote ->
                         if (showAnnouncementEditor) {
-                            announcementText = listOf(announcementText, quote).filter(String::isNotBlank).joinToString("\n\n")
+                            val text = listOf(announcementText.text, quote).filter(String::isNotBlank).joinToString("\n\n")
+                            announcementText = TextFieldValue(text, TextRange(text.length))
                         } else {
                             announcementQuoteToAppend = quote
                             showAnnouncementEditor = true
                         }
                     },
+                    onCreateSkill = onCreateSkill,
                     onLoopAction = onLoopAction,
                     onTakeover = onTakeover,
                     showHeader = false,

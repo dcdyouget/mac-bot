@@ -19,6 +19,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
 import bot.mac.mobile.core.platform.platformAnimationsEnabled
 import bot.mac.mobile.core.platform.platformBackdropBlurSupported
@@ -29,7 +30,7 @@ object DesignTokens {
     val bgWindow = Color(0xFFFBFBFA)
     val bgSidebar = Color(0xFFF3F3F1)
     val bgPanel = Color(0xFFF7F7F5)
-    val bgChat = Color(0xFFEFEFEB)
+    val bgChat = Color(0xFFF1F1EE)
     val bgElevated = Color(0xFFFFFFFF)
     val bgInput = Color(0xFFFFFFFF)
     val bgHover = Color(0x0B141418)
@@ -51,8 +52,9 @@ object DesignTokens {
     val accentOn = Color(0xFFFFFFFF)
     val bubbleIn = Color(0xFFFFFFFF)
     val bubbleInText = Color(0xFF1C1C1E)
-    val bubbleOut = Color(0xFFDDE5F0)
-    val bubbleOutText = Color(0xFF1C1C1E)
+    val bubbleOut = Color(0xFF4E70A3)
+    val bubbleOutTop = Color(0xFF5D81B8)
+    val bubbleOutText = Color(0xFFFFFFFF)
     val bubbleMeta = Color(0xFF8E8E93)
     val bubbleOutMeta = Color(0xFF6F819C)
     val success = Color(0xFF3E8E66)
@@ -104,8 +106,9 @@ object DesignTokens {
         "accent.on" to Color(0xFF111113),
         "bubble.in" to Color(0xFF222225),
         "bubble.in.text" to Color(0xFFECECEE),
-        "bubble.out" to Color(0xFF2B3A52),
-        "bubble.out.text" to Color(0xFFECEFF5),
+        "bubble.out" to Color(0xFF4C6B9C),
+        "bubble.out.top" to Color(0xFF5B7DB2),
+        "bubble.out.text" to Color(0xFFFFFFFF),
         "bubble.meta" to Color(0xFF7C7C82),
         "bubble.out.meta" to Color(0xFF8FA2C0),
         "success" to Color(0xFF6DBE94),
@@ -166,9 +169,9 @@ object DesignTokens {
     val radiuslg = 12.dp
     val radiusxl = 16.dp
     val radius2xl = 20.dp
-    val radiusbubble = 16.dp
+    val radiusbubble = 18.dp
     val radiusbubbleTail = 6.dp
-    val radiuscard = 12.dp
+    val radiuscard = 14.dp
     val radiussheet = 20.dp
     val radiuswindow = 12.dp
     val radiuspill = 999.dp
@@ -185,7 +188,7 @@ object DesignTokens {
         "text.primary" to textPrimary, "text.secondary" to textSecondary, "text.tertiary" to textTertiary,
         "text.inverse" to textInverse, "text.link" to textLink, "accent" to accent, "accent.hover" to accentHover,
         "accent.pressed" to accentPressed, "accent.soft" to accentSoft, "accent.on" to accentOn,
-        "bubble.in" to bubbleIn, "bubble.in.text" to bubbleInText, "bubble.out" to bubbleOut,
+        "bubble.in" to bubbleIn, "bubble.in.text" to bubbleInText, "bubble.out" to bubbleOut, "bubble.out.top" to bubbleOutTop,
         "bubble.out.text" to bubbleOutText, "bubble.meta" to bubbleMeta, "bubble.out.meta" to bubbleOutMeta,
         "success" to success, "success.soft" to successSoft, "warning" to warning, "warning.soft" to warningSoft,
         "danger" to danger, "danger.soft" to dangerSoft, "review" to review, "review.soft" to reviewSoft,
@@ -234,6 +237,9 @@ object DesignMotion {
     const val slowMillis = 320
     const val workingRotationMillis = 1200
     const val reducedMotionFadeMillis = 120
+    const val springMillis = 360
+    const val springStiffness = 380f
+    const val pressScale = 0.97f
     val standard = CubicBezierEasing(0.2f, 0f, 0f, 1f)
     val decelerate = CubicBezierEasing(0f, 0f, 0f, 1f)
     val accelerate = CubicBezierEasing(0.3f, 0f, 1f, 1f)
@@ -253,7 +259,7 @@ data class ElevationToken(
 
 object DesignElevation {
     val level0 = ElevationToken(0.dp, 0.dp, 0.dp, null)
-    val level1 = ElevationToken(1.dp, 2.dp, 0.dp, null, fixedShadowColor = Color(0x0F000000))
+    val level1 = ElevationToken(1.dp, 2.dp, 0.5.dp, "border.default", fixedShadowColor = Color(0x0F000000))
     val level2 = ElevationToken(2.dp, 8.dp, 0.5.dp, "border.subtle", useThemeShadowColor = true)
     val level3 = ElevationToken(8.dp, 24.dp, 0.5.dp, "border.default", useThemeShadowColor = true)
     val level4 = ElevationToken(20.dp, 60.dp, 0.5.dp, "border.default", useThemeShadowColor = true)
@@ -300,18 +306,18 @@ fun MacBotTheme(mode: String, content: @Composable () -> Unit) {
         MaterialTheme(
             colorScheme = scheme,
             typography = androidx.compose.material3.Typography(
-                displayLarge = TextStyle(fontSize = 34.sp, lineHeight = 41.sp, fontWeight = FontWeight.Bold, letterSpacing = (-0.5).sp, color = p.textPrimary),
-                headlineLarge = TextStyle(fontSize = 28.sp, lineHeight = 34.sp, fontWeight = FontWeight.Bold, letterSpacing = (-0.4).sp, color = p.textPrimary),
-                headlineMedium = TextStyle(fontSize = 20.sp, lineHeight = 25.sp, fontWeight = FontWeight.SemiBold, letterSpacing = (-0.3).sp, color = p.textPrimary),
-                bodyLarge = TextStyle(fontSize = 16.sp, lineHeight = 22.sp, color = p.textPrimary),
-                bodyMedium = TextStyle(fontSize = 15.sp, lineHeight = 21.sp, color = p.textPrimary),
-                bodySmall = TextStyle(fontSize = 13.sp, lineHeight = 18.sp, color = p.textSecondary),
-                titleLarge = TextStyle(fontSize = 22.sp, lineHeight = 28.sp, fontWeight = FontWeight.Medium, color = p.textPrimary),
-                titleMedium = TextStyle(fontSize = 17.sp, lineHeight = 22.sp, fontWeight = FontWeight.SemiBold, letterSpacing = (-0.2).sp, color = p.textPrimary),
-                titleSmall = TextStyle(fontSize = 15.sp, lineHeight = 20.sp, fontWeight = FontWeight.SemiBold, color = p.textPrimary),
-                labelLarge = TextStyle(fontSize = 15.sp, lineHeight = 20.sp, fontWeight = FontWeight.Medium, color = p.textPrimary),
-                labelSmall = TextStyle(fontSize = 12.sp, lineHeight = 16.sp, color = p.textSecondary),
-                labelMedium = TextStyle(fontSize = 15.sp, lineHeight = 20.sp, fontWeight = FontWeight.Medium, color = p.textPrimary),
+                displayLarge = TextStyle(fontSize = 34.sp, lineHeight = 41.sp, fontWeight = FontWeight.Bold, letterSpacing = (-0.01).em, color = p.textPrimary),
+                headlineLarge = TextStyle(fontSize = 28.sp, lineHeight = 34.sp, fontWeight = FontWeight.Bold, letterSpacing = (-0.01).em, color = p.textPrimary),
+                headlineMedium = TextStyle(fontSize = 20.sp, lineHeight = 25.sp, fontWeight = FontWeight.SemiBold, letterSpacing = (-0.01).em, color = p.textPrimary),
+                bodyLarge = TextStyle(fontSize = 16.sp, lineHeight = 22.sp, letterSpacing = (-0.01).em, color = p.textPrimary),
+                bodyMedium = TextStyle(fontSize = 15.sp, lineHeight = 21.sp, letterSpacing = (-0.01).em, color = p.textPrimary),
+                bodySmall = TextStyle(fontSize = 13.sp, lineHeight = 18.sp, letterSpacing = (-0.01).em, color = p.textSecondary),
+                titleLarge = TextStyle(fontSize = 22.sp, lineHeight = 28.sp, fontWeight = FontWeight.Medium, letterSpacing = (-0.01).em, color = p.textPrimary),
+                titleMedium = TextStyle(fontSize = 17.sp, lineHeight = 22.sp, fontWeight = FontWeight.SemiBold, letterSpacing = (-0.01).em, color = p.textPrimary),
+                titleSmall = TextStyle(fontSize = 15.sp, lineHeight = 20.sp, fontWeight = FontWeight.SemiBold, letterSpacing = (-0.01).em, color = p.textPrimary),
+                labelLarge = TextStyle(fontSize = 15.sp, lineHeight = 20.sp, fontWeight = FontWeight.Medium, letterSpacing = (-0.01).em, color = p.textPrimary),
+                labelSmall = TextStyle(fontSize = 12.sp, lineHeight = 16.sp, letterSpacing = (-0.01).em, color = p.textSecondary),
+                labelMedium = TextStyle(fontSize = 15.sp, lineHeight = 20.sp, fontWeight = FontWeight.Medium, letterSpacing = (-0.01).em, color = p.textPrimary),
             ), content = content,
         )
     }

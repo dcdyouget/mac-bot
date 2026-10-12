@@ -90,13 +90,17 @@ actual fun parseMobileDeepLink(value: String): MobileDeepLink? {
     if (!deepLinkResourceIdPattern.matches(resourceId)) return null
 
     val encodedQuery = uri.encodedQuery
-    if (encodedQuery != null && (encodedQuery.isEmpty() || uri.queryParameterNames != setOf("host_id"))) return null
+    if (encodedQuery != null && (encodedQuery.isEmpty() || !setOf("host_id", "message_id").containsAll(uri.queryParameterNames))) return null
     val hostValues = uri.getQueryParameters("host_id")
     if (hostValues.size > 1) return null
     val hostId = hostValues.singleOrNull()
     if (hostId != null && !deepLinkResourceIdPattern.matches(hostId)) return null
+    val messageValues = uri.getQueryParameters("message_id")
+    if (messageValues.size > 1 || (messageValues.isNotEmpty() && kind != DeepLinkKind.CHAT)) return null
+    val messageId = messageValues.singleOrNull()
+    if (messageId != null && !deepLinkResourceIdPattern.matches(messageId)) return null
 
-    return MobileDeepLink(kind, resourceId, hostId)
+    return MobileDeepLink(kind, resourceId, hostId, messageId)
 }
 
 // Android blur-behind APIs only blur other windows; they cannot blur surfaces
@@ -106,15 +110,26 @@ actual fun platformBackdropBlurSupported(): Boolean = false
 @Composable
 actual fun platformAnimationsEnabled(): Boolean {
     val context = LocalContext.current
-    var enabled by remember(context) { mutableStateOf(ValueAnimator.areAnimatorsEnabled()) }
+    fun readEnabled(): Boolean {
+        val resolver = context.contentResolver
+        val animatorEnabled = ValueAnimator.areAnimatorsEnabled()
+        val transitionEnabled = runCatching { Settings.Global.getFloat(resolver, Settings.Global.TRANSITION_ANIMATION_SCALE, 1f) > 0f }.getOrDefault(true)
+        val windowEnabled = runCatching { Settings.Global.getFloat(resolver, Settings.Global.WINDOW_ANIMATION_SCALE, 1f) > 0f }.getOrDefault(true)
+        return animatorEnabled && transitionEnabled && windowEnabled
+    }
+    var enabled by remember(context) { mutableStateOf(readEnabled()) }
     DisposableEffect(context) {
         val resolver = context.contentResolver
         val observer = object : ContentObserver(Handler(Looper.getMainLooper())) {
             override fun onChange(selfChange: Boolean) {
-                enabled = ValueAnimator.areAnimatorsEnabled()
+                enabled = readEnabled()
             }
         }
-        resolver.registerContentObserver(Settings.Global.getUriFor(Settings.Global.ANIMATOR_DURATION_SCALE), false, observer)
+        listOf(
+            Settings.Global.ANIMATOR_DURATION_SCALE,
+            Settings.Global.TRANSITION_ANIMATION_SCALE,
+            Settings.Global.WINDOW_ANIMATION_SCALE,
+        ).forEach { resolver.registerContentObserver(Settings.Global.getUriFor(it), false, observer) }
         onDispose { resolver.unregisterContentObserver(observer) }
     }
     return enabled

@@ -1,11 +1,17 @@
 package bot.mac.mobile.feature.chat
 
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.Animatable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.lazy.LazyColumn
@@ -40,7 +46,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
@@ -59,8 +68,12 @@ import androidx.compose.ui.semantics.isTraversalGroup
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.IntOffset
 import kotlin.math.roundToInt
@@ -111,7 +124,7 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import org.jetbrains.compose.resources.stringResource
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun ChatScreen(
     repository: MobileRepository,
@@ -130,6 +143,7 @@ fun ChatScreen(
     onOpenGroupInfo: (projectId: String) -> Unit = {},
     onOpenFollowup: (chatId: String) -> Unit = {},
     onQuoteAnnouncement: (String) -> Unit = {},
+    onCreateSkill: (String) -> Unit = {},
     artifactProjectId: String? = null,
     showHeader: Boolean = true,
 ) {
@@ -163,6 +177,8 @@ fun ChatScreen(
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
     val composerFocusRequester = remember(hostId, chatId) { FocusRequester() }
+    var composerFocused by remember(hostId, chatId) { mutableStateOf(false) }
+    var composerStackHeightPx by remember(hostId, chatId) { mutableStateOf(0) }
     val mentionButtonFocusRequester = remember(hostId, chatId) { FocusRequester() }
     var mentionOpenedByButton by remember(hostId, chatId) { mutableStateOf(false) }
     var initialJumpHandled by remember(hostId, chatId, initialMessageId) { mutableStateOf(initialMessageId.isNullOrBlank()) }
@@ -181,9 +197,15 @@ fun ChatScreen(
     val waitingReviewProject = if (chat?.str("kind") == "main") state.projects.firstOrNull {
         it.str("status") in setOf("review", "pending_review")
     } else null
-    val hasWorkingProjectBots = groupChat && state.assignments.any {
-        it.str("project_id") == chat?.str("project_id") && it.str("status") == "working"
-    }
+    val workingProjectBots = if (groupChat) {
+        state.assignments.asSequence()
+            .filter { it.str("project_id") == chat?.str("project_id") && it.str("status") == "working" }
+            .map { it.str("bot_id") }
+            .filter(String::isNotBlank)
+            .distinct()
+            .mapNotNull { botId -> state.bots.firstOrNull { it.str("id") == botId } }
+            .toList()
+    } else emptyList()
     val loadingError = stringResource(Res.string.feature_loading_error)
     val sendError = stringResource(Res.string.feature_send_error)
     val quoteOriginalUnloaded = stringResource(Res.string.feature_quote_original_unloaded)
@@ -360,10 +382,11 @@ fun ChatScreen(
             historyBeforeSeq = beforeSeq
             pages++
         }
-        val index = repository.state.value.messages[chatId].orEmpty().indexOfFirst { it.str("id") == targetId }
+        val currentMessages = repository.state.value.messages[chatId].orEmpty()
+        val index = currentMessages.indexOfFirst { it.str("id") == targetId }
         if (index >= 0) {
             withFrameNanos { }
-            listState.scrollToItem(index + if (historyHasMore) 1 else 0)
+            listState.scrollToItem(chatMessageLazyIndex(currentMessages, index, historyHasMore))
             scrollState = scrollState.afterInitialPosition()
             highlightedMessageId = targetId
             kotlinx.coroutines.delay(900)
@@ -391,7 +414,7 @@ fun ChatScreen(
                 val index = messages.indexOfFirst { it.str("id") == anchor.id }
                 if (index >= 0) {
                     withFrameNanos { }
-                    listState.scrollToItem(index + if (historyHasMore) 1 else 0, anchor.offset)
+                    listState.scrollToItem(chatMessageLazyIndex(messages, index, historyHasMore), anchor.offset)
                 }
                 pendingAnchor = null
             }
@@ -409,7 +432,7 @@ fun ChatScreen(
     LaunchedEffect(chatId, historyLoaded, messages.size, historyHasMore) {
         if (initialMessageId != null && !initialJumpHandled) return@LaunchedEffect
         if (!historyLoaded || scrollState.initialPositioned) return@LaunchedEffect
-        val lastIndex = latestChatItemIndex(messages.size, historyHasMore) ?: return@LaunchedEffect
+        val lastIndex = latestChatItemIndex(messages, historyHasMore) ?: return@LaunchedEffect
         withFrameNanos { }
         listState.scrollToItem(lastIndex)
         scrollState = scrollState.afterInitialPosition()
@@ -418,7 +441,7 @@ fun ChatScreen(
     LaunchedEffect(messages.size, messages.lastOrNull()?.toString(), historyHasMore, scrollState) {
         if (initialMessageId != null && !initialJumpHandled) return@LaunchedEffect
         if (!scrollState.shouldScrollToLatest(messages.size)) return@LaunchedEffect
-        val lastIndex = latestChatItemIndex(messages.size, historyHasMore) ?: return@LaunchedEffect
+        val lastIndex = latestChatItemIndex(messages, historyHasMore) ?: return@LaunchedEffect
         withFrameNanos { }
         listState.scrollToItem(lastIndex)
     }
@@ -431,7 +454,7 @@ fun ChatScreen(
         if (showHeader) {
             FontScaleLimit(1.3f) {
             Row(
-                Modifier.fillMaxWidth().heightIn(min = 64.dp).padding(horizontal = 8.dp),
+                Modifier.fillMaxWidth().heightIn(min = 64.dp).background(LocalMobilePalette.current.sidebar).padding(horizontal = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 IconButton(onClick = onBack, modifier = Modifier.semantics { contentDescription = backLabel }) { LucideIcon(LucideIconKind.ArrowLeft, Modifier.size(20.dp)) }
@@ -502,10 +525,16 @@ fun ChatScreen(
                 LucideIcon(LucideIconKind.ChevronRight, Modifier.size(18.dp), tint = LocalMobilePalette.current.textSecondary)
             }
         }
+        Box(Modifier.weight(1f).fillMaxWidth()) {
         FontScaleLimit(2.0f) {
         LazyColumn(
             state = listState,
-            modifier = Modifier.weight(1f).fillMaxWidth().padding(horizontal = 12.dp),
+            modifier = Modifier.fillMaxSize().padding(horizontal = 12.dp),
+            contentPadding = PaddingValues(
+                bottom = with(androidx.compose.ui.platform.LocalDensity.current) {
+                    if (composerStackHeightPx == 0) 112.dp else composerStackHeightPx.toDp() + 12.dp
+                },
+            ),
             verticalArrangement = Arrangement.spacedBy(0.dp),
         ) {
             if (showMainChatEmptyState) {
@@ -560,20 +589,25 @@ fun ChatScreen(
                     ) { Text(if (loadingOlder) stringResource(Res.string.feature_loading) else stringResource(Res.string.chat_loading_older)) }
                 }
             }
-            itemsIndexed(messages, key = { _, message -> "$hostId:$chatId:${message.str("id").ifBlank { "message:${message.hashCode()}" }}" }) { messageIndex, message ->
+            messages.forEachIndexed { messageIndex, message ->
                 val previousMessage = messages.getOrNull(messageIndex - 1)
                 val nextMessage = messages.getOrNull(messageIndex + 1)
                 val startsNewDay = previousMessage == null || !sameChatDay(previousMessage, message)
                 val hasTimeSeparator = previousMessage != null && hasChatTimeSeparator(previousMessage, message)
-                if (startsNewDay) ChatDayCapsule(message.str("created_at"))
-                if (hasTimeSeparator) ChatTimeSeparator(message.str("created_at"))
+                if (startsNewDay) stickyHeader(key = "$hostId:$chatId:day:${chatDayKey(message.str("created_at"))}") {
+                    ChatDayCapsule(message.str("created_at"))
+                }
+                if (hasTimeSeparator) item(key = "$hostId:$chatId:time:${message.str("id")}") {
+                    ChatTimeSeparator(message.str("created_at"))
+                }
                 val followsSameAuthor = previousMessage?.let { sameMessageGroup(it, message) } == true && !hasTimeSeparator
-                val continuesSameAuthor = nextMessage?.let { sameMessageGroup(message, it) } == true && !hasChatTimeSeparator(message, nextMessage)
+                val continuesSameAuthor = continuesChatMessageGroup(message, nextMessage)
                 val messageTopSpacing = when {
                     startsNewDay || hasTimeSeparator -> 0.dp
-                    followsSameAuthor -> 2.dp
+                    followsSameAuthor -> 3.dp
                     else -> 10.dp
                 }
+                item(key = "$hostId:$chatId:${message.str("id").ifBlank { "message:${message.hashCode()}" }}") {
                 ChatMessageRow(
                     message = message,
                     hostId = hostId,
@@ -597,7 +631,7 @@ fun ChatScreen(
                         val index = messages.indexOfFirst { it.str("id") == quotedId }
                         if (index >= 0) {
                             scope.launch {
-                                val targetIndex = index + if (historyHasMore) 1 else 0
+                                val targetIndex = chatMessageLazyIndex(messages, index, historyHasMore)
                                 if (animationsEnabled) {
                                     listState.animateScrollToItem(targetIndex)
                                     highlightedMessageId = quotedId
@@ -612,7 +646,7 @@ fun ChatScreen(
                     highlighted = highlightedMessageId == message.str("id"),
                     onReply = { replyTo = it },
                     onQuote = { id, mode -> quoteMode = mode; replyTo = id },
-                    onReact = { id, emoji -> scope.launch { runCatching { repository.call("chat.react", buildJsonObject { put("message_id", id); put("emoji", emoji); put("on", true) }) }.onFailure { error = it.message ?: sendError } } },
+                    onReact = { id, emoji, enabled -> scope.launch { runCatching { repository.call("chat.react", buildJsonObject { put("message_id", id); put("emoji", emoji); put("on", enabled) }) }.onFailure { error = it.message ?: sendError } } },
                     onOpenTrace = onOpenTrace,
                     onApproval = { id, decision -> scope.launch { runCatching { repository.call("approval.decide", buildJsonObject { put("approval_id", id); put("decision", decision) }) }.onFailure { error = it.message ?: sendError } } },
                     onQuestion = { id, index, indexes, text -> scope.launch { runCatching { repository.call("question.answer", buildJsonObject {
@@ -657,9 +691,11 @@ fun ChatScreen(
                     artifactProjectId = artifactProjectId ?: chat?.str("project_id")?.takeIf { it.isNotBlank() },
                 state = state,
                 )
+                }
             }
         }
         }
+        Column(Modifier.align(Alignment.BottomCenter).onSizeChanged { composerStackHeightPx = it.height }) {
         replyTo?.let { id ->
             Surface(Modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.surfaceContainerHigh) {
                 Row(Modifier.padding(horizontal = 12.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -737,44 +773,97 @@ fun ChatScreen(
                 border = androidx.compose.foundation.BorderStroke(1.dp, LocalMobilePalette.current.borderDefault),
             ) {
                 Column(Modifier.heightIn(max = 340.dp).verticalScroll(rememberScrollState()).padding(6.dp)) {
-                    val matches = filterSlashSkills(slashSkills.ifEmpty { state.skills }, slashQuery)
+                    val availableSkills = filterSlashSkills(slashSkills.ifEmpty { state.skills }, "")
+                    val matches = filterSlashSkills(availableSkills, slashQuery)
+                    if (slashQuery.isBlank()) {
+                        val recent = recentSlashSkills(availableSkills, Clock.System.now())
+                        if (recent.isNotEmpty()) {
+                            Text(stringResource(Res.string.chat_slash_recent), Modifier.padding(horizontal = 10.dp, vertical = 4.dp), style = MaterialTheme.typography.labelMedium, color = LocalMobilePalette.current.textSecondary)
+                            recent.forEach { skill ->
+                                SlashSkillOption(skill, onSelect = { name ->
+                                    selectedSkill = name.takeIf { it.isNotBlank() }
+                                    draft = ""
+                                    error = null
+                                    scope.launch { withFrameNanos { }; runCatching { composerFocusRequester.requestFocus() } }
+                                })
+                            }
+                        }
+                        Text(stringResource(Res.string.chat_slash_all, matches.size), Modifier.padding(horizontal = 10.dp, vertical = 4.dp), style = MaterialTheme.typography.labelMedium, color = LocalMobilePalette.current.textSecondary)
+                    } else {
+                        Text(stringResource(Res.string.chat_slash_matched, slashQuery, matches.size), Modifier.padding(horizontal = 10.dp, vertical = 4.dp), style = MaterialTheme.typography.labelMedium, color = LocalMobilePalette.current.textSecondary)
+                    }
                     matches.forEach { skill ->
-                        val name = skill.str("name")
-                        TextButton(
-                            onClick = {
-                                selectedSkill = name.takeIf { it.isNotBlank() }
-                                draft = ""
-                                error = null
-                                scope.launch { withFrameNanos { }; runCatching { composerFocusRequester.requestFocus() } }
-                            },
-                            modifier = Modifier.fillMaxWidth().heightIn(min = 60.dp),
-                        ) {
-                            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                                Surface(color = LocalMobilePalette.current.accentSoft, shape = RoundedCornerShape(8.dp), modifier = Modifier.size(36.dp)) {
-                                    Box(contentAlignment = Alignment.Center) {
-                                        LucideIcon(LucideIconKind.Zap, Modifier.size(18.dp), tint = LocalMobilePalette.current.accent)
-                                    }
-                                }
-                                Column(Modifier.weight(1f), horizontalAlignment = Alignment.Start, verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                                    Text("/$name", style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                    Text(skill.str("description"), style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                }
+                        SlashSkillOption(skill, onSelect = { name ->
+                            selectedSkill = name.takeIf { it.isNotBlank() }
+                            draft = ""
+                            error = null
+                            scope.launch { withFrameNanos { }; runCatching { composerFocusRequester.requestFocus() } }
+                        })
+                    }
+                    if (matches.isEmpty()) {
+                        Column(Modifier.fillMaxWidth().padding(12.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text(stringResource(Res.string.feature_skill_suggestions_empty), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(stringResource(Res.string.chat_slash_empty_desc), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            TextButton(onClick = { onCreateSkill(slashQuery) }, enabled = slashQuery.isNotBlank()) {
+                                Text(stringResource(Res.string.chat_slash_create, slashQuery))
                             }
                         }
                     }
-                    if (matches.isEmpty()) Text(stringResource(Res.string.feature_skill_suggestions_empty), Modifier.padding(12.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
         }
-        if (hasWorkingProjectBots && mentionBots.isEmpty()) {
-            Text(
-                stringResource(Res.string.feature_group_message_queued_hint),
+        if (workingProjectBots.isNotEmpty() && mentionBots.isEmpty() && '@' !in draft) {
+            Column(
                 Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                style = MaterialTheme.typography.bodySmall,
-            )
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                Text(
+                    stringResource(Res.string.feature_group_message_queued_hint),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    workingProjectBots.forEach { bot ->
+                        val botId = bot.str("id")
+                        val botName = bot.str("name").ifBlank { botId }
+                        TextButton(
+                            onClick = {
+                                mentionBots = mentionBots + botId
+                                draft = "@$botName ${draft.trimStart()}"
+                            },
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
+                        ) {
+                            Text(stringResource(Res.string.chat_queue_at_now, botName), maxLines = 1)
+                        }
+                    }
+                }
+            }
         }
-        Row(Modifier.fillMaxWidth().padding(10.dp), verticalAlignment = Alignment.Bottom) {
+        val canSendDraft = canSendChatMessage(serializeChatMessageText(selectedSkill, draft), attachments, readOnly)
+        val sendScale by animateFloatAsState(
+            targetValue = if (canSendDraft) 1f else 0.88f,
+            animationSpec = if (animationsEnabled) spring(dampingRatio = 0.68f, stiffness = 380f) else tween(1),
+            label = "composerSendPop",
+        )
+        val sendInteractionSource = remember(hostId, chatId) { MutableInteractionSource() }
+        val sendPressed by sendInteractionSource.collectIsPressedAsState()
+        val sendPressScale by animateFloatAsState(
+            targetValue = if (sendPressed) 0.97f else 1f,
+            animationSpec = if (animationsEnabled) spring(dampingRatio = 0.82f, stiffness = 380f) else tween(1),
+            label = "composerSendPress",
+        )
+        val composerShape = RoundedCornerShape(22.dp)
+        Surface(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 8.dp)
+                .shadow(8.dp, composerShape),
+            shape = composerShape,
+            color = LocalMobilePalette.current.sidebar,
+            border = BorderStroke(
+                if (composerFocused || draft.isNotBlank()) 3.dp else 0.5.dp,
+                if (composerFocused || draft.isNotBlank()) LocalMobilePalette.current.accentSoft else LocalMobilePalette.current.borderDefault,
+            ),
+        ) {
+        Row(Modifier.fillMaxWidth().padding(4.dp), verticalAlignment = Alignment.Bottom) {
             IconButton(enabled = !readOnly, onClick = { showAttachmentMenu = true }, modifier = Modifier.semantics { contentDescription = attachmentLabel }) { LucideIcon(LucideIconKind.Plus, Modifier.size(20.dp)) }
         Column(Modifier.weight(1f), horizontalAlignment = Alignment.Start) {
             selectedSkill?.let { skillName ->
@@ -798,7 +887,7 @@ fun ChatScreen(
             OutlinedTextField(
                 value = draft,
                 onValueChange = { draft = it; if (it.endsWith("@")) showMentions = true },
-                modifier = Modifier.fillMaxWidth().focusRequester(composerFocusRequester).onPreviewKeyEvent { event ->
+                modifier = Modifier.fillMaxWidth().focusRequester(composerFocusRequester).onFocusChanged { composerFocused = it.isFocused }.onPreviewKeyEvent { event ->
                     if (event.type == KeyEventType.KeyDown && event.key == Key.Backspace && draft.isEmpty() && selectedSkill != null) {
                         selectedSkill = null
                         true
@@ -814,7 +903,9 @@ fun ChatScreen(
             ) { LucideIcon(LucideIconKind.AtSign, Modifier.size(20.dp), tint = LocalMobilePalette.current.accent) }
             Spacer(Modifier.padding(4.dp))
             Button(
-                enabled = canSendChatMessage(serializeChatMessageText(selectedSkill, draft), attachments, readOnly),
+                enabled = canSendDraft,
+                interactionSource = sendInteractionSource,
+                modifier = Modifier.graphicsLayer { scaleX = sendScale * sendPressScale; scaleY = sendScale * sendPressScale },
                 onClick = {
                     val text = serializeChatMessageText(selectedSkill, draft)
                     val uploadIds = attachments.mapNotNull { it.uploadId }
@@ -849,6 +940,9 @@ fun ChatScreen(
                     }
                 },
             ) { Text(if (readOnly) stringResource(Res.string.feature_readonly) else stringResource(Res.string.common_send)) }
+        }
+        }
+        }
         }
         if (showAttachmentMenu) androidx.compose.material3.ModalBottomSheet(onDismissRequest = { showAttachmentMenu = false }) {
             Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -916,6 +1010,10 @@ private fun sameMessageGroup(first: JsonObject, second: JsonObject): Boolean {
     return abs(firstInstant.toEpochMilliseconds() - secondInstant.toEpochMilliseconds()) < 5 * 60 * 1000L
 }
 
+internal fun continuesChatMessageGroup(message: JsonObject, nextMessage: JsonObject?): Boolean =
+    nextMessage != null && message.arr("reactions").isEmpty() &&
+        sameMessageGroup(message, nextMessage) && !hasChatTimeSeparator(message, nextMessage)
+
 @Composable
 private fun ChatDayCapsule(timestamp: String) {
     val instant = runCatching { Instant.parse(timestamp) }.getOrNull() ?: return
@@ -924,7 +1022,7 @@ private fun ChatDayCapsule(timestamp: String) {
     val today = Clock.System.now().toLocalDateTime(zone)
     val dayDifference = today.date.toEpochDays() - local.date.toEpochDays()
     val label = when {
-        dayDifference == 0L -> stringResource(Res.string.chat_time_today, padChatTimePart(local.hour), padChatTimePart(local.minute))
+        dayDifference == 0L -> stringResource(Res.string.chat_day_today)
         dayDifference == 1L -> stringResource(Res.string.chat_time_yesterday)
         dayDifference in 2L..7L -> {
             val weekday = when (local.dayOfWeek.ordinal + 1) {
@@ -944,11 +1042,12 @@ private fun ChatDayCapsule(timestamp: String) {
     val palette = LocalMobilePalette.current
     Row(Modifier.fillMaxWidth().padding(vertical = 12.dp), horizontalArrangement = Arrangement.Center) {
         Surface(
-            color = palette.panel,
+            modifier = Modifier.shadow(3.dp, RoundedCornerShape(11.dp)),
+            color = palette.elevated,
             shape = RoundedCornerShape(11.dp),
-            border = androidx.compose.foundation.BorderStroke(1.dp, palette.borderDefault),
+            border = BorderStroke(0.5.dp, palette.borderSubtle),
         ) {
-            Text(label, Modifier.padding(horizontal = 10.dp, vertical = 3.dp), style = MaterialTheme.typography.labelSmall, color = palette.textSecondary)
+            Text(label, Modifier.padding(horizontal = 10.dp, vertical = 3.dp), style = MaterialTheme.typography.labelSmall.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold), color = palette.textSecondary)
         }
     }
 }
@@ -974,14 +1073,18 @@ private fun ChatClockText(timestamp: String, modifier: Modifier = Modifier) {
     Text(label, modifier, style = MaterialTheme.typography.labelSmall, color = LocalMobilePalette.current.textTertiary)
 }
 
-private fun sameChatDay(first: JsonObject, second: JsonObject): Boolean {
+internal fun sameChatDay(first: JsonObject, second: JsonObject): Boolean {
     val zone = TimeZone.currentSystemDefault()
     val firstDate = runCatching { Instant.parse(first.str("created_at")).toLocalDateTime(zone).date }.getOrNull() ?: return false
     val secondDate = runCatching { Instant.parse(second.str("created_at")).toLocalDateTime(zone).date }.getOrNull() ?: return false
     return firstDate == secondDate
 }
 
-private fun hasChatTimeSeparator(first: JsonObject, second: JsonObject): Boolean {
+private fun chatDayKey(timestamp: String): String =
+    runCatching { Instant.parse(timestamp).toLocalDateTime(TimeZone.currentSystemDefault()).date.toString() }
+        .getOrElse { timestamp.take(10) }
+
+internal fun hasChatTimeSeparator(first: JsonObject, second: JsonObject): Boolean {
     if (!sameChatDay(first, second)) return false
     val firstInstant = runCatching { Instant.parse(first.str("created_at")) }.getOrNull() ?: return false
     val secondInstant = runCatching { Instant.parse(second.str("created_at")) }.getOrNull() ?: return false
@@ -1020,7 +1123,7 @@ internal fun ChatMessageRow(
     highlighted: Boolean,
     onReply: (String) -> Unit,
     onQuote: (String, String) -> Unit,
-    onReact: (String, String) -> Unit,
+    onReact: (String, String, Boolean) -> Unit,
     onOpenTrace: (String?, String?) -> Unit,
     onApproval: (String, String) -> Unit,
     onQuestion: (String, Int?, List<Int>?, String?) -> Unit,
@@ -1041,7 +1144,15 @@ internal fun ChatMessageRow(
     val palette = LocalMobilePalette.current
     val messageIdentity = "$hostId:$chatId:${message.str("id")}"
     var showMessageActions by remember(messageIdentity) { mutableStateOf(false) }
+    var messageActionError by remember(messageIdentity) { mutableStateOf(false) }
     val messageFocusRequester = remember(messageIdentity) { FocusRequester() }
+    val messageInteractionSource = remember(messageIdentity) { MutableInteractionSource() }
+    val messagePressed by messageInteractionSource.collectIsPressedAsState()
+    val bubblePressScale by animateFloatAsState(
+        targetValue = if (messagePressed) 0.97f else 1f,
+        animationSpec = if (LocalSystemAnimationsEnabled.current) spring(dampingRatio = 0.82f, stiffness = 380f) else tween(1),
+        label = "messagePress",
+    )
     val actionScope = rememberCoroutineScope()
     var exactTimeHideJob by remember(messageIdentity) { mutableStateOf<Job?>(null) }
     fun dismissMessageActions() {
@@ -1053,20 +1164,29 @@ internal fun ChatMessageRow(
     }
     val haptics = LocalHapticFeedback.current
     val clipboard = LocalClipboardManager.current
-    val previousQuestionLabel = stringResource(Res.string.feature_question_previous)
-    val nextQuestionLabel = stringResource(Res.string.feature_question_next)
     val swipeThreshold = with(androidx.compose.ui.platform.LocalDensity.current) { 56.dp.toPx() }
     var didSwipeReply by remember(messageIdentity) { mutableStateOf(false) }
     var exactTimeOffsetPx by remember(messageIdentity) { mutableStateOf(0f) }
     val animatedExactTimeOffsetPx by animateFloatAsState(
         targetValue = exactTimeOffsetPx,
-        animationSpec = tween(durationMillis = 200),
+        animationSpec = if (LocalSystemAnimationsEnabled.current) spring(dampingRatio = 0.82f, stiffness = 380f) else tween(durationMillis = 1),
         label = "messageExactTimeReveal",
     )
     val sender = message.obj("sender")
     val isUser = sender.str("kind") == "user"
     val id = message.str("id")
     val blocks = message.arr("blocks")
+    val reactionPills = message.arr("reactions").mapNotNull { it as? JsonObject }.mapNotNull { reaction ->
+        val emoji = reaction.str("emoji").takeIf(String::isNotBlank) ?: return@mapNotNull null
+        val senders = reaction.arr("by").mapNotNull { it as? JsonObject }
+        TapbackPill(emoji, senders.size, senders.any { it.str("kind") == "user" })
+    }
+    val hasWideCard = blocks.any { element ->
+        (element as? JsonObject)?.str("type") in setOf(
+            "task_card", "completion", "review_card", "project_card", "question", "delegation",
+            "approval", "approval_ref", "takeover_request", "bot_dm_ref", "link_preview", "image", "file",
+        )
+    }
     val assignmentId = message.str("assignment_id")
     val senderId = sender.str("bot_id")
     val senderLabel = state.bots.firstOrNull { it.str("id")==senderId }?.str("name")?.takeIf { it.isNotBlank() } ?: if (senderId.isBlank()) stringResource(Res.string.feature_bot) else senderId
@@ -1081,6 +1201,14 @@ internal fun ChatMessageRow(
     })
     val avatarDescription = stringResource(Res.string.chat_avatar_description, senderLabel, avatarStatusLabel)
     val messageInstant = runCatching { Instant.parse(message.str("created_at")) }.getOrNull()
+    val entranceEligible = LocalSystemAnimationsEnabled.current && messageInstant?.let {
+        (Clock.System.now().toEpochMilliseconds() - it.toEpochMilliseconds()) in 0L..5_000L
+    } == true
+    val entranceProgress = remember(messageIdentity) { Animatable(if (entranceEligible) 0f else 1f) }
+    LaunchedEffect(messageIdentity, entranceEligible) {
+        if (entranceEligible) entranceProgress.animateTo(1f, spring(dampingRatio = 0.82f, stiffness = 380f))
+        else entranceProgress.snapTo(1f)
+    }
     val messageLocalTime = messageInstant?.toLocalDateTime(TimeZone.currentSystemDefault())
     val spokenTime = if (messageLocalTime == null) message.str("created_at") else stringResource(
         Res.string.chat_time_full,
@@ -1095,6 +1223,9 @@ internal fun ChatMessageRow(
         (entry as? JsonObject)?.takeIf { it.str("type") == "text" }?.str("markdown")?.takeIf(String::isNotBlank)
     }.joinToString(" ")
     val messageBody = blockText.ifBlank { message.str("fallback_text") }
+    val messageCopyText = blocks.mapNotNull { entry ->
+        (entry as? JsonObject)?.takeIf { it.str("type") == "text" }?.str("markdown")?.takeIf(String::isNotBlank)
+    }.joinToString("\n\n").ifBlank { message.str("fallback_text") }
     val loadedNames = if (isUser) loadedSkillNames(message) else emptyList()
     val enabledSkillNames = state.skills.asSequence()
         .filter { it.boolean("enabled") }
@@ -1116,7 +1247,18 @@ internal fun ChatMessageRow(
     val messageDescription = stringResource(Res.string.chat_message_accessibility, if (isUser) stringResource(Res.string.common_you) else senderLabel, spokenTime, spokenBody)
     val standaloneTask = blocks.singleOrNull()?.let { it as? JsonObject }?.takeIf { it.str("type") == "task_card" }
     val actionAssignmentId = assignmentId.ifBlank { standaloneTask?.str("assignment_id").orEmpty() }
-    Column(Modifier.fillMaxWidth().padding(top = topSpacing).semantics { isTraversalGroup = true; contentDescription = messageDescription }, horizontalAlignment = if (isUser) Alignment.End else Alignment.Start) {
+    Column(
+        Modifier.fillMaxWidth().padding(top = topSpacing).graphicsLayer {
+            val progress = entranceProgress.value
+            val startScale = if (isUser) 0.96f else 0.98f
+            alpha = progress
+            scaleX = startScale + (1f - startScale) * progress
+            scaleY = startScale + (1f - startScale) * progress
+            translationX = if (isUser) (1f - progress) * 8.dp.toPx() else 0f
+            translationY = (1f - progress) * 10.dp.toPx()
+        }.semantics { isTraversalGroup = true; contentDescription = messageDescription },
+        horizontalAlignment = if (isUser) Alignment.End else Alignment.Start,
+    ) {
         if (standaloneTask != null) {
             StandaloneTaskCard(standaloneTask, state, onOpenTrace) {
                 showMessageActions = true
@@ -1142,8 +1284,39 @@ internal fun ChatMessageRow(
             }
             else Spacer(Modifier.size(32.dp))
         }
+        val bubbleShape = RoundedCornerShape(18.dp)
+        val bubbleBrush = Brush.verticalGradient(
+            listOf(
+                palette.tokenColors["bubble.out.top"] ?: palette.bubbleOut,
+                palette.bubbleOut,
+            ),
+        )
+        val showTapbacks = !continuesSameAuthor && reactionPills.isNotEmpty()
+        Box(modifier = if (isUser) Modifier.fillMaxWidth(0.9f) else Modifier.weight(1f).padding(start = 8.dp)) {
         Surface(
-            modifier = (if (isUser) Modifier.fillMaxWidth(0.9f) else Modifier.weight(1f).padding(start = 8.dp))
+            modifier = Modifier.fillMaxWidth().padding(top = if (showTapbacks) 14.dp else 0.dp)
+                .graphicsLayer { scaleX = bubblePressScale; scaleY = bubblePressScale }
+                .shadow(1.dp, bubbleShape, ambientColor = palette.borderSubtle, spotColor = palette.borderSubtle)
+                .drawBehind {
+                    if (!continuesSameAuthor && !hasWideCard) {
+                        val tailWidth = 18.dp.toPx()
+                        val tailHeight = 6.dp.toPx()
+                        val path = Path().apply {
+                            if (isUser) {
+                                moveTo(size.width - tailWidth, size.height - 2.dp.toPx())
+                                cubicTo(size.width - 10.dp.toPx(), size.height + tailHeight, size.width - 7.dp.toPx(), size.height + tailHeight, size.width, size.height - 1.dp.toPx())
+                                lineTo(size.width - tailWidth, size.height - 2.dp.toPx())
+                            } else {
+                                moveTo(0f, size.height - 2.dp.toPx())
+                                cubicTo(10.dp.toPx(), size.height + tailHeight, 7.dp.toPx(), size.height + tailHeight, 0f, size.height - 1.dp.toPx())
+                                lineTo(0f, size.height - 2.dp.toPx())
+                            }
+                            close()
+                        }
+                        drawPath(path, if (isUser) palette.bubbleOut else palette.bubbleIn)
+                    }
+                }
+                .background(if (isUser) bubbleBrush else Brush.verticalGradient(listOf(palette.bubbleIn, palette.bubbleIn)), bubbleShape)
                 .focusRequester(messageFocusRequester)
                 .offset { IntOffset(-animatedExactTimeOffsetPx.roundToInt(), 0) }
                 .pointerInput(message.str("id"), swipeThreshold) {
@@ -1180,58 +1353,59 @@ internal fun ChatMessageRow(
                     )
                 }
                 .combinedClickable(
+                    interactionSource = messageInteractionSource,
                     onClick = { if (didSwipeReply) didSwipeReply = false },
                     onLongClick = {
                         haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                         showMessageActions = true
                     },
-                    onDoubleClick = { if (id.isNotBlank()) onReact(id, "👍") },
+                    onDoubleClick = { if (id.isNotBlank()) onReact(id, "👍", !reactionPills.any { it.emoji == "👍" && it.mine }) },
                 ),
-            shape = RoundedCornerShape(
-                topStart = if (!isUser && followsSameAuthor) 6.dp else 16.dp,
-                topEnd = if (isUser && followsSameAuthor) 6.dp else 16.dp,
-                bottomStart = if (!isUser && showAvatar) 6.dp else 16.dp,
-                bottomEnd = if (isUser && !continuesSameAuthor) 6.dp else 16.dp,
-            ),
-            color = if (isUser) palette.bubbleOut else palette.bubbleIn,
+            shape = bubbleShape,
+            color = if (isUser) androidx.compose.ui.graphics.Color.Transparent else palette.bubbleIn,
             contentColor = if (isUser) palette.bubbleOutText else palette.bubbleInText,
-            border = if (highlighted) androidx.compose.foundation.BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else null,
+            border = when {
+                highlighted -> BorderStroke(2.dp, MaterialTheme.colorScheme.primary)
+                isUser -> null
+                else -> BorderStroke(0.5.dp, palette.borderSubtle)
+            },
         ) {
-            Column(
-                Modifier.fillMaxWidth(0.9f).padding(horizontal = 12.dp, vertical = 8.dp),
-            ) {
+            Box {
+              Column(
+                  Modifier.fillMaxWidth(0.9f).padding(horizontal = 13.dp, vertical = 8.dp),
+              ) {
                 val quote = message.obj("quote")
                 if (quote.str("message_id").isNotBlank()) {
                     Surface(
-                        color = MaterialTheme.colorScheme.surface.copy(alpha = .55f),
+                        color = if (isUser) androidx.compose.ui.graphics.Color.White.copy(alpha = .16f) else MaterialTheme.colorScheme.surface.copy(alpha = .55f),
                         shape = RoundedCornerShape(6.dp),
                         onClick = { onJumpToMessage(quote.str("message_id")) },
                     ) {
                         Row(Modifier.fillMaxWidth().padding(end = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Spacer(Modifier.width(2.dp).heightIn(min = 34.dp).background(MaterialTheme.colorScheme.primary))
+                            Spacer(Modifier.width(2.dp).heightIn(min = 34.dp).background(if (isUser) androidx.compose.ui.graphics.Color.White.copy(alpha = .8f) else MaterialTheme.colorScheme.primary))
                             Column(Modifier.weight(1f).padding(horizontal = 8.dp, vertical = 5.dp)) {
                             val quoteSenderId = quote.obj("sender").str("bot_id")
                             val quoteSender = state.bots.firstOrNull { it.str("id") == quoteSenderId }?.str("name")
                                 ?.takeIf { it.isNotBlank() } ?: stringResource(Res.string.common_you)
-                            Text(quoteSender, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
-                            Text(quote.str("excerpt"), style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(quoteSender, style = MaterialTheme.typography.labelSmall, color = if (isUser) androidx.compose.ui.graphics.Color.White else MaterialTheme.colorScheme.primary)
+                            Text(quote.str("excerpt"), style = MaterialTheme.typography.bodySmall, color = if (isUser) androidx.compose.ui.graphics.Color.White.copy(alpha = 0.92f) else palette.textSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             }
                         }
                     }
                 }
-                if (message.boolean("streaming")) Text(stringResource(Res.string.chat_typing), style = MaterialTheme.typography.labelMedium)
+                if (message.boolean("streaming")) ChatTypingWave(LocalSystemAnimationsEnabled.current)
                 if (visibleSkillNames.isNotEmpty()) Row(
                     Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     visibleSkillNames.forEach { skillName ->
-                        MessageSkillChip(skillName)
+                        MessageSkillChip(skillName, outgoingBubble = isUser)
                         if (skillName in loadedNames) {
                             Text(
                                 stringResource(Res.string.chat_slash_loaded, skillName),
                                 style = MaterialTheme.typography.labelSmall,
-                                color = palette.textSecondary,
+                                color = if (isUser) androidx.compose.ui.graphics.Color.White.copy(alpha = 0.85f) else palette.textSecondary,
                                 maxLines = 1,
                             )
                         }
@@ -1246,105 +1420,65 @@ internal fun ChatMessageRow(
                 if (unknown) Surface(Modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.surface, shape = RoundedCornerShape(8.dp), border = androidx.compose.foundation.BorderStroke(1.dp, palette.borderDefault)) {
                     Text("⚠ ${fallback.ifBlank { stringResource(Res.string.feature_unknown_block) }} · ${stringResource(Res.string.feature_update_client)}", Modifier.padding(10.dp), style = MaterialTheme.typography.bodySmall)
                 }
-                val questionBlocks = blocks.mapNotNull { it as? JsonObject }.filter { it.str("type") == "question" }
-                val questionIds = questionBlocks.map { it.str("question_id") }
-                var selectedQuestion by remember(message.str("id"), questionIds) {
-                    mutableStateOf(questionBlocks.indexOfFirst { block ->
-                        state.questions.firstOrNull { it.str("id") == block.str("question_id") }?.str("state") == "pending"
-                    }.coerceAtLeast(0))
-                }
-                LaunchedEffect(questionIds, state.questions.map { it.str("id") to it.str("state") }) {
-                    if (questionBlocks.isNotEmpty() && state.questions.firstOrNull { it.str("id") == questionIds.getOrNull(selectedQuestion) }?.str("state") == "answered") {
-                        val nextPending = questionBlocks.indexOfFirst { block ->
-                            state.questions.firstOrNull { it.str("id") == block.str("question_id") }?.str("state") == "pending"
-                        }
-                        if (nextPending >= 0) selectedQuestion = nextPending
-                    }
-                }
-                if (questionBlocks.size > 1) {
-                    val answered = questionBlocks.count { block -> state.questions.firstOrNull { it.str("id") == block.str("question_id") }?.str("state") == "answered" }
-                    val swipeThreshold = with(androidx.compose.ui.platform.LocalDensity.current) { 48.dp.toPx() }
-                    Box(
-                        Modifier.fillMaxWidth().pointerInput(questionBlocks.size, swipeThreshold) {
-                            var drag = 0f
-                            detectHorizontalDragGestures(
-                                onHorizontalDrag = { change, amount -> drag += amount; change.consume() },
-                                onDragEnd = {
-                                    when {
-                                        drag <= -swipeThreshold -> selectedQuestion = (selectedQuestion + 1).coerceAtMost(questionBlocks.lastIndex)
-                                        drag >= swipeThreshold -> selectedQuestion = (selectedQuestion - 1).coerceAtLeast(0)
-                                    }
-                                    drag = 0f
-                                },
-                                onDragCancel = { drag = 0f },
+                groupAdjacentQuestions(displayBlocks.mapNotNull { it as? JsonObject }).forEach { blockRun ->
+                    val block = blockRun.first()
+                    if (block.str("type") == "question" && blockRun.size > 1) {
+                            MessageQuestionDeck(
+                                messageId = message.str("id"),
+                                questionBlocks = blockRun,
+                                state = state,
+                                onApproval = onApproval,
+                                onQuestion = onQuestion,
+                                onPreviewFile = onPreviewFile,
+                                onExportFile = onExportFile,
+                                filePreviews = filePreviews,
+                                imagePreviews = imagePreviews,
+                                onOpenTrace = onOpenTrace,
+                                onOpenProject = onOpenProject,
+                                onProjectAction = onProjectAction,
+                                onOpenScreen = onOpenScreen,
+                                onOpenChat = onOpenChat,
+                                onLoopAction = onLoopAction,
+                                onTakeover = onTakeover,
+                                onReleaseTakeover = onReleaseTakeover,
+                                onOpenArtifact = onOpenArtifact,
+                                artifactProjectId = artifactProjectId,
+                                repository = repository,
                             )
-                        },
-                    ) {
-                        val pendingAfter = (selectedQuestion + 1 until questionBlocks.size).count { index ->
-                            state.questions.firstOrNull { it.str("id") == questionIds[index] }?.str("state") == "pending"
-                        }.coerceAtMost(2)
-                        repeat(pendingAfter) { layer ->
-                            Surface(
-                                Modifier.fillMaxWidth().padding(horizontal = ((layer + 1) * 8).dp).offset(y = ((layer + 1) * 8).dp).height(148.dp),
-                                shape = RoundedCornerShape(12.dp),
-                                color = if (layer == 0) palette.panel else palette.panel.copy(alpha = .78f),
-                                border = androidx.compose.foundation.BorderStroke(1.dp, palette.borderDefault),
-                            ) { }
-                        }
-                        Column(Modifier.fillMaxWidth().background(palette.panel, RoundedCornerShape(12.dp)).padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Text(
-                            if (answered == questionBlocks.size) stringResource(Res.string.feature_question_stack_answered, questionBlocks.size)
-                            else stringResource(Res.string.feature_question_stack_title, questionBlocks.size, selectedQuestion + 1, answered),
-                            style = MaterialTheme.typography.labelMedium,
-                        )
-                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                            TextButton(enabled = selectedQuestion > 0, onClick = { selectedQuestion-- }, modifier = Modifier.semantics { contentDescription = previousQuestionLabel }) { LucideIcon(LucideIconKind.ChevronLeft, Modifier.size(18.dp)) }
-                            Row(Modifier.weight(1f).horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
-                                questionBlocks.forEachIndexed { index, block ->
-                                    val status = state.questions.firstOrNull { it.str("id") == block.str("question_id") }?.str("state")
-                                    val tabLabel = stringResource(Res.string.block_question_tab, index + 1)
-                                    TextButton(onClick = { selectedQuestion = index }, modifier = Modifier.semantics {
-                                        contentDescription = tabLabel
-                                    }) {
-                                        Text(if (answered == questionBlocks.size) "✓ $tabLabel" else if (status == "answered") "✓ ${index + 1}" else (index + 1).toString())
-                                    }
-                                }
-                            }
-                            TextButton(enabled = selectedQuestion < questionBlocks.lastIndex, onClick = { selectedQuestion++ }, modifier = Modifier.semantics { contentDescription = nextQuestionLabel }) { LucideIcon(LucideIconKind.ChevronRight, Modifier.size(18.dp)) }
-                        }
-                        questionBlocks.getOrNull(selectedQuestion)?.let { block ->
-                            BlockView(block, state, onApproval, onQuestion, onPreviewFile, onExportFile, filePreviews, imagePreviews,
+                    } else {
+                        BlockView(block, state, onApproval, onQuestion, onPreviewFile, onExportFile, filePreviews, imagePreviews,
                             onOpenTrace, onOpenProject, onProjectAction, onOpenScreen, onOpenChat, onLoopAction, onTakeover, onReleaseTakeover, onOpenArtifact, artifactProjectId, repository)
-                        }
-                    }
-                    }
-                }
-                var questionStackRendered = false
-                displayBlocks.forEach { element ->
-                    (element as? JsonObject)?.let { block ->
-                        if (block.str("type") == "question" && questionBlocks.size > 1) {
-                            if (!questionStackRendered) questionStackRendered = true
-                        } else {
-                            BlockView(block, state, onApproval, onQuestion, onPreviewFile, onExportFile, filePreviews, imagePreviews,
-                                onOpenTrace, onOpenProject, onProjectAction, onOpenScreen, onOpenChat, onLoopAction, onTakeover, onReleaseTakeover, onOpenArtifact, artifactProjectId, repository)
-                        }
                     }
                 }
                 if (assignmentId.isNotBlank()) {
                     Text(stringResource(Res.string.feature_trace_running), Modifier.padding(top = 8.dp), color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelLarge)
                     Button(onClick = { onOpenTrace(assignmentId, null) }) { Text(stringResource(Res.string.feature_detail)) }
                 }
-                if (lastOwnMessage) DeliveryView(message.arr("delivery"), state)
+            }
+            }
+        if (showTapbacks) Row(
+            Modifier.align(if (isUser) Alignment.TopStart else Alignment.TopEnd)
+                .offset(x = if (isUser) 8.dp else (-8).dp),
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            reactionPills.forEach { pill ->
+                TapbackPillView(pill, LocalSystemAnimationsEnabled.current) {
+                    if (id.isNotBlank()) onReact(id, pill.emoji, !pill.mine)
+                }
             }
         }
         }
         }
         }
+        }
+        }
+        if (lastOwnMessage) DeliveryView(message.arr("delivery"), state)
         if (showMessageActions) androidx.compose.material3.ModalBottomSheet(onDismissRequest = {
             dismissMessageActions()
         }) {
             Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(stringResource(Res.string.feature_message_actions), style = MaterialTheme.typography.titleMedium)
+                if (messageActionError) Text(stringResource(Res.string.chat_delete_failed), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
                 runCatching { Instant.parse(message.str("created_at")).toLocalDateTime(TimeZone.currentSystemDefault()) }
                     .getOrNull()?.let { timestamp ->
                         Text(
@@ -1355,7 +1489,7 @@ internal fun ChatMessageRow(
                     }
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
                     listOf("👍", "❤️", "😂", "🎉", "🤔", "👀").forEach { emoji ->
-                        TextButton(onClick = { if (id.isNotBlank()) onReact(id, emoji); dismissMessageActions() }) { Text(emoji, style = MaterialTheme.typography.titleLarge) }
+                        TextButton(onClick = { if (id.isNotBlank()) onReact(id, emoji, !reactionPills.any { it.emoji == emoji && it.mine }); dismissMessageActions() }) { Text(emoji, style = MaterialTheme.typography.titleLarge) }
                     }
                 }
                 TextButton(onClick = { if (id.isNotBlank()) onQuote(id, "reply"); dismissMessageActions() }) { Text(stringResource(Res.string.chat_menu_reply)) }
@@ -1371,8 +1505,161 @@ internal fun ChatMessageRow(
                     onQuoteAnnouncement("**$senderLabel**\n$quoted")
                     dismissMessageActions()
                 }) { Text(stringResource(Res.string.chat_menu_quote_to_announcement)) }
-                TextButton(onClick = { clipboard.setText(AnnotatedString(message.str("fallback_text"))); dismissMessageActions() }) { Text(stringResource(Res.string.chat_menu_copy)) }
+                TextButton(onClick = { clipboard.setText(AnnotatedString(messageCopyText)); dismissMessageActions() }) { Text(stringResource(Res.string.chat_menu_copy_text)) }
+                if (id.isNotBlank() && chatId.isNotBlank()) TextButton(onClick = {
+                    clipboard.setText(AnnotatedString(chatMessageDeepLink(hostId, chatId, id)))
+                    dismissMessageActions()
+                }) { Text(stringResource(Res.string.chat_menu_copy_link)) }
+                if (isUser && id.isNotBlank()) TextButton(onClick = {
+                    messageActionError = false
+                    actionScope.launch {
+                        runCatching { repository.callOnHost(hostId, "message.delete", buildJsonObject { put("message_id", id) }) }
+                            .onSuccess { dismissMessageActions() }
+                            .onFailure { messageActionError = true }
+                    }
+                }) { Text(stringResource(Res.string.chat_menu_delete), color = MaterialTheme.colorScheme.error) }
             }
+        }
+    }
+}
+
+@Composable
+private fun MessageQuestionDeck(
+    messageId: String,
+    questionBlocks: List<JsonObject>,
+    state: MobileState,
+    onApproval: (String, String) -> Unit,
+    onQuestion: (String, Int?, List<Int>?, String?) -> Unit,
+    onPreviewFile: (JsonObject) -> Unit,
+    onExportFile: (JsonObject) -> Unit,
+    filePreviews: Map<String, String>,
+    imagePreviews: Map<String, ImageBitmap>,
+    onOpenTrace: (String?, String?) -> Unit,
+    onOpenProject: (String) -> Unit,
+    onProjectAction: (String, String) -> Unit,
+    onOpenScreen: (String, String?) -> Unit,
+    onOpenChat: (String) -> Unit,
+    onLoopAction: (String, String) -> Unit,
+    onTakeover: (String) -> Unit,
+    onReleaseTakeover: (String) -> Unit,
+    onOpenArtifact: (String, String, String?) -> Unit,
+    artifactProjectId: String?,
+    repository: MobileRepository,
+) {
+    val palette = LocalMobilePalette.current
+    val previousQuestionLabel = stringResource(Res.string.feature_question_previous)
+    val nextQuestionLabel = stringResource(Res.string.feature_question_next)
+    val questionIds = questionBlocks.map { it.str("question_id") }
+    var selectedQuestion by remember(messageId, questionIds) {
+        mutableStateOf(questionBlocks.indexOfFirst { block ->
+            state.questions.firstOrNull { it.str("id") == block.str("question_id") }?.str("state") == "pending"
+        }.coerceAtLeast(0))
+    }
+    LaunchedEffect(questionIds, state.questions.map { it.str("id") to it.str("state") }) {
+        if (state.questions.firstOrNull { it.str("id") == questionIds.getOrNull(selectedQuestion) }?.str("state") == "answered") {
+            val nextPending = questionBlocks.indexOfFirst { block ->
+                state.questions.firstOrNull { it.str("id") == block.str("question_id") }?.str("state") == "pending"
+            }
+            if (nextPending >= 0) selectedQuestion = nextPending
+        }
+    }
+    val answered = questionBlocks.count { block ->
+        state.questions.firstOrNull { it.str("id") == block.str("question_id") }?.str("state") == "answered"
+    }
+    val swipeThreshold = with(androidx.compose.ui.platform.LocalDensity.current) { 48.dp.toPx() }
+    Box(
+        Modifier.fillMaxWidth().pointerInput(questionIds, swipeThreshold) {
+            var drag = 0f
+            detectHorizontalDragGestures(
+                onHorizontalDrag = { change, amount -> drag += amount; change.consume() },
+                onDragEnd = {
+                    when {
+                        drag <= -swipeThreshold -> selectedQuestion = (selectedQuestion + 1).coerceAtMost(questionBlocks.lastIndex)
+                        drag >= swipeThreshold -> selectedQuestion = (selectedQuestion - 1).coerceAtLeast(0)
+                    }
+                    drag = 0f
+                },
+                onDragCancel = { drag = 0f },
+            )
+        },
+    ) {
+        val pendingAfter = (selectedQuestion + 1 until questionBlocks.size).count { index ->
+            state.questions.firstOrNull { it.str("id") == questionIds[index] }?.str("state") == "pending"
+        }.coerceAtMost(2)
+        repeat(pendingAfter) { layer ->
+            Surface(
+                Modifier.fillMaxWidth().padding(horizontal = ((layer + 1) * 8).dp).offset(y = ((layer + 1) * 8).dp).height(148.dp),
+                shape = RoundedCornerShape(12.dp),
+                color = if (layer == 0) palette.panel else palette.panel.copy(alpha = .78f),
+                border = androidx.compose.foundation.BorderStroke(1.dp, palette.borderDefault),
+            ) { }
+        }
+        Column(Modifier.fillMaxWidth().background(palette.panel, RoundedCornerShape(12.dp)).padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text(
+                if (answered == questionBlocks.size) stringResource(Res.string.feature_question_stack_answered, questionBlocks.size)
+                else stringResource(Res.string.feature_question_stack_title, questionBlocks.size, selectedQuestion + 1, answered),
+                style = MaterialTheme.typography.labelMedium,
+            )
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                TextButton(enabled = selectedQuestion > 0, onClick = { selectedQuestion-- }, modifier = Modifier.semantics { contentDescription = previousQuestionLabel }) { LucideIcon(LucideIconKind.ChevronLeft, Modifier.size(18.dp)) }
+                Row(Modifier.weight(1f).horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
+                    questionBlocks.forEachIndexed { index, block ->
+                        val status = state.questions.firstOrNull { it.str("id") == block.str("question_id") }?.str("state")
+                        val tabLabel = stringResource(Res.string.block_question_tab, index + 1)
+                        TextButton(onClick = { selectedQuestion = index }, modifier = Modifier.semantics { contentDescription = tabLabel }) {
+                            Text(if (answered == questionBlocks.size) "✓ $tabLabel" else if (status == "answered") "✓ ${index + 1}" else (index + 1).toString())
+                        }
+                    }
+                }
+                TextButton(enabled = selectedQuestion < questionBlocks.lastIndex, onClick = { selectedQuestion++ }, modifier = Modifier.semantics { contentDescription = nextQuestionLabel }) { LucideIcon(LucideIconKind.ChevronRight, Modifier.size(18.dp)) }
+            }
+            questionBlocks.getOrNull(selectedQuestion)?.let { block ->
+                BlockView(block, state, onApproval, onQuestion, onPreviewFile, onExportFile, filePreviews, imagePreviews,
+                    onOpenTrace, onOpenProject, onProjectAction, onOpenScreen, onOpenChat, onLoopAction, onTakeover, onReleaseTakeover, onOpenArtifact, artifactProjectId, repository)
+            }
+        }
+    }
+}
+
+private data class TapbackPill(val emoji: String, val count: Int, val mine: Boolean)
+
+@Composable
+private fun TapbackPillView(pill: TapbackPill, animationsEnabled: Boolean, onClick: () -> Unit) {
+    val palette = LocalMobilePalette.current
+    val scale = remember(pill.emoji) { Animatable(if (animationsEnabled) 0.6f else 1f) }
+    val interactionSource = remember(pill.emoji) { MutableInteractionSource() }
+    val pressed by interactionSource.collectIsPressedAsState()
+    val pressScale by animateFloatAsState(
+        targetValue = if (pressed) 0.97f else 1f,
+        animationSpec = if (animationsEnabled) spring(dampingRatio = 0.82f, stiffness = 380f) else tween(1),
+        label = "tapbackPress",
+    )
+    LaunchedEffect(pill.emoji, animationsEnabled) {
+        if (animationsEnabled) scale.animateTo(1f, spring(dampingRatio = 0.68f, stiffness = 380f))
+        else scale.snapTo(1f)
+    }
+    val shape = RoundedCornerShape(13.dp)
+    Surface(
+        onClick = onClick,
+        interactionSource = interactionSource,
+        modifier = Modifier.graphicsLayer { scaleX = scale.value * pressScale; scaleY = scale.value * pressScale }
+            .shadow(4.dp, shape),
+        color = if (pill.mine) palette.accent else palette.elevated,
+        contentColor = if (pill.mine) androidx.compose.ui.graphics.Color.White else palette.textPrimary,
+        shape = shape,
+        border = BorderStroke(0.5.dp, palette.borderDefault),
+    ) {
+        Row(
+            Modifier.heightIn(min = 26.dp).padding(horizontal = 7.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(3.dp),
+        ) {
+            Text(pill.emoji, style = MaterialTheme.typography.labelLarge)
+            if (pill.count > 1) Text(
+                pill.count.toString(),
+                style = MaterialTheme.typography.labelSmall,
+                color = if (pill.mine) androidx.compose.ui.graphics.Color.White else palette.textSecondary,
+            )
         }
     }
 }
@@ -1460,11 +1747,32 @@ private val KnownBlockTypes = setOf(
 )
 
 @Composable
-private fun MessageSkillChip(name: String) {
+private fun SlashSkillOption(skill: JsonObject, onSelect: (String) -> Unit) {
+    val name = skill.str("name")
+    TextButton(
+        onClick = { onSelect(name) },
+        modifier = Modifier.fillMaxWidth().heightIn(min = 60.dp),
+    ) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Surface(color = LocalMobilePalette.current.accentSoft, shape = RoundedCornerShape(8.dp), modifier = Modifier.size(36.dp)) {
+                Box(contentAlignment = Alignment.Center) {
+                    LucideIcon(LucideIconKind.Zap, Modifier.size(18.dp), tint = LocalMobilePalette.current.accent)
+                }
+            }
+            Column(Modifier.weight(1f), horizontalAlignment = Alignment.Start, verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text("/$name", style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(skill.str("description"), style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+        }
+    }
+}
+
+@Composable
+private fun MessageSkillChip(name: String, outgoingBubble: Boolean = false) {
     val palette = LocalMobilePalette.current
     Surface(
-        color = palette.accentSoft,
-        contentColor = palette.accent,
+        color = if (outgoingBubble) androidx.compose.ui.graphics.Color.White.copy(alpha = 0.2f) else palette.accentSoft,
+        contentColor = if (outgoingBubble) androidx.compose.ui.graphics.Color.White else palette.accent,
         shape = RoundedCornerShape(8.dp),
         modifier = Modifier.widthIn(max = 220.dp),
     ) {
@@ -1500,11 +1808,12 @@ private fun BlockView(
     onOpenArtifact: (String, String, String?) -> Unit,
     artifactProjectId: String?,
     repository: MobileRepository,
+    outgoingBubble: Boolean = false,
 ) {
     val kind = block.str("type")
     val blockScope = rememberCoroutineScope()
     when (kind) {
-        "text" -> MarkdownText(block.str("markdown"), Modifier.fillMaxWidth())
+        "text" -> MarkdownText(block.str("markdown"), Modifier.fillMaxWidth(), outgoingBubble = outgoingBubble)
         "image" -> {
             val file = fileRef(block)
             val key = fileKey(file)

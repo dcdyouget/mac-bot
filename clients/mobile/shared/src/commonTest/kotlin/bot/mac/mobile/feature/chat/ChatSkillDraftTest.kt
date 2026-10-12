@@ -10,6 +10,7 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import bot.mac.mobile.core.protocol.str
 import kotlinx.serialization.json.JsonObject
+import kotlin.time.Instant
 
 class ChatSkillDraftTest {
     @Test
@@ -51,6 +52,24 @@ class ChatSkillDraftTest {
     }
 
     @Test
+    fun slashRecentSkillsUseOnlySuccessfulInvocationsFromTheLastSevenDays() {
+        val skills = Json.parseToJsonElement(
+            """[
+                {"name":"old","last_invoked_at":"2026-10-04T11:00:00Z"},
+                {"name":"edit-recent","updated_at":"2026-10-12T11:00:00Z"},
+                {"name":"called-first","last_invoked_at":"2026-10-11T11:00:00Z"},
+                {"name":"called-later","last_invoked_at":"2026-10-12T10:00:00Z"},
+                {"name":"disabled","enabled":false,"last_invoked_at":"2026-10-12T11:00:00Z"}
+            ]""",
+        ).jsonArray.map { it.jsonObject }
+
+        assertEquals(
+            listOf("called-later", "called-first"),
+            recentSlashSkills(skills, Instant.parse("2026-10-12T11:00:00Z")).map { it.str("name") },
+        )
+    }
+
+    @Test
     fun sentSkillPrefixBecomesChipBodyAndOnlyValidPrefixIsRecognized() {
         assertEquals(ChatMessageSkillPrefix("web-auth-patterns", "@编码 补上找回密码"), parseChatMessageSkillPrefix("/web-auth-patterns @编码 补上找回密码"))
         assertEquals(ChatMessageSkillPrefix("web-auth-patterns", ""), parseChatMessageSkillPrefix("/web-auth-patterns"))
@@ -73,6 +92,14 @@ class ChatSkillDraftTest {
         )
         assertNull(resolveChatMessageSkillPrefix("/tmp/report.md", enabled, emptySet()))
         assertNull(resolveChatMessageSkillPrefix("please use /web-auth-patterns", enabled, emptySet()))
+    }
+
+    @Test
+    fun copiedMessageLinkEncodesEachIdentifierAsAUriComponent() {
+        assertEquals(
+            "macbot://chat/chat%2Fid?host_id=host%20id&message_id=msg%3F1",
+            chatMessageDeepLink("host id", "chat/id", "msg?1"),
+        )
     }
 
     @Test

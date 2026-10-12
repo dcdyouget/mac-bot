@@ -35,6 +35,10 @@ class DeepLinkTest {
             parseMobileDeepLink("macbot://chat/chat_main"),
         )
         assertEquals(
+            MobileDeepLink(DeepLinkKind.CHAT, "chat_main", "host-a", "msg_123"),
+            parseMobileDeepLink("macbot://chat/chat_main?host_id=host-a&message_id=msg_123"),
+        )
+        assertEquals(
             MobileDeepLink(DeepLinkKind.COMPUTER, "bot_123", "host-a"),
             parseMobileDeepLink("macbot://computer/bot_123?host_id=host-a"),
         )
@@ -58,6 +62,9 @@ class DeepLinkTest {
             "macbot://chat/chat_main?host_id=",
             "macbot://chat/chat_main#fragment",
             "macbot://chat/chat_main?host_id=%2Fbad",
+            "macbot://chat/chat_main?message_id=bad%2Fid",
+            "macbot://computer/bot_123?message_id=msg_123",
+            "macbot://chat/chat_main?message_id=msg_123&message_id=msg_456",
         ).forEach { assertNull("must reject $it", parseMobileDeepLink(it)) }
     }
 

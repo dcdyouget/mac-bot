@@ -2,6 +2,8 @@ package bot.mac.mobile.feature.chat
 
 import kotlinx.serialization.json.JsonObject
 import bot.mac.mobile.core.protocol.Message
+import bot.mac.mobile.core.protocol.str
+import kotlin.time.Instant
 
 private const val PERSISTED_SKILL_DRAFT_MARKER = "macbot-chat-draft-v1\n"
 
@@ -82,3 +84,39 @@ internal fun filterSlashSkills(skills: List<JsonObject>, query: String): List<Js
         skill["enabled"]?.toString() != "false" &&
             skill["name"]?.toString()?.trim('"')?.contains(query, ignoreCase = true) == true
     }
+
+internal fun chatMessageDeepLink(hostId: String, chatId: String, messageId: String): String =
+    "macbot://chat/${encodeUriComponent(chatId)}?host_id=${encodeUriComponent(hostId)}&message_id=${encodeUriComponent(messageId)}"
+
+private fun encodeUriComponent(value: String): String = buildString {
+    value.encodeToByteArray().forEach { byte ->
+        val unsigned = byte.toInt() and 0xff
+        val char = unsigned.toChar()
+        if (char in 'a'..'z' || char in 'A'..'Z' || char in '0'..'9' || char in "-_.~") append(char)
+        else {
+            append('%')
+            append(HEX[unsigned ushr 4])
+            append(HEX[unsigned and 0x0f])
+        }
+    }
+}
+
+private const val HEX = "0123456789ABCDEF"
+/** Recent skills are based only on the server's successful invocation timestamp. */
+internal fun recentSlashSkills(
+    skills: List<JsonObject>,
+    now: Instant,
+    limit: Int = 3,
+): List<JsonObject> = skills.asSequence()
+    .filter { it["enabled"]?.toString() != "false" }
+    .mapNotNull { skill ->
+        val invokedAt = runCatching { Instant.parse(skill.str("last_invoked_at")) }.getOrNull() ?: return@mapNotNull null
+        val age = now.toEpochMilliseconds() - invokedAt.toEpochMilliseconds()
+        if (age !in 0..RECENT_SKILL_WINDOW_MS) null else invokedAt.toEpochMilliseconds() to skill
+    }
+    .sortedByDescending { it.first }
+    .take(limit.coerceAtLeast(0))
+    .map { it.second }
+    .toList()
+
+private const val RECENT_SKILL_WINDOW_MS = 7L * 24 * 60 * 60 * 1000

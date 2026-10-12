@@ -221,7 +221,7 @@ import org.jetbrains.compose.resources.stringResource
         when (link.kind) {
             DeepLinkKind.APPROVAL -> open("approvals", link.resourceId)
             DeepLinkKind.REVIEW -> open("group", link.resourceId)
-            DeepLinkKind.CHAT -> openChat(link.resourceId)
+            DeepLinkKind.CHAT -> openChat(link.resourceId, link.messageId)
             DeepLinkKind.COMPUTER -> open("computer", link.resourceId)
         }
         repository.deepLink.value = null
@@ -299,8 +299,8 @@ import org.jetbrains.compose.resources.stringResource
                                 secondTarget = ""
                             },
                         )
-                        page == "chat" -> MainBotScreen(repository = repository, chatId = target, initialMessageId = secondTarget, onOpenTrace = { assignment, chat -> open("trace", assignment.orEmpty(), chat.orEmpty()) }, onOpenProject = { open("group", it) }, onBack = back, onProjectAction = { projectId, action -> if (action == "confirm_done") scope.launch { runCatching { repository.call("project.confirm_done",jsonParams("project_id" to projectId)) }.onFailure { actionError=it.message } } else { changesProject=projectId;changesText="" } }, onOpenScreen={bot,tabId->open("computer",bot,tabId.orEmpty())},onOpenChat={openChat(it)},onLoopAction={id,action->scope.launch{runCatching{repository.call("loop.resolve",jsonParams("root_message_id" to id,"action" to action))}.onFailure{actionError=it.message}}},onTakeover={open("computer",it)},onOpenArtifact=openArtifact,onOpenHistory={open("history",it)},onOpenFollowup={open("followup",it)})
-                        page == "group" -> GroupScreen(repository = repository, projectId = target, initialMessageId = secondTarget.takeIf { it != "edit_announcement" }, onOpenTrace = { open("trace", it) }, onBack = back,onOpenScreen={bot,tabId->open("computer",bot,tabId.orEmpty())},onOpenChat={openChat(it)},onLoopAction={id,action->scope.launch{runCatching{repository.call("loop.resolve",jsonParams("root_message_id" to id,"action" to action))}.onFailure{actionError=it.message}}},onTakeover={open("computer",it)},onOpenProject={open("group",it)},onOpenArtifact=openArtifact,onOpenHistory={open("history",it)},onOpenHome={open("file",target,"")},onCopyHome={clipboard.setText(AnnotatedString(it))},onOpenGroupInfo={open("groupinfo",it)},editAnnouncementOnOpen=secondTarget=="edit_announcement")
+                        page == "chat" -> MainBotScreen(repository = repository, chatId = target, initialMessageId = secondTarget, onOpenTrace = { assignment, chat -> open("trace", assignment.orEmpty(), chat.orEmpty()) }, onOpenProject = { open("group", it) }, onBack = back, onProjectAction = { projectId, action -> if (action == "confirm_done") scope.launch { runCatching { repository.call("project.confirm_done",jsonParams("project_id" to projectId)) }.onFailure { actionError=it.message } } else { changesProject=projectId;changesText="" } }, onOpenScreen={bot,tabId->open("computer",bot,tabId.orEmpty())},onOpenChat={openChat(it)},onLoopAction={id,action->scope.launch{runCatching{repository.call("loop.resolve",jsonParams("root_message_id" to id,"action" to action))}.onFailure{actionError=it.message}}},onTakeover={open("computer",it)},onOpenArtifact=openArtifact,onOpenHistory={open("history",it)},onOpenFollowup={open("followup",it)},onCreateSkill={ open("skills", "", it) })
+                        page == "group" -> GroupScreen(repository = repository, projectId = target, initialMessageId = secondTarget.takeIf { it != "edit_announcement" }, onOpenTrace = { open("trace", it) }, onBack = back,onOpenScreen={bot,tabId->open("computer",bot,tabId.orEmpty())},onOpenChat={openChat(it)},onLoopAction={id,action->scope.launch{runCatching{repository.call("loop.resolve",jsonParams("root_message_id" to id,"action" to action))}.onFailure{actionError=it.message}}},onTakeover={open("computer",it)},onOpenProject={open("group",it)},onOpenArtifact=openArtifact,onOpenHistory={open("history",it)},onOpenHome={open("file",target,"")},onCopyHome={clipboard.setText(AnnotatedString(it))},onOpenGroupInfo={open("groupinfo",it)},onCreateSkill={ open("skills", "", it) },editAnnouncementOnOpen=secondTarget=="edit_announcement")
                         page == "groupinfo" -> GroupInfoScreen(repository, target, back, onEditAnnouncement = { open("group", it, "edit_announcement") }, onOpenHome = { open("file", target, it) }, onCopyHome = { clipboard.setText(AnnotatedString(it)) }, onOpenArtifact = openArtifact)
                         page == "followup" -> FollowupScreen(repository, target, onBack = back, onOpenProject = { open("group", it) }, onOpenChat = { openChat(it) }, onOpenTrace = { assignment, chat -> open("trace", assignment, chat.orEmpty()) }, onOpenApproval = { open("approvals") }, onOpenQuestion = { id ->
                             val question = repository.state.value.questions.firstOrNull { it.str("id") == id }
@@ -334,7 +334,7 @@ import org.jetbrains.compose.resources.stringResource
                         page == "approvals" -> ApprovalScreen(repository, back, target.ifBlank { null })
                         page == "file" -> FilePreview(repository, target, secondTarget, back)
                         page == "dashboard" -> DashboardScreen(repository, back, { open("connect") })
-                        page == "skills" -> SkillsScreen(repository, back)
+                        page == "skills" -> SkillsScreen(repository, back, secondTarget.takeIf(String::isNotBlank))
                         page == "routines" -> RoutinesScreen(repository, { open("trace", it) }, back)
                         page == "computer" -> ComputerScreen(repository, target, secondTarget.ifBlank { null }, back) { computerTakeoverOwnerHostId = it }
                         page == "search" -> SearchScreen(repository, { result ->
@@ -583,7 +583,7 @@ private fun chatAttentionRank(chat: JsonObject, state: MobileState): Int = when 
         FontScaleToolbar { Text(stringResource(Res.string.nav_tab_me),Modifier.padding(24.dp),style=MaterialTheme.typography.headlineSmall) }
         Text(stringResource(Res.string.mine_subtitle),Modifier.padding(horizontal=24.dp),style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
         LazyColumn(Modifier.weight(1f),contentPadding=PaddingValues(16.dp)) {
-            items(listOf("connect" to Res.string.nav_hosts,"memory" to Res.string.memory_title,"bots" to Res.string.nav_bots_manage,"approvals" to Res.string.nav_approval,"dashboard" to Res.string.nav_dashboard,"skills" to Res.string.nav_skills,"routines" to Res.string.nav_routines,"settings" to Res.string.nav_settings)) { (route,label)->
+            items(listOf("routines" to Res.string.nav_routines,"memory" to Res.string.memory_title,"connect" to Res.string.nav_hosts,"bots" to Res.string.nav_bots_manage,"approvals" to Res.string.nav_approval,"dashboard" to Res.string.nav_dashboard,"skills" to Res.string.nav_skills,"settings" to Res.string.nav_settings)) { (route,label)->
                 ListItem(
                     headlineContent={Text(stringResource(label))},
                     trailingContent={if (route == "memory" && state.memoryQuota.isNotEmpty()) Text("${state.memoryQuota.long("used_chars")} / ${state.memoryQuota.long("limit_chars")}") else Text("›")},
