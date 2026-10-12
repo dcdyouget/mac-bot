@@ -56,8 +56,12 @@ import bot.mac.mobile.feature.skills.SkillsScreen
 import bot.mac.mobile.feature.search.SearchScreen
 import bot.mac.mobile.feature.routines.RoutinesScreen
 import bot.mac.mobile.feature.computer.ComputerScreen
+import bot.mac.mobile.feature.computer.shouldReleaseTakeoverOnHostChange
+import bot.mac.mobile.feature.computer.shouldReleaseTakeoverOnNavigation
 import bot.mac.mobile.resources.*
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.*
 import org.jetbrains.compose.resources.stringResource
 
@@ -73,26 +77,59 @@ import org.jetbrains.compose.resources.stringResource
     var target by rememberSaveable { mutableStateOf("") }
     var secondTarget by rememberSaveable { mutableStateOf("") }
     var routeHistory by rememberSaveable { mutableStateOf(listOf<String>()) }
+    var computerTakeoverOwnerHostId by rememberSaveable { mutableStateOf<String?>(null) }
+    var computerExitInFlight by remember { mutableStateOf(false) }
     var changesProject by remember { mutableStateOf<String?>(null) }
     var changesText by remember { mutableStateOf("") }
     var actionError by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
+    val takeoverReleaseMutex = remember { Mutex() }
     val clipboard = LocalClipboardManager.current
     val snackbarHostState = remember { SnackbarHostState() }
     val attentionMessage = stringResource(Res.string.feature_attention_banner)
     val attentionAction = stringResource(Res.string.feature_attention_open)
+    suspend fun releaseOwnedTakeover(ownerHostId: String, botId: String) {
+        takeoverReleaseMutex.withLock {
+            if (computerTakeoverOwnerHostId == ownerHostId) {
+                runCatching { repository.callOnHost(ownerHostId, "takeover.release", jsonParams("bot_id" to botId)) }
+                computerTakeoverOwnerHostId = null
+            }
+        }
+    }
+    fun navigate(next: String, id: String = "", second: String = "", pushHistory: Boolean, popHistory: Boolean = false) {
+        val routeChanged = next != page || id != target || second != secondTarget
+        val releaseTakeover = shouldReleaseTakeoverOnNavigation(
+            page, target, next, id, computerTakeoverOwnerHostId, repository.activeHost.value?.id,
+        )
+        if (!routeChanged && !releaseTakeover) return
+        if (computerExitInFlight) return
+        val changeRoute = {
+            if (pushHistory) routeHistory = routeHistory + JsonArray(listOf(JsonPrimitive(page),JsonPrimitive(target),JsonPrimitive(secondTarget))).toString()
+            if (popHistory && routeHistory.isNotEmpty()) routeHistory = routeHistory.dropLast(1)
+            page = next; target = id; secondTarget = second
+        }
+        if (releaseTakeover) {
+            val ownerHostId = computerTakeoverOwnerHostId ?: return
+            val botId = target
+            computerExitInFlight = true
+            scope.launch {
+                releaseOwnedTakeover(ownerHostId, botId)
+                computerExitInFlight = false
+                if (routeChanged) changeRoute()
+            }
+        } else if (routeChanged) {
+            changeRoute()
+        }
+    }
     fun open(next: String, id: String = "", second: String = "") {
-        if (next == page && id == target && second == secondTarget) return
-        routeHistory = routeHistory + JsonArray(listOf(JsonPrimitive(page),JsonPrimitive(target),JsonPrimitive(secondTarget))).toString()
-        page = next; target = id; secondTarget = second
+        navigate(next, id, second, pushHistory = true)
     }
     val back: () -> Unit = {
         val previous=routeHistory.lastOrNull()
-        if(previous==null) { page="home";target="";secondTarget="" }
+        if(previous==null) navigate("home", "", "", pushHistory = false)
         else {
             val route=protocolJson.parseToJsonElement(previous).jsonArray
-            routeHistory=routeHistory.dropLast(1)
-            page=route[0].jsonPrimitive.content;target=route[1].jsonPrimitive.content;secondTarget=route[2].jsonPrimitive.content
+            navigate(route[0].jsonPrimitive.content, route[1].jsonPrimitive.content, route[2].jsonPrimitive.content, pushHistory = false, popHistory = true)
         }
     }
     fun openChat(id: String, messageId: String? = null) {
@@ -114,6 +151,12 @@ import org.jetbrains.compose.resources.stringResource
         }.onFailure{actionError=it.message} }
     }
     LaunchedEffect(Unit) { repository.initialize() }
+    LaunchedEffect(active?.id, page, target, computerTakeoverOwnerHostId) {
+        val ownerHostId = computerTakeoverOwnerHostId ?: return@LaunchedEffect
+        if (shouldReleaseTakeoverOnHostChange(page, ownerHostId, active?.id)) {
+            releaseOwnedTakeover(ownerHostId, target)
+        }
+    }
     LaunchedEffect(active?.id, page, target) {
         repository.hostEvents.collect { hostEvent ->
             if (hostEvent.hostId != active?.id) return@collect
@@ -293,7 +336,7 @@ import org.jetbrains.compose.resources.stringResource
                         page == "dashboard" -> DashboardScreen(repository, back, { open("connect") })
                         page == "skills" -> SkillsScreen(repository, back)
                         page == "routines" -> RoutinesScreen(repository, { open("trace", it) }, back)
-                        page == "computer" -> ComputerScreen(repository, target, secondTarget.ifBlank { null }, back)
+                        page == "computer" -> ComputerScreen(repository, target, secondTarget.ifBlank { null }, back) { computerTakeoverOwnerHostId = it }
                         page == "search" -> SearchScreen(repository, { result ->
                             when (result.str("kind")) {
                                 "bot" -> open("bot_editor", result.str("id")); "routine" -> open("routines");

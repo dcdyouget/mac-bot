@@ -33,6 +33,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
@@ -95,7 +96,13 @@ import kotlin.math.sqrt
 private enum class Quality { AUTO, LOW, HIGH }
 
 @Composable
-fun ComputerScreen(repository: MobileRepository, botId: String, tabId: String? = null, onBack: () -> Unit) {
+fun ComputerScreen(
+    repository: MobileRepository,
+    botId: String,
+    tabId: String? = null,
+    onBack: () -> Unit,
+    onTakeoverOwnerChanged: (String?) -> Unit = {},
+) {
     LandscapeScreen(enabled = true)
     var quality by remember { mutableStateOf(Quality.AUTO) }
     var takeoverError by remember { mutableStateOf<String?>(null) }
@@ -112,7 +119,7 @@ fun ComputerScreen(repository: MobileRepository, botId: String, tabId: String? =
     var textInput by remember { mutableStateOf("") }
     var fps by remember { mutableStateOf(0f) }
     var frameAgeMs by remember { mutableStateOf(0L) }
-    var takeoverHostId by remember { mutableStateOf<String?>(null) }
+    var takeoverHostId by rememberSaveable(botId) { mutableStateOf<String?>(null) }
     var lastFrameAt by remember { mutableStateOf<Long?>(null) }
     val scope = rememberCoroutineScope()
     val activeHost by repository.activeHost.collectAsState()
@@ -200,10 +207,8 @@ fun ComputerScreen(repository: MobileRepository, botId: String, tabId: String? =
         try { runner.join() } catch (cancelled: CancellationException) { throw cancelled }
         finally {
             withContext(NonCancellable) {
-                if (takeoverHostId == connectionHostId && connectionHostId != null) {
-                    releaseTakeover(repository, connectionHostId, botId)
-                    takeoverHostId = null
-                }
+                // A screen connection can end during Activity recreation or a
+                // quality/Host update. Only an explicit page exit owns release.
                 try { connection.stop() } catch (_: Throwable) { }
             }
             if (activeConnection === connection) activeConnection = null
@@ -238,8 +243,16 @@ fun ComputerScreen(repository: MobileRepository, botId: String, tabId: String? =
                 if (!takeoverActive) {
                     Button(onClick = {
                         scope.launch {
-                            takeoverError = captureError(requestError) { repository.call("takeover.start", buildJsonObject { put("bot_id", botId) }) }
-                            if (takeoverError == null) takeoverHostId = activeHost?.id
+                            val ownerHostId = activeHost?.id ?: return@launch
+                            takeoverHostId = ownerHostId
+                            onTakeoverOwnerChanged(ownerHostId)
+                            takeoverError = captureError(requestError) {
+                                repository.callOnHost(ownerHostId, "takeover.start", buildJsonObject { put("bot_id", botId) })
+                            }
+                            if (takeoverError != null) {
+                                takeoverHostId = null
+                                onTakeoverOwnerChanged(null)
+                            }
                         }
                     }, modifier = Modifier.height(32.dp)) { Text(stringResource(Res.string.block_takeover_start), style = MaterialTheme.typography.labelSmall, maxLines = 1) }
                 }
@@ -400,8 +413,18 @@ fun ComputerScreen(repository: MobileRepository, botId: String, tabId: String? =
     }
     if (releaseDialog) AlertDialog(onDismissRequest = { releaseDialog = false }, title = { Text(stringResource(Res.string.computer_release)) }, text = { OutlinedTextField(releaseNote, { releaseNote = it }, label = { Text(stringResource(Res.string.computer_release_note)) }) }, confirmButton = { Button(onClick = {
         scope.launch {
-            takeoverError = captureError(requestError) { repository.call("takeover.release", buildJsonObject { put("bot_id", botId); if (releaseNote.isNotBlank()) put("note", releaseNote) }) }
-            if (takeoverError == null) { takeoverHostId = null; releaseDialog = false; releaseNote = "" }
+            val ownerHostId = takeoverHostId
+            val params = buildJsonObject { put("bot_id", botId); if (releaseNote.isNotBlank()) put("note", releaseNote) }
+            takeoverError = captureError(requestError) {
+                if (ownerHostId != null) repository.callOnHost(ownerHostId, "takeover.release", params)
+                else repository.call("takeover.release", params)
+            }
+            if (takeoverError == null) {
+                takeoverHostId = null
+                onTakeoverOwnerChanged(null)
+                releaseDialog = false
+                releaseNote = ""
+            }
         }
     }) { Text(stringResource(Res.string.computer_release)) } }, dismissButton = { TextButton(onClick = { releaseDialog = false }) { Text(stringResource(Res.string.common_close)) } })
 }
@@ -480,9 +503,22 @@ private suspend fun captureError(fallback: String, block: suspend () -> Unit): S
 } catch (error: Throwable) {
     error.message ?: fallback
 }
-private suspend fun releaseTakeover(repository: MobileRepository, hostId: String, botId: String) {
-    runCatching { repository.callOnHost(hostId, "takeover.release", buildJsonObject { put("bot_id", botId) }) }
-}
+internal fun shouldReleaseTakeoverOnNavigation(
+    currentPage: String,
+    currentBotId: String,
+    nextPage: String,
+    nextBotId: String,
+    ownerHostId: String?,
+    activeHostId: String?,
+): Boolean = ownerHostId != null && currentPage == "computer" &&
+    (nextPage != "computer" || nextBotId != currentBotId || activeHostId != null && activeHostId != ownerHostId)
+
+internal fun shouldReleaseTakeoverOnHostChange(
+    currentPage: String,
+    ownerHostId: String?,
+    activeHostId: String?,
+): Boolean = currentPage == "computer" && ownerHostId != null && activeHostId != null && activeHostId != ownerHostId
+
 private fun List<Offset>.centroid(): Offset = if (isEmpty()) Offset.Zero else Offset(sumOf { it.x.toDouble() }.toFloat() / size, sumOf { it.y.toDouble() }.toFloat() / size)
 private fun distance(first: Offset, second: Offset): Float = sqrt((first.x - second.x) * (first.x - second.x) + (first.y - second.y) * (first.y - second.y))
 internal fun mapToFrame(offset: Offset, viewport: IntSize, frame: ScreenFrame?, zoom: Float, pan: Offset): Offset? {
