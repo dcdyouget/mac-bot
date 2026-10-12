@@ -1014,6 +1014,7 @@ fn ensure_mock_defaults(state: &mut MockState, home: &std::path::Path) {
     ensure_question_approval_history_fixture(state);
     ensure_mock_user_memory(state);
     ensure_message_block_scenarios(state);
+    ensure_mock_web_trace(state);
     ensure_login_question_history_fixture(state);
     ensure_code_dm_history_fixture(state);
     // The pending-review fixture creates its project and artifact references
@@ -1021,6 +1022,164 @@ fn ensure_mock_defaults(state: &mut MockState, home: &std::path::Path) {
     seed_mock_artifact_files(state, home);
     ensure_mock_artifact_history(state, home);
     ensure_mock_routines(state);
+}
+
+/// Give the active web-redesign assignment a useful, deterministic trace for
+/// client acceptance. The fixture remains a working task: its last bash tool
+/// call is intentionally still open, matching the assignment status and the
+/// workbench's active-task relationship.
+fn ensure_mock_web_trace(state: &mut MockState) {
+    const ASSIGNMENT_ID: &str = "asg_code_web";
+    const CHAT_ID: &str = "chat_web";
+    const RUN_ID: &str = "run_code_web";
+
+    if !state.assignments.iter().any(|assignment| {
+        assignment.get("id").and_then(Value::as_str) == Some(ASSIGNMENT_ID)
+            && assignment.get("status").and_then(Value::as_str) == Some("working")
+            && assignment.get("origin_chat_id").and_then(Value::as_str) == Some(CHAT_ID)
+    }) {
+        return;
+    }
+
+    let items = [
+        json!({
+            "assignment_id":ASSIGNMENT_ID,"chat_id":CHAT_ID,"run_id":RUN_ID,"aseq":2,
+            "at":"2026-10-09T10:19:04.000Z","type":"llm.request",
+            "data":{"request_id":"req_code_web_1","model":"prv_mock/mock-model",
+                "context":{"l0":3200,"l1":8400,"l2":1600,"l3":12000,"l4":5800,"total":31000},
+                "tools":["files.read","files.write","bash","subagent"],"prompt_ref":null}
+        }),
+        json!({
+            "assignment_id":ASSIGNMENT_ID,"chat_id":CHAT_ID,"run_id":RUN_ID,"aseq":3,
+            "at":"2026-10-09T10:19:06.000Z","type":"llm.response",
+            "data":{"request_id":"req_code_web_1","text":"我先检查现有首页、路由和登录入口。",
+                "thinking":"确认当前导航结构，再分开处理页面布局和构建验证。",
+                "tool_calls":[],"stop_reason":"stop",
+                "usage":{"input_tokens":4200,"output_tokens":180,"cache_read_tokens":900,"cache_write_tokens":0,"cost":0.01,"requests":1},
+                "latency_ms":1800,"ttft_ms":420}
+        }),
+        json!({
+            "assignment_id":ASSIGNMENT_ID,"chat_id":CHAT_ID,"run_id":RUN_ID,"aseq":4,
+            "at":"2026-10-09T10:19:07.000Z","type":"tool.start",
+            "data":{"call_id":"call_web_read","name":"files.read","args":{"path":"src/routes/index.tsx"}}
+        }),
+        json!({
+            "assignment_id":ASSIGNMENT_ID,"chat_id":CHAT_ID,"run_id":RUN_ID,"aseq":5,
+            "at":"2026-10-09T10:19:08.000Z","type":"tool.end",
+            "data":{"call_id":"call_web_read","is_error":false,"preview":"18 routes · 官网入口使用旧版表单组件",
+                "details":{"lines":212},"truncated":false,"full_output":null,"duration_ms":14}
+        }),
+        json!({
+            "assignment_id":ASSIGNMENT_ID,"chat_id":CHAT_ID,"run_id":"run_code_web_sub1","aseq":6,
+            "at":"2026-10-09T10:19:10.000Z","type":"run.start",
+            "data":{"phase":"subagent","model":"prv_mock/mock-model","parent_run_id":RUN_ID,
+                "subagent_task":"检查官网登录入口的移动端布局与可访问性"}
+        }),
+        json!({
+            "assignment_id":ASSIGNMENT_ID,"chat_id":CHAT_ID,"run_id":"run_code_web_sub1","aseq":7,
+            "at":"2026-10-09T10:19:11.000Z","type":"llm.request",
+            "data":{"request_id":"req_code_web_sub1","model":"prv_mock/mock-model",
+                "context":{"l0":300,"l1":700,"l2":100,"l3":0,"l4":0,"total":1100},
+                "tools":["files.read"],"prompt_ref":null}
+        }),
+        json!({
+            "assignment_id":ASSIGNMENT_ID,"chat_id":CHAT_ID,"run_id":"run_code_web_sub1","aseq":8,
+            "at":"2026-10-09T10:19:14.000Z","type":"llm.response",
+            "data":{"request_id":"req_code_web_sub1","text":"移动窄屏下按钮需要改为纵向排列。",
+                "thinking":null,"tool_calls":[],"stop_reason":"stop",
+                "usage":{"input_tokens":700,"output_tokens":90,"cache_read_tokens":0,"cache_write_tokens":0,"cost":0.0,"requests":1},
+                "latency_ms":1100,"ttft_ms":250}
+        }),
+        json!({
+            "assignment_id":ASSIGNMENT_ID,"chat_id":CHAT_ID,"run_id":"run_code_web_sub1","aseq":9,
+            "at":"2026-10-09T10:19:14.500Z","type":"run.end",
+            "data":{"status":"done","error":null}
+        }),
+        json!({
+            "assignment_id":ASSIGNMENT_ID,"chat_id":CHAT_ID,"run_id":RUN_ID,"aseq":10,
+            "at":"2026-10-09T10:23:20.000Z","type":"llm.request",
+            "data":{"request_id":"req_code_web_2","model":"prv_mock/mock-model",
+                "context":{"l0":4100,"l1":9800,"l2":3200,"l3":18000,"l4":7000,"total":42100},
+                "tools":["files.write","bash"],"prompt_ref":null}
+        }),
+        json!({
+            "assignment_id":ASSIGNMENT_ID,"chat_id":CHAT_ID,"run_id":RUN_ID,"aseq":11,
+            "at":"2026-10-09T10:23:23.000Z","type":"llm.response",
+            "data":{"request_id":"req_code_web_2","text":"已完成首页导航与登录表单调整，准备跑测试。",
+                "thinking":null,"tool_calls":[{"call_id":"call_web_test","name":"bash","args":{"command":"npm test"}}],
+                "stop_reason":"tool_calls",
+                "usage":{"input_tokens":6100,"output_tokens":340,"cache_read_tokens":1800,"cache_write_tokens":0,"cost":0.02,"requests":1},
+                "latency_ms":2100,"ttft_ms":330}
+        }),
+        json!({
+            "assignment_id":ASSIGNMENT_ID,"chat_id":CHAT_ID,"run_id":RUN_ID,"aseq":12,
+            "at":"2026-10-09T10:23:24.000Z","type":"tool.start",
+            "data":{"call_id":"call_web_test","name":"bash","args":{"command":"npm test"}}
+        }),
+        json!({
+            "assignment_id":ASSIGNMENT_ID,"chat_id":CHAT_ID,"run_id":RUN_ID,"aseq":13,
+            "at":"2026-10-09T10:23:37.000Z","type":"tool.end",
+            "data":{"call_id":"call_web_test","is_error":false,"preview":"18 tests passed",
+                "details":{"exit_code":0},"truncated":false,"full_output":null,"duration_ms":12840}
+        }),
+        json!({
+            "assignment_id":ASSIGNMENT_ID,"chat_id":CHAT_ID,"run_id":RUN_ID,"aseq":14,
+            "at":"2026-10-09T10:34:02.000Z","type":"llm.request",
+            "data":{"request_id":"req_code_web_3","model":"prv_mock/mock-model",
+                "context":{"l0":5000,"l1":12000,"l2":4000,"l3":24000,"l4":9000,"total":54000},
+                "tools":["bash"],"prompt_ref":null}
+        }),
+        json!({
+            "assignment_id":ASSIGNMENT_ID,"chat_id":CHAT_ID,"run_id":RUN_ID,"aseq":15,
+            "at":"2026-10-09T10:34:03.000Z","type":"llm.response",
+            "data":{"request_id":"req_code_web_3","text":"单元测试通过，正在生成部署构建。",
+                "thinking":null,"tool_calls":[{"call_id":"call_web_deploy","name":"bash","args":{"command":"npm run deploy"}}],
+                "stop_reason":"tool_calls",
+                "usage":{"input_tokens":7800,"output_tokens":460,"cache_read_tokens":2400,"cache_write_tokens":0,"cost":0.03,"requests":1},
+                "latency_ms":2400,"ttft_ms":360}
+        }),
+        json!({
+            "assignment_id":ASSIGNMENT_ID,"chat_id":CHAT_ID,"run_id":RUN_ID,"aseq":16,
+            "at":"2026-10-09T10:34:04.000Z","type":"tool.start",
+            "data":{"call_id":"call_web_deploy","name":"bash","args":{"command":"npm run deploy"}}
+        }),
+    ];
+
+    let trace = state.traces.entry(ASSIGNMENT_ID.to_owned()).or_default();
+    for item in items {
+        let aseq = item["aseq"].as_u64().unwrap_or_default();
+        if !trace
+            .iter()
+            .any(|existing| existing.get("aseq").and_then(Value::as_u64) == Some(aseq))
+        {
+            trace.push(item);
+        }
+    }
+    trace.sort_by_key(|item| item.get("aseq").and_then(Value::as_u64).unwrap_or_default());
+
+    // Scenario trace events are indexed both by assignment and by chat.
+    // Preserve that same lookup behavior for the deterministic acceptance tail.
+    let assignment_items = trace.clone();
+    let chat_trace = state.traces.entry(CHAT_ID.to_owned()).or_default();
+    for item in assignment_items {
+        let assignment = item.get("assignment_id").and_then(Value::as_str);
+        let aseq = item.get("aseq").and_then(Value::as_u64);
+        if !chat_trace.iter().any(|existing| {
+            existing.get("assignment_id").and_then(Value::as_str) == assignment
+                && existing.get("aseq").and_then(Value::as_u64) == aseq
+        }) {
+            chat_trace.push(item);
+        }
+    }
+    chat_trace.sort_by_key(|item| {
+        (
+            item.get("at")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_owned(),
+            item.get("aseq").and_then(Value::as_u64).unwrap_or_default(),
+        )
+    });
 }
 
 fn ensure_mock_skill_fixtures(state: &mut MockState, home: &std::path::Path) {
@@ -5469,6 +5628,66 @@ mod contract_tests {
             .collect::<Vec<_>>();
         assert_eq!(cards.len(), 1, "the review message is updated in place");
         assert_eq!(cards[0]["blocks"][0]["state"], "confirmed");
+    }
+
+    #[tokio::test]
+    async fn web_redesign_trace_is_detailed_and_keeps_assignment_queue_state() {
+        let gateway = gateway().await;
+        let assignment = call(
+            &gateway,
+            "assignment.get",
+            json!({"assignment_id":"asg_code_web"}),
+        )
+        .await["assignment"]
+            .clone();
+        assert_eq!(assignment["status"], "working");
+        assert_eq!(assignment["origin_chat_id"], "chat_web");
+        assert_eq!(assignment["project_id"], "prj_web");
+
+        let history = call(
+            &gateway,
+            "trace.history",
+            json!({"assignment_id":"asg_code_web","tail":true,"limit":200}),
+        )
+        .await;
+        let items = history["items"].as_array().expect("trace items");
+        assert_eq!(items.len(), 16);
+        for (index, item) in items.iter().enumerate() {
+            assert_eq!(item["aseq"], index as u64 + 1);
+            assert_eq!(item["assignment_id"], "asg_code_web");
+            assert_eq!(item["chat_id"], assignment["origin_chat_id"]);
+            serde_json::from_value::<macbot_protocol::TraceItem>(item.clone())
+                .expect("mock trace item matches the public protocol type");
+        }
+        assert_eq!(items[0]["type"], "run.start");
+        assert!(items.iter().any(|item| item["type"] == "tool.end"));
+        assert!(items
+            .iter()
+            .any(|item| { item["type"] == "run.end" && item["run_id"] == "run_code_web_sub1" }));
+        assert_eq!(items.last().unwrap()["type"], "tool.start");
+        assert!(!items
+            .iter()
+            .any(|item| { item["type"] == "run.end" && item["run_id"] == "run_code_web" }));
+
+        let chat_history = call(&gateway, "trace.history", json!({"chat_id":"chat_web"})).await;
+        assert_eq!(chat_history["items"].as_array().unwrap().len(), items.len());
+        assert!(chat_history["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|item| {
+                item["assignment_id"] == assignment["id"]
+                    && item["chat_id"] == assignment["origin_chat_id"]
+            }));
+
+        let queued = call(
+            &gateway,
+            "assignment.get",
+            json!({"assignment_id":"asg_mock_queued"}),
+        )
+        .await;
+        assert_eq!(queued["assignment"]["status"], "queued");
+        assert_eq!(queued["assignment"]["queue_reason"], "serial_in_project");
     }
 
     #[tokio::test]
