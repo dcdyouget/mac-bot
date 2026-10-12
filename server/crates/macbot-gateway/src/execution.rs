@@ -244,6 +244,10 @@ pub trait ExecutionSink: Send + Sync {
     ) -> Result<Option<Value>, String> {
         Ok(self.memory_context(request).await)
     }
+    /// Called only after a prepared prompt is present in the durable run
+    /// checkpoint. Memory implementations may then advance their segment
+    /// cursor without risking a lost update after a crash.
+    async fn model_context_checkpointed(&self, _request: &ExecutionRequest) {}
     async fn commit_succeeded(&self, _request: &ExecutionRequest, _data: Value) {}
 }
 
@@ -1123,20 +1127,6 @@ impl ExecutionEngine {
             )
             .await?;
         }
-        if !resumed {
-            match self.sink.prepare_model_context(&request).await {
-                Ok(Some(context)) => {
-                    messages.insert(0, json!({"role":"system","content":context}));
-                }
-                Ok(None) => {}
-                Err(message) => {
-                    let error = ExecutionError::Sink(message);
-                    self.fail_run(&request, &job, &error, streaming_message_id.as_deref())
-                        .await?;
-                    return Err(error);
-                }
-            }
-        }
         if let Some(message) = request.resume_message.as_deref() {
             if let Some(calls) = job.checkpoint["pending_tools"].as_array() {
                 for call in calls {
@@ -1299,6 +1289,18 @@ impl ExecutionEngine {
                     })
                     .await;
             }
+            let mut turn_request = request.clone();
+            turn_request.messages = messages.clone();
+            match self.sink.prepare_model_context(&turn_request).await {
+                Ok(Some(context)) => apply_prepared_model_context(&mut messages, context),
+                Ok(None) => {}
+                Err(message) => {
+                    let error = ExecutionError::Sink(message);
+                    self.fail_run(&request, &job, &error, streaming_message_id.as_deref())
+                        .await?;
+                    return Err(error);
+                }
+            }
             if !self
                 .commit_checkpoint(
                     &request,
@@ -1319,6 +1321,7 @@ impl ExecutionEngine {
                     turns: turns_used,
                 });
             }
+            self.sink.model_context_checkpointed(&turn_request).await;
             if let Some(bucket) = model_rate_bucket(&request) {
                 let cancellation = self.state.cancellation_for(&request.run_id).await;
                 if !self
@@ -1893,7 +1896,8 @@ impl ExecutionEngine {
                     .with_output_channel(call.call_id.clone(), output_tx);
                 let started = now_ms();
                 let background = background_tool_call(&call);
-                let result = tool.call(&context, call.args.clone()).await;
+                let tool_args = args_with_operation_id(&call, &request.run_id);
+                let result = tool.call(&context, tool_args).await;
                 drop(context);
                 if !background {
                     let _ = output_forwarder.await;
@@ -2206,7 +2210,8 @@ impl ExecutionEngine {
         .with_output_channel(call.call_id.clone(), output_tx);
         let started = now_ms();
         let background = background_tool_call(&call);
-        let result = tool.call(&context, call.args.clone()).await;
+        let tool_args = args_with_operation_id(&call, &request.run_id);
+        let result = tool.call(&context, tool_args).await;
         drop(context);
         if !background {
             let _ = output_forwarder.await;
@@ -3046,6 +3051,134 @@ impl ExecutionEngine {
             .await;
         Ok(())
     }
+}
+
+/// Apply gateway-owned prompt blocks returned by `prepare_model_context`.
+/// Structured results let memory updates ride the next user/tool result while
+/// keeping stable system blocks at the front of the conversation.
+fn apply_prepared_model_context(messages: &mut Vec<Value>, context: Value) {
+    if let Some(summary) = context.get("compaction_summary").and_then(Value::as_str) {
+        compact_model_messages(messages, summary, 8);
+    }
+    if let Some(blocks) = context.get("system_blocks").and_then(Value::as_array) {
+        let mut dynamic_system = Vec::new();
+        messages.retain(|message| {
+            if message["role"] == "system" {
+                if message.get("macbot_context").is_none() {
+                    if let Some(text) = message["content"].as_str().filter(|text| !text.is_empty())
+                    {
+                        dynamic_system.push(text.to_owned());
+                    }
+                } else if message.get("macbot_dynamic_system").is_some() {
+                    dynamic_system.extend(
+                        message["macbot_dynamic_system"]
+                            .as_array()
+                            .into_iter()
+                            .flatten()
+                            .filter_map(Value::as_str)
+                            .map(str::to_owned),
+                    );
+                }
+                false
+            } else {
+                true
+            }
+        });
+        if !blocks.is_empty() {
+            for block in blocks.iter().rev() {
+                let Some(content) = block.get("content").and_then(Value::as_str) else {
+                    continue;
+                };
+                let content = if block.get("level").and_then(Value::as_u64) == Some(3) {
+                    if dynamic_system.is_empty() {
+                        content.to_owned()
+                    } else {
+                        format!("{content}\n\n{}", dynamic_system.join("\n\n"))
+                    }
+                } else {
+                    content.to_owned()
+                };
+                let mut message = json!({"role":"system","content":content,"macbot_context":true});
+                if block.get("level").and_then(Value::as_u64) == Some(3)
+                    && !dynamic_system.is_empty()
+                {
+                    message["macbot_dynamic_system"] = json!(dynamic_system);
+                }
+                if let Some(cache_control) = block.get("cache_control") {
+                    message["cache_control"] = cache_control.clone();
+                }
+                messages.insert(0, message);
+            }
+        }
+        if let Some(update) = context.get("memory_update").and_then(Value::as_str) {
+            prepend_memory_update(messages, update);
+        }
+    } else if let Some(text) = context.as_str() {
+        if !messages.iter().any(|message| message["role"] == "system") {
+            messages.insert(0, json!({"role":"system","content":text}));
+        }
+    }
+}
+
+fn compact_model_messages(messages: &mut Vec<Value>, summary: &str, recent_count: usize) {
+    let recent_start = messages
+        .iter()
+        .filter(|message| message["role"] != "system")
+        .count()
+        .saturating_sub(recent_count);
+    let mut index = 0usize;
+    messages.retain(|message| {
+        if message["role"] == "system" {
+            true
+        } else {
+            let keep = index >= recent_start;
+            index += 1;
+            keep
+        }
+    });
+    let insertion = messages
+        .iter()
+        .rposition(|message| message["role"] == "system")
+        .map_or(0, |position| position + 1);
+    messages.insert(
+        insertion,
+        json!({"role":"user","content":format!("Earlier conversation summary:\n{summary}")}),
+    );
+}
+
+fn prepend_memory_update(messages: &mut [Value], update: &str) {
+    let Some(message) = messages.iter_mut().find(|message| {
+        matches!(message["role"].as_str(), Some("user" | "tool"))
+            && message.get("memory_update_consumed").is_none()
+    }) else {
+        return;
+    };
+    match &mut message["content"] {
+        Value::String(old) => {
+            *old = if old.is_empty() {
+                update.to_owned()
+            } else {
+                format!("{update}\n\n{old}")
+            };
+        }
+        Value::Array(parts) => parts.insert(0, json!({"type":"text","text":update})),
+        Value::Null => message["content"] = json!(update),
+        _ => {}
+    }
+    message["memory_update_consumed"] = json!(true);
+}
+
+fn args_with_operation_id(call: &ToolCall, run_id: &str) -> Value {
+    let mut args = call.args.clone();
+    if call.name == "memory" {
+        if let Some(object) = args.as_object_mut() {
+            object.insert(
+                "operation_id".into(),
+                json!(format!("{run_id}:{}", call.call_id)),
+            );
+        }
+    }
+    args
 }
 
 fn tool_message(call_id: &str, result: &ToolResult) -> Value {
