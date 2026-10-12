@@ -33,3 +33,9 @@
 
 - 已实现：消息连续 `question` block 在 `app/src/App.tsx:3455` 聚合为 QuestionDeck；未答题默认激活，答题成功后切至下一道待答题，题签可切换查看已答题目，答案状态驱动原地更新。
 - 补齐：聚焦卡片时按 1–9 选择对应选项，O 打开自由回答；多题堆叠卡片支持 ←/→ 切题。可编辑输入框中的按键仍留给文本编辑。
+
+## §7 `/` 技能列表
+
+- 已实现：`app/src/components/chatSkillPickerModel.ts` 基于 `last_invoked_at` 选近 7 天最近三项，其他技能列入全部列表；输入查询按名称筛选，空结果提供新建入口。
+- `app/src/components/ChatSkillPicker.tsx` 显示列表、禁用状态与最近调用数；`App.tsx` 在 `/` 后提供方向键、Enter/Tab、Esc 选择交互，选中技能成为输入栏标签。
+- `MessageBlocks.tsx` 展示发出消息里的技能标签；服务端确认加载成功后才展示 `loaded_skills` 状态。
