@@ -1098,9 +1098,12 @@ internal fun ChatMessageRow(
     val spokenBody = messageBody.ifBlank { if (blocks.isNotEmpty()) stringResource(Res.string.chat_message_accessibility_card) else "" }
     val messageDescription = stringResource(Res.string.chat_message_accessibility, if (isUser) stringResource(Res.string.common_you) else senderLabel, spokenTime, spokenBody)
     val standaloneTask = blocks.singleOrNull()?.let { it as? JsonObject }?.takeIf { it.str("type") == "task_card" }
+    val actionAssignmentId = assignmentId.ifBlank { standaloneTask?.str("assignment_id").orEmpty() }
     Column(Modifier.fillMaxWidth().padding(top = topSpacing).semantics { isTraversalGroup = true; contentDescription = messageDescription }, horizontalAlignment = if (isUser) Alignment.End else Alignment.Start) {
         if (standaloneTask != null) {
-            StandaloneTaskCard(standaloneTask, state, onOpenTrace)
+            StandaloneTaskCard(standaloneTask, state, onOpenTrace) {
+                showMessageActions = true
+            }
         } else {
         if (showSender && !isUser) {
             Row(Modifier.padding(start = 4.dp, bottom = 3.dp), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -1323,7 +1326,7 @@ internal fun ChatMessageRow(
                 }
                 TextButton(onClick = { if (id.isNotBlank()) onQuote(id, "reply"); dismissMessageActions() }) { Text(stringResource(Res.string.chat_menu_reply)) }
                 TextButton(onClick = { if (id.isNotBlank()) onQuote(id, "reference"); dismissMessageActions() }) { Text(stringResource(Res.string.chat_menu_quote)) }
-                if (assignmentId.isNotBlank()) TextButton(onClick = { onOpenTrace(assignmentId, null); dismissMessageActions() }) {
+                if (actionAssignmentId.isNotBlank()) TextButton(onClick = { onOpenTrace(actionAssignmentId, null); dismissMessageActions() }) {
                     Text(stringResource(Res.string.chat_menu_view_trace))
                 }
                 val projectId = artifactProjectId.orEmpty()
@@ -1341,8 +1344,14 @@ internal fun ChatMessageRow(
 }
 
 @Composable
-private fun StandaloneTaskCard(block: JsonObject, state: MobileState, onOpenTrace: (String?, String?) -> Unit) {
+private fun StandaloneTaskCard(
+    block: JsonObject,
+    state: MobileState,
+    onOpenTrace: (String?, String?) -> Unit,
+    onLongPress: () -> Unit,
+) {
     val palette = LocalMobilePalette.current
+    val haptics = LocalHapticFeedback.current
     val assignmentId = block.str("assignment_id")
     val assignment = state.assignments.firstOrNull { it.str("id") == assignmentId }
     val title = assignment?.str("title").orEmpty().ifBlank { stringResource(Res.string.feature_task) }
@@ -1364,7 +1373,13 @@ private fun StandaloneTaskCard(block: JsonObject, state: MobileState, onOpenTrac
         else stringResource(Res.string.common_minutes, it.toInt())
     }
     Surface(
-        modifier = Modifier.fillMaxWidth().padding(start = 40.dp, end = 12.dp),
+        modifier = Modifier.fillMaxWidth().padding(start = 40.dp, end = 12.dp).combinedClickable(
+            onClick = {},
+            onLongClick = {
+                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                onLongPress()
+            },
+        ),
         color = palette.panel,
         shape = RoundedCornerShape(10.dp),
         border = androidx.compose.foundation.BorderStroke(1.dp, if (status == "failed" || status == "blocked") palette.danger else palette.borderSubtle),
