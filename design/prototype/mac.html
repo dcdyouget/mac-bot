@@ -703,30 +703,57 @@ V.queuepanel = () => V.detail().replace('<div class="psec"><div class="ph">工�
     <div class="psec"><div class="ph">工作过程</div>`);
 V.queuedone = () => V.queue().replace(`<span style="color:var(--accent)">${I('clock', 's14')} 编码 交付前会看到</span>`, `<span style="color:var(--success)">编码 交付前已查看 ✓</span>`).replace(`工作中 25 分 <span class="qbadge">${I('clock', 's14')}2</span>`, '工作中 25 分');
 
-// Settings → 记忆 (user memory only; 03 §6.7)
+// Settings → 记忆 (user memory only; 03 §6.7 + v1.1 §11、§12)
+// [content, source_kind, source_chat, updated_at, version]
+// source_kind: 'curator' (system) | 'user' | 'bot' (旧数据)
 const MEMS = [
-  ['回复用中文，代码和注释用英文。', 'P', '登录功能', '10/09 10:21', 3],
-  ['不喜欢长篇报告：先给结论，细节放后面。', 'Z', '和总管的私聊', '10/08 21:40', 1],
-  ['常用的技术栈：TypeScript、Rust；数据库偏好 SQLite。', 'C', '官网改版', '10/07 15:02', 2],
-  ['周末不要推送非紧急通知。', 'me', null, '10/06 09:15', 1],
-  ['截图和原型优先给移动端尺寸。', 'P', '竞品调研', '10/05 18:33', 1],
+  ['回复用中文，代码和注释用英文。', 'curator', '登录功能', '10/09 10:21', 3],
+  ['不喜欢长篇报告：先给结论，细节放后面。', 'curator', '和总管的私聊', '10/08 21:40', 1],
+  ['常用的技术栈：TypeScript、Rust；数据库偏好 SQLite。', 'curator', '官网改版', '10/07 15:02', 2],
+  ['周末不要推送非紧急通知。', 'user', null, '10/06 09:15', 1],
+  ['截图和原型优先给移动端尺寸。', 'bot', 'P', '竞品调研', '10/05 18:33', 1],
 ];
-const memRow = ([t, k, chat, at], i, edit) => `<div class="mem-row ${edit ? 'editing' : ''}">
+const memSource = (kind, chat) => {
+  if (kind === 'user') return `${I('user', 's14')}你手动添加`;
+  if (kind === 'bot') return `${av(chat, 16)}${BOT[chat][0]} 记下`;
+  // 'curator' = source.by = system (整理线程)
+  return `${I('sparkles', 's14')}记忆整理 根据 · <a class="mb-at">${chat}</a>`;
+};
+const memRow = ([t, kind, chat, at], i, edit) => `<div class="mem-row ${edit ? 'editing' : ''}">
   ${edit ? `<div class="field area focus" style="min-height:64px;font-size:14px;line-height:20px">${t}<span style="border-left:1.5px solid var(--accent)"></span></div>
     <div class="row gap8" style="margin-top:8px"><span class="t-caption grow">${t.length} / 500 字 · ⌘↵ 保存</span><button class="btn sm secondary">取消</button><button class="btn sm primary">保存</button></div>`
   : `<div class="row gap12" style="align-items:flex-start"><div class="grow" style="font-size:14px;line-height:21px">${t}</div><div class="mem-acts"><button class="iconbtn">${I('edit', 's14')}</button><button class="iconbtn" style="color:var(--danger)">${I('x', 's14')}</button></div></div>
-    <div class="row gap6 t-caption" style="margin-top:6px">${k === 'me' ? `${I('user', 's14')}你手动添加` : `${av(k, 16)}${BOT[k][0]} 记下 · <a class="mb-at">${chat}</a>`}<span>· ${at}</span></div>`}</div>`;
+    <div class="row gap6 t-caption" style="margin-top:6px">${memSource(kind, chat)}<span>· ${at}</span></div>`}</div>`;
+// 「关于你」档案卡片：03 §6.7 v1.1 §12
+const memProfile = (onboarded) => `<div class="card" style="padding:14px 16px;margin-bottom:16px">
+  <div class="row" style="margin-bottom:10px"><b>关于你</b>${onboarded ? '' : '<span class="r badge" style="background:var(--accent-soft);color:var(--accent);font-size:11px;padding:1px 8px">未完成</span>'}</div>
+  <div class="row gap10" style="margin-bottom:8px;align-items:center"><span class="t-foot" style="width:64px">称呼</span><div class="field grow" style="height:30px;font-size:13px">${onboarded ? '小明' : ''}<span class="t3">想让我怎么称呼你</span></div></div>
+  <div class="row gap10" style="margin-bottom:8px;align-items:center"><span class="t-foot" style="width:64px">语言</span><div class="field grow" style="height:30px;font-size:13px">${onboarded ? 'zh-CN' : ''}<span class="t3">跟随系统</span></div></div>
+  <div class="row gap10" style="margin-bottom:8px;align-items:center"><span class="t-foot" style="width:64px">身份</span><div class="field grow" style="height:30px;font-size:13px">${onboarded ? '产品经理' : ''}<span class="t3">一句话描述你的角色（可选）</span></div></div>
+  <div class="row gap10" style="align-items:center"><span class="t-foot" style="width:64px">时区</span><span class="t-foot" style="color:var(--text-tertiary)">Asia/Shanghai · 跟随 Host</span></div>
+</div>`;
 V.set_memory = () => settingsShell(1, '记忆', `
-  <div class="t2" style="font-size:13px;line-height:20px;margin-bottom:16px">这里是<b>用户记忆</b>：所有 Bot 共享的、关于你的习惯和偏好。Bot 会在对话中自动记下，你也可以直接修改、删除或添加。修改后，所有 Bot 在下一次思考前就会知道。Bot 自己的经验和项目记忆由 Bot 管理，不在这里显示。</div>
+  <div class="t2" style="font-size:13px;line-height:20px;margin-bottom:16px">这里是<b>用户记忆</b>：所有 Bot 共享的、关于你的习惯和偏好。<b>记忆整理</b>会根据你说的话自动记下，你也可以直接修改、删除或添加。修改后，所有 Bot 在下一次思考前就会知道。Bot 自己的经验和项目记忆由 Bot 管理，不在这里显示。</div>
+  ${memProfile(false)}
   <div class="card" style="padding:14px 16px;margin-bottom:16px"><div class="row" style="margin-bottom:8px"><b class="grow">用量</b><span class="t-foot mono">1,186 / 1,500 字</span></div>
     <div style="height:6px;border-radius:3px;background:var(--bg-active);overflow:hidden"><div style="width:79%;height:100%;background:var(--accent)"></div></div>
     <div class="t-caption" style="margin-top:6px">接近上限时，Bot 会自己合并相近的条目；你也可以删掉不需要的。</div></div>
   <div class="row gap8" style="margin-bottom:12px"><div class="field grow">${I('search', 's14 t3')}<span class="t3">搜索记忆</span></div><button class="btn primary">${I('plus', 's14')}添加</button></div>
   <div class="card mem-list">${MEMS.map((m, i) => memRow(m, i, false)).join('')}</div>`);
+V.set_memory_onboarded = () => settingsShell(1, '记忆', `
+  <div class="t2" style="font-size:13px;line-height:20px;margin-bottom:16px">这里是<b>用户记忆</b>：所有 Bot 共享的、关于你的习惯和偏好。<b>记忆整理</b>会根据你说的话自动记下，你也可以直接修改、删除或添加。修改后，所有 Bot 在下一次思考前就会知道。Bot 自己的经验和项目记忆由 Bot 管理，不在这里显示。</div>
+  ${memProfile(true)}
+  <div class="card" style="padding:14px 16px;margin-bottom:16px"><div class="row" style="margin-bottom:8px"><b class="grow">用量</b><span class="t-foot mono">986 / 1,500 字</span></div>
+    <div style="height:6px;border-radius:3px;background:var(--bg-active);overflow:hidden"><div style="width:66%;height:100%;background:var(--accent)"></div></div>
+    <div class="t-caption" style="margin-top:6px">接近上限时，Bot 会自己合并相近的条目；你也可以删掉不需要的。</div></div>
+  <div class="row gap8" style="margin-bottom:12px"><div class="field grow">${I('search', 's14 t3')}<span class="t3">搜索记忆</span></div><button class="btn primary">${I('plus', 's14')}添加</button></div>
+  <div class="card mem-list">${MEMS.map((m, i) => memRow(m, i, false)).join('')}</div>`);
+V.set_memory_quota_full = () => V.set_memory_onboarded().replace('<div style="width:66%;height:100%;background:var(--accent)"></div>', '<div style="width:100%;height:100%;background:var(--danger)"></div>').replace('986 / 1,500 字', '1,500 / 1,500 字').replace('<button class="btn primary">${I(\'plus\', \'s14\')}添加</button>', '<button class="btn primary" disabled>${I(\'plus\', \'s14\')}添加</button><span class="t-foot" style="color:var(--danger);margin-left:8px">记忆已满，请先删除或合并几条</span>');
 V.set_memory_edit = () => V.set_memory().replace(memRow(MEMS[0], 0, false), memRow(MEMS[0], 0, true));
 V.set_memory_conflict = () => V.set_memory_edit().replace('<div class="card mem-list">', `<div class="banner wait" style="margin-bottom:12px;font-size:12px">${I('alert')}<span class="grow">产品 刚刚也修改了这条记忆（版本 4）。<b>查看对方的版本</b> 后再决定保存哪一份</span></div><div class="card mem-list">`);
+V.set_memory_profile_conflict = () => V.set_memory_onboarded().replace(memProfile(true), `<div class="banner wait" style="margin-bottom:12px;font-size:12px">${I('alert')}<span class="grow">档案版本不一致（版本 3），<b>重新加载</b> 后再编辑</span></div>${memProfile(true)}`);
 
-const LIST = [['main', '主 Bot 私聊'], ['botchat', 'Bot 私聊'], ['group', '群聊 + 公告'], ['mention', '@ 成员'], ['msgmenu', '右键消息'], ['queue', '待看消息 · 发送'], ['queuepanel', '待看消息 · 工作详情'], ['queuedone', '待看消息 · 已查看'], ['reply', '回复（右键 → 回复）'], ['quote', '引用（右键 → 引用）'], ['decide1', '决策 · 多题堆叠'], ['decide2', '决策 · 答了 1 题'], ['decide3', '决策 · 全部答完'], ['single', '决策 · 单题已答'], ['detail', '群聊 + 工作详情'], ['artifact', '产物预览'], ['trace', '全屏运行轨迹'], ['routines', '定时任务'], ['work', '工作台'], ['dash', '仪表盘'], ['skills', '技能'], ['computer', 'Agent Computer'], ['settings', '设置 · 运行与并发'], ['set_general', '设置 · 通用'], ['set_memory', '设置 · 记忆'], ['set_memory_edit', '设置 · 记忆 · 编辑'], ['set_memory_conflict', '设置 · 记忆 · 冲突'], ['set_models', '设置 · 模型与服务商'], ['set_tools', '设置 · 工具与审批'], ['set_computer', '设置 · 电脑与浏览器'], ['set_hosts', '设置 · Host'], ['set_about', '设置 · 关于'],
+const LIST = [['main', '主 Bot 私聊'], ['botchat', 'Bot 私聊'], ['group', '群聊 + 公告'], ['mention', '@ 成员'], ['msgmenu', '右键消息'], ['queue', '待看消息 · 发送'], ['queuepanel', '待看消息 · 工作详情'], ['queuedone', '待看消息 · 已查看'], ['reply', '回复（右键 → 回复）'], ['quote', '引用（右键 → 引用）'], ['decide1', '决策 · 多题堆叠'], ['decide2', '决策 · 答了 1 题'], ['decide3', '决策 · 全部答完'], ['single', '决策 · 单题已答'], ['detail', '群聊 + 工作详情'], ['artifact', '产物预览'], ['trace', '全屏运行轨迹'], ['routines', '定时任务'], ['work', '工作台'], ['dash', '仪表盘'], ['skills', '技能'], ['computer', 'Agent Computer'], ['settings', '设置 · 运行与并发'], ['set_general', '设置 · 通用'], ['set_memory', '设置 · 记忆'], ['set_memory_edit', '设置 · 记忆 · 编辑'], ['set_memory_conflict', '设置 · 记忆 · 冲突'], ['set_memory_onboarded', '设置 · 记忆 · 档案已填'], ['set_memory_quota_full', '设置 · 记忆 · 配额已满'], ['set_memory_profile_conflict', '设置 · 记忆 · 档案冲突'], ['set_models', '设置 · 模型与服务商'], ['set_tools', '设置 · 工具与审批'], ['set_computer', '设置 · 电脑与浏览器'], ['set_hosts', '设置 · Host'], ['set_about', '设置 · 关于'],
   ['newgroup', '新建（⌘N）'], ['search', '搜索（⌘K）'], ['onboard', '首次启动'], ['offline', '断线重连'],
   ['annedit', '编辑公告'], ['botdetail', 'Bot 详情'], ['botsettings', 'Bot 设置'], ['mainsettings', '主 Bot 设置'], ['hosts', 'Host 切换'], ['addhost', '添加 Host'], ['ctxmenu', '右键菜单'],
   ['slash', '/ 技能'], ['slash_q', '/ 技能 · 筛选'], ['slash_none', '/ 技能 · 无匹配'], ['slash_picked', '/ 技能 · 已选中'], ['attach', '+ 附件'], ['dragfile', '拖入文件'], ['changes', '提修改意见'], ['completed', '已完成的群'], ['empty', '空状态'], ['loading', '加载中'],
