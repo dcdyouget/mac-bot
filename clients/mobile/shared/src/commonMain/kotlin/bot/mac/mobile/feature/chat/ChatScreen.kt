@@ -7,6 +7,9 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.clickable
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.scaleIn
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.lazy.LazyColumn
@@ -580,7 +583,7 @@ fun ChatScreen(
                 if (startsNewDay) ChatDayCapsule(message.str("created_at"))
                 if (hasTimeSeparator) ChatTimeSeparator(message.str("created_at"))
                 val followsSameAuthor = previousMessage?.let { sameMessageGroup(it, message) } == true && !hasTimeSeparator
-                val continuesSameAuthor = nextMessage?.let { sameMessageGroup(message, it) } == true && !hasChatTimeSeparator(message, nextMessage)
+                val continuesSameAuthor = continuesChatMessageGroup(message, nextMessage)
                 val messageTopSpacing = when {
                     startsNewDay || hasTimeSeparator -> 0.dp
                     followsSameAuthor -> 2.dp
@@ -957,6 +960,10 @@ private fun sameMessageGroup(first: JsonObject, second: JsonObject): Boolean {
     return abs(firstInstant.toEpochMilliseconds() - secondInstant.toEpochMilliseconds()) < 5 * 60 * 1000L
 }
 
+internal fun continuesChatMessageGroup(message: JsonObject, nextMessage: JsonObject?): Boolean =
+    nextMessage != null && message.arr("reactions").isEmpty() &&
+        sameMessageGroup(message, nextMessage) && !hasChatTimeSeparator(message, nextMessage)
+
 @Composable
 private fun ChatDayCapsule(timestamp: String) {
     val instant = runCatching { Instant.parse(timestamp) }.getOrNull() ?: return
@@ -1267,9 +1274,10 @@ internal fun ChatMessageRow(
                 else -> BorderStroke(0.5.dp, palette.borderSubtle)
             },
         ) {
-            Column(
-                Modifier.fillMaxWidth(0.9f).padding(horizontal = 12.dp, vertical = 8.dp),
-            ) {
+            Box {
+              Column(
+                  Modifier.fillMaxWidth(0.9f).padding(horizontal = 13.dp, vertical = 8.dp),
+              ) {
                 val quote = message.obj("quote")
                 if (quote.str("message_id").isNotBlank()) {
                     Surface(
@@ -1350,6 +1358,41 @@ internal fun ChatMessageRow(
                     Text(stringResource(Res.string.feature_trace_running), Modifier.padding(top = 8.dp), color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelLarge)
                     Button(onClick = { onOpenTrace(assignmentId, null) }) { Text(stringResource(Res.string.feature_detail)) }
                 }
+            }
+              val reactionPills = message.arr("reactions").mapNotNull { it as? JsonObject }.mapNotNull { reaction ->
+                  val emoji = reaction.str("emoji").takeIf(String::isNotBlank) ?: return@mapNotNull null
+                  val senders = reaction.arr("by").mapNotNull { it as? JsonObject }
+                  TapbackPill(emoji, senders.size, senders.any { it.str("kind") == "user" })
+              }
+              if (reactionPills.isNotEmpty()) Row(
+                  Modifier.align(if (isUser) Alignment.TopStart else Alignment.TopEnd)
+                      .offset(x = if (isUser) (-8).dp else 8.dp, y = (-14).dp),
+                  horizontalArrangement = Arrangement.spacedBy(4.dp),
+              ) {
+                  reactionPills.forEach { pill ->
+                      AnimatedVisibility(visible = true, enter = scaleIn(initialScale = 0.6f) + fadeIn()) {
+                          Surface(
+                              color = if (pill.mine) palette.accent else palette.elevated,
+                              shape = RoundedCornerShape(13.dp),
+                              border = BorderStroke(0.5.dp, palette.borderDefault),
+                              modifier = Modifier.shadow(4.dp, RoundedCornerShape(13.dp)),
+                          ) {
+                              Row(
+                                  Modifier.heightIn(min = 26.dp).padding(horizontal = 7.dp),
+                                  verticalAlignment = Alignment.CenterVertically,
+                                  horizontalArrangement = Arrangement.spacedBy(3.dp),
+                              ) {
+                                  Text(pill.emoji, style = MaterialTheme.typography.labelLarge)
+                                  if (pill.count > 1) Text(
+                                      pill.count.toString(),
+                                      style = MaterialTheme.typography.labelSmall,
+                                      color = if (pill.mine) MaterialTheme.colorScheme.onPrimary else palette.textSecondary,
+                                  )
+                              }
+                          }
+                      }
+                  }
+              }
             }
         }
         }
@@ -1503,6 +1546,8 @@ private fun MessageQuestionDeck(
         }
     }
 }
+
+private data class TapbackPill(val emoji: String, val count: Int, val mine: Boolean)
 
 @Composable
 private fun StandaloneTaskCard(
