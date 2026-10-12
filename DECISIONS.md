@@ -4,6 +4,7 @@
 
 ## 开发方式
 - [2026-10-12] `--mock` 提供需认证且按请求 ID 幂等的 `mock.trigger_bot_dm` 测试方法，用于客户端真实 `message.created` 通知验收；正式服务端和公共协议不提供此方法。
+- [2026-10-12] v1.0 记忆批次采用 3 个独立 worktree + 3 个 subagent 并行（server / desktop / android），主 agent 在 main 侧负责合并、设计原型和共享文档；subagent 之间的代码隔离靠不同目录保证，合并顺序为 server → desktop → android，零冲突。
 - [2026-10-11] Tauri 迁移分批进行：先保留 GPUI 作为功能对照；新界面追平后才删除旧代码。三种外观在 macOS 使用 window-vibrancy，系统「降低透明度」开启时关闭材质。
 - [2026-10-11] 一个主 agent 负责全部代码，按模块派 subagent；只保留 `main` 一条长期分支；不再设集成线（AGENTS.md）。
 - [2026-10-11] macOS 桌面客户端界面层从 GPUI 迁移到 Tauri 2 + React；`macbot-client-core`（网络层、数据层）不变。
@@ -11,6 +12,9 @@
 
 ## 记忆与上下文
 - [2026-10-12] 用户记忆整理按会话持久游标批处理；记忆写入前保存可恢复操作收据，删除保护、事件与修改日志可幂等补齐；失败状态和退避在 `/admin/status.memory_curator` 查询。
+- [2026-10-12] `data/memory/changelog.jsonl` 启动裁剪：先按 operation receipt 补齐未完成写入，再清掉无法确认提交的尾部，最后按 seen_revision + 7 天保留历史增量。`macbot-memory::MemoryStore::prune_memory_changes` 负责这一步。
+- [2026-10-12] `memory.user.create/update/delete` 与 `memory.profile.update` 的错误响应统一为 `{ code, message, error.details.current? }`，`quota_full` 时 `details.current.entries` 带该范围的条目目录；`memory.user.list/create/update` 成功时返回 `{ entry, quota }`，方便客户端原地更新。
+- [2026-10-12] 旧 Bot 写的 `MemoryEntry.source.by = { kind: "bot" }` 仍按「Bot 名 记下」在设置 → 记忆里显示以保留可追溯性；新数据不会再产生（所有 Bot 工具被禁止 `scope = user`）。
 - [2026-10-11] 用户档案在「设置 → 记忆」可编辑（`memory.profile.*`）；整理线程写的记忆 `source.by = system`，界面同时显示「记忆整理」和触发它的会话。
 - [2026-10-11] 用户偏好只由独立的用户记忆整理线程（curator，maintenance 模型，只看用户本人消息）和用户本人写；所有 Bot（含主 Bot）不写。curator 可更新用户手动改过的条目，但只依据更晚的用户消息（PLAN 5.5.9）。
 - [2026-10-11] 新增用户档案（称呼、语言、身份可选；时区取 Host），首次连接时主 Bot 在私聊里对话式初始化，之后变化记为偏好（PLAN 5.5.8）。
@@ -49,3 +53,5 @@
 
 ## 待处理
 - 客户端逐屏迁移与验收仍在进行。
+- 等 Mac mini 解锁后补 `clients/mac/progress/S9/memory/0{1..5}-*.png` 与 Android 模拟器上的 5 张 `clients/mobile/progress/memory/0{1..5}-*.png`（default / profile-edit / conflict / quota-full / onboarded），以及群聊中收到 `<memory_update>` 的运行轨迹截图。
+- 评估 3B 及以下本地模型（Ollama / LM Studio / MLX 的 OpenAI 兼容接口）作为 curator「是否含偏好」预筛与本地 embedding 做记忆去重/语义检索（PLAN 5.5.9 后续优化）。
