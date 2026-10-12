@@ -221,7 +221,7 @@ import org.jetbrains.compose.resources.stringResource
         when (link.kind) {
             DeepLinkKind.APPROVAL -> open("approvals", link.resourceId)
             DeepLinkKind.REVIEW -> open("group", link.resourceId)
-            DeepLinkKind.CHAT -> openChat(link.resourceId)
+            DeepLinkKind.CHAT -> openChat(link.resourceId, link.messageId)
             DeepLinkKind.COMPUTER -> open("computer", link.resourceId)
         }
         repository.deepLink.value = null

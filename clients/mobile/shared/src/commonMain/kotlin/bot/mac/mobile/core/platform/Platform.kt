@@ -43,7 +43,12 @@ enum class DeepLinkKind(val authority: String) {
     COMPUTER("computer"),
 }
 
-data class MobileDeepLink(val kind: DeepLinkKind, val resourceId: String, val hostId: String?)
+data class MobileDeepLink(
+    val kind: DeepLinkKind,
+    val resourceId: String,
+    val hostId: String?,
+    val messageId: String? = null,
+)
 
 /** Parses only supported macbot links; malformed or unknown routes are rejected. */
 expect fun parseMobileDeepLink(value: String): MobileDeepLink?

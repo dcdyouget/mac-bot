@@ -1066,6 +1066,7 @@ internal fun ChatMessageRow(
     val palette = LocalMobilePalette.current
     val messageIdentity = "$hostId:$chatId:${message.str("id")}"
     var showMessageActions by remember(messageIdentity) { mutableStateOf(false) }
+    var messageActionError by remember(messageIdentity) { mutableStateOf(false) }
     val messageFocusRequester = remember(messageIdentity) { FocusRequester() }
     val actionScope = rememberCoroutineScope()
     var exactTimeHideJob by remember(messageIdentity) { mutableStateOf<Job?>(null) }
@@ -1120,6 +1121,9 @@ internal fun ChatMessageRow(
         (entry as? JsonObject)?.takeIf { it.str("type") == "text" }?.str("markdown")?.takeIf(String::isNotBlank)
     }.joinToString(" ")
     val messageBody = blockText.ifBlank { message.str("fallback_text") }
+    val messageCopyText = blocks.mapNotNull { entry ->
+        (entry as? JsonObject)?.takeIf { it.str("type") == "text" }?.str("markdown")?.takeIf(String::isNotBlank)
+    }.joinToString("\n\n").ifBlank { message.str("fallback_text") }
     val loadedNames = if (isUser) loadedSkillNames(message) else emptyList()
     val enabledSkillNames = state.skills.asSequence()
         .filter { it.boolean("enabled") }
@@ -1370,6 +1374,7 @@ internal fun ChatMessageRow(
         }) {
             Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(stringResource(Res.string.feature_message_actions), style = MaterialTheme.typography.titleMedium)
+                if (messageActionError) Text(stringResource(Res.string.chat_delete_failed), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
                 runCatching { Instant.parse(message.str("created_at")).toLocalDateTime(TimeZone.currentSystemDefault()) }
                     .getOrNull()?.let { timestamp ->
                         Text(
@@ -1396,7 +1401,19 @@ internal fun ChatMessageRow(
                     onQuoteAnnouncement("**$senderLabel**\n$quoted")
                     dismissMessageActions()
                 }) { Text(stringResource(Res.string.chat_menu_quote_to_announcement)) }
-                TextButton(onClick = { clipboard.setText(AnnotatedString(message.str("fallback_text"))); dismissMessageActions() }) { Text(stringResource(Res.string.chat_menu_copy)) }
+                TextButton(onClick = { clipboard.setText(AnnotatedString(messageCopyText)); dismissMessageActions() }) { Text(stringResource(Res.string.chat_menu_copy_text)) }
+                if (id.isNotBlank() && chatId.isNotBlank()) TextButton(onClick = {
+                    clipboard.setText(AnnotatedString(chatMessageDeepLink(hostId, chatId, id)))
+                    dismissMessageActions()
+                }) { Text(stringResource(Res.string.chat_menu_copy_link)) }
+                if (isUser && id.isNotBlank()) TextButton(onClick = {
+                    messageActionError = false
+                    actionScope.launch {
+                        runCatching { repository.callOnHost(hostId, "message.delete", buildJsonObject { put("message_id", id) }) }
+                            .onSuccess { dismissMessageActions() }
+                            .onFailure { messageActionError = true }
+                    }
+                }) { Text(stringResource(Res.string.chat_menu_delete), color = MaterialTheme.colorScheme.error) }
             }
         }
     }

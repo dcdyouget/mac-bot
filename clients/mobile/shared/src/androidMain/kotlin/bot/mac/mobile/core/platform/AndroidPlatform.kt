@@ -90,13 +90,17 @@ actual fun parseMobileDeepLink(value: String): MobileDeepLink? {
     if (!deepLinkResourceIdPattern.matches(resourceId)) return null
 
     val encodedQuery = uri.encodedQuery
-    if (encodedQuery != null && (encodedQuery.isEmpty() || uri.queryParameterNames != setOf("host_id"))) return null
+    if (encodedQuery != null && (encodedQuery.isEmpty() || !setOf("host_id", "message_id").containsAll(uri.queryParameterNames))) return null
     val hostValues = uri.getQueryParameters("host_id")
     if (hostValues.size > 1) return null
     val hostId = hostValues.singleOrNull()
     if (hostId != null && !deepLinkResourceIdPattern.matches(hostId)) return null
+    val messageValues = uri.getQueryParameters("message_id")
+    if (messageValues.size > 1 || (messageValues.isNotEmpty() && kind != DeepLinkKind.CHAT)) return null
+    val messageId = messageValues.singleOrNull()
+    if (messageId != null && !deepLinkResourceIdPattern.matches(messageId)) return null
 
-    return MobileDeepLink(kind, resourceId, hostId)
+    return MobileDeepLink(kind, resourceId, hostId, messageId)
 }
 
 // Android blur-behind APIs only blur other windows; they cannot blur surfaces

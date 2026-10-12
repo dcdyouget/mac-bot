@@ -82,3 +82,21 @@ internal fun filterSlashSkills(skills: List<JsonObject>, query: String): List<Js
         skill["enabled"]?.toString() != "false" &&
             skill["name"]?.toString()?.trim('"')?.contains(query, ignoreCase = true) == true
     }
+
+internal fun chatMessageDeepLink(hostId: String, chatId: String, messageId: String): String =
+    "macbot://chat/${encodeUriComponent(chatId)}?host_id=${encodeUriComponent(hostId)}&message_id=${encodeUriComponent(messageId)}"
+
+private fun encodeUriComponent(value: String): String = buildString {
+    value.encodeToByteArray().forEach { byte ->
+        val unsigned = byte.toInt() and 0xff
+        val char = unsigned.toChar()
+        if (char in 'a'..'z' || char in 'A'..'Z' || char in '0'..'9' || char in "-_.~") append(char)
+        else {
+            append('%')
+            append(HEX[unsigned ushr 4])
+            append(HEX[unsigned and 0x0f])
+        }
+    }
+}
+
+private const val HEX = "0123456789ABCDEF"

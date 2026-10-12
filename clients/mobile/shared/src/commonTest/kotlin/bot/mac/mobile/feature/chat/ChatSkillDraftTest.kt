@@ -76,6 +76,14 @@ class ChatSkillDraftTest {
     }
 
     @Test
+    fun copiedMessageLinkEncodesEachIdentifierAsAUriComponent() {
+        assertEquals(
+            "macbot://chat/chat%2Fid?host_id=host%20id&message_id=msg%3F1",
+            chatMessageDeepLink("host id", "chat/id", "msg?1"),
+        )
+    }
+
+    @Test
     fun loadedSkillsAreOptionalTolerantAndGroupedByNameAcrossBots() {
         val message = Json.parseToJsonElement(
             """{"loaded_skills":[

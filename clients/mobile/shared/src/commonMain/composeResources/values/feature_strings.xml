@@ -58,6 +58,7 @@
     <string name="chat_menu_quote">引用</string>
     <string name="chat_menu_copy_text">复制文字</string>
     <string name="chat_menu_copy_link">复制消息链接</string>
+    <string name="chat_delete_failed">删除消息失败，请稍后重试</string>
     <string name="host_switch_title">切换 Host</string>
     <string name="host_manage">管理 Host</string>
     <string name="host_offline_since">离线 · %1$s</string>
