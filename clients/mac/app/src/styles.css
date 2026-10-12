@@ -675,3 +675,33 @@ kbd { padding: 1px 5px; border-radius: 4px; box-shadow: 0 0 0 1px var(--border-d
 .message-group.outgoing .chat-message-quote strong,
 .message-group.outgoing .chat-message-quote span { color: rgb(255 255 255 / 92%); }
 .message-group.outgoing .skill-message-chip { background: rgb(255 255 255 / 20%); color: #fff; }
+
+/* v1.2 §2 — reactions float at the final bubble corner as glass tapbacks. */
+.message-group .bubble .message-reactions {
+  position: absolute;
+  z-index: 3;
+  top: -14px;
+  right: -10px;
+  display: inline-flex;
+  flex-wrap: nowrap;
+  gap: 2px;
+  margin: 0;
+}
+.message-group.outgoing .bubble .message-reactions { right: auto; left: -10px; }
+.message-group .bubble .message-reaction-pill {
+  min-width: 26px;
+  height: 26px;
+  padding: 0 7px;
+  border: 0;
+  border-radius: 13px;
+  background: var(--glass);
+  box-shadow: var(--elevation-2);
+  color: var(--text-primary);
+  font-size: 14px;
+  line-height: 1;
+  animation: pop var(--duration-spring) var(--ease-spring) both;
+}
+.message-group .bubble .message-reaction-pill span { color: var(--text-secondary); font-size: 11px; font-weight: 600; }
+.message-group .bubble .message-reaction-pill.active { background: var(--accent); color: var(--accent-on); }
+.message-group .bubble .message-reaction-pill.active span { color: var(--accent-on); }
+.message-group .bubble:has(.message-reactions) .message-hover-tools { right: 46px; }
