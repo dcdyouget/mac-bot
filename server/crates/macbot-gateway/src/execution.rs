@@ -3118,6 +3118,32 @@ fn apply_prepared_model_context(messages: &mut Vec<Value>, context: Value) {
             messages.insert(0, json!({"role":"system","content":text}));
         }
     }
+    if let Some(errors) = context.get("memory_errors").and_then(Value::as_array) {
+        for failure in errors {
+            let Some(call_id) = failure.get("call_id").and_then(Value::as_str) else {
+                continue;
+            };
+            let payload = failure.get("result").cloned().unwrap_or(Value::Null);
+            messages.push(json!({
+                "role":"assistant",
+                "content":null,
+                "tool_calls":[{
+                    "id":call_id,
+                    "type":"function",
+                    "function":{"name":"memory","arguments":"{\"_gateway_context_error\":\"snapshot_cache_put\"}"}
+                }]
+            }));
+            let text = serde_json::to_string(&payload).unwrap_or_else(|_| "{}".into());
+            messages.push(tool_message(
+                call_id,
+                &ToolResult {
+                    content: vec![Part::Text { text }],
+                    details: payload.clone(),
+                    is_error: true,
+                },
+            ));
+        }
+    }
 }
 
 fn compact_model_messages(messages: &mut Vec<Value>, summary: &str, recent_count: usize) {
@@ -3184,7 +3210,7 @@ fn args_with_operation_id(call: &ToolCall, run_id: &str) -> Value {
 #[cfg(test)]
 mod prepared_context_tests {
     use super::{apply_prepared_model_context, compact_model_messages, prepend_memory_update};
-    use serde_json::json;
+    use serde_json::{json, Value};
 
     #[test]
     fn memory_update_precedes_first_user_message_and_preserves_tool_result_fields() {
@@ -3238,6 +3264,39 @@ mod prepared_context_tests {
             .as_str()
             .unwrap()
             .starts_with("<memory_update"));
+    }
+
+    #[test]
+    fn context_write_failure_adds_a_matched_error_tool_result() {
+        let payload = json!({
+            "ok":false,
+            "code":"invalid",
+            "message":"memory: I/O error: Is a directory"
+        });
+        let mut messages = vec![json!({"role":"user","content":"continue"})];
+        apply_prepared_model_context(
+            &mut messages,
+            json!({"memory_errors":[{"call_id":"memory-context-1","result":payload}]}),
+        );
+
+        let assistant = messages
+            .iter()
+            .find(|message| message["role"] == "assistant" && message["tool_calls"].is_array())
+            .unwrap();
+        let tool = messages
+            .iter()
+            .find(|message| message["role"] == "tool")
+            .unwrap();
+        assert_eq!(assistant["tool_calls"][0]["id"], tool["tool_call_id"]);
+        assert_eq!(
+            assistant["tool_calls"][0]["function"]["arguments"],
+            "{\"_gateway_context_error\":\"snapshot_cache_put\"}"
+        );
+        assert_eq!(tool["is_error"], true);
+        assert_eq!(
+            serde_json::from_str::<Value>(tool["content"].as_str().unwrap()).unwrap(),
+            payload
+        );
     }
 
     #[test]
