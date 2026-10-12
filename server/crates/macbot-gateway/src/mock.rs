@@ -43,6 +43,10 @@ pub(crate) async fn mock_call(method: &str, params: Value, state: &GatewayState)
     }
 
     let result = dispatch(method, params, &mut data, state).await?;
+    if method.starts_with("skill.") {
+        persist_mock_skills(&state.home, &data)
+            .map_err(|_| rpc_error("internal", "failed to persist mock skills", None))?;
+    }
     if let Some(key) = request_id {
         data.idempotency.insert(key.clone(), result.clone());
         let mut meta = extra_get(&data, "idempotency_meta");
@@ -549,6 +553,21 @@ fn extra_set(state: &mut MockState, key: &str, values: Vec<Value>) {
     state.extra.insert(key.to_string(), values);
 }
 
+fn persist_mock_skills(home: &std::path::Path, state: &MockState) -> std::io::Result<()> {
+    let directory = home.join("data");
+    std::fs::create_dir_all(&directory)?;
+    let path = directory.join("mock-skills.json");
+    let temporary = directory.join(format!("mock-skills-{}.tmp", std::process::id()));
+    let content = serde_json::to_vec(&extra_get(state, "skills")).map_err(std::io::Error::other)?;
+    std::fs::write(&temporary, content)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&temporary, std::fs::Permissions::from_mode(0o600))?;
+    }
+    std::fs::rename(temporary, path)
+}
+
 fn working_assignment_context(state: &MockState) -> Option<(String, String, String)> {
     state
         .assignments
@@ -955,29 +974,7 @@ fn ensure_mock_defaults(state: &mut MockState, home: &std::path::Path) {
             defaults.entry(key).or_insert(json!(value));
         }
     }
-    if extra_get(state, "skills").is_empty() {
-        let skills = vec![
-            skill_default(
-                "agent-browser",
-                "浏览器自动化和页面交互",
-                "builtin",
-                Some("# agent-browser\nUse the browser tool for web interactions."),
-            ),
-            skill_default(
-                "macbot-collab",
-                "Mac Bot 多 Bot 协作",
-                "builtin",
-                Some("# macbot-collab\nCoordinate work through the main bot."),
-            ),
-            skill_default(
-                "project-home",
-                "项目目录和文件约定",
-                "builtin",
-                Some("# project-home\nKeep project artifacts under the project home."),
-            ),
-        ];
-        extra_set(state, "skills", skills);
-    }
+    ensure_mock_skill_fixtures(state, home);
     if extra_get(state, "providers").is_empty() {
         extra_set(
             state,
@@ -1017,11 +1014,94 @@ fn ensure_mock_defaults(state: &mut MockState, home: &std::path::Path) {
     ensure_question_approval_history_fixture(state);
     ensure_mock_user_memory(state);
     ensure_message_block_scenarios(state);
-    ensure_mock_artifact_history(state);
     // The pending-review fixture creates its project and artifact references
     // above, so seed its files only after that fixture is present.
     seed_mock_artifact_files(state, home);
+    ensure_mock_artifact_history(state, home);
     ensure_mock_routines(state);
+}
+
+fn ensure_mock_skill_fixtures(state: &mut MockState, home: &std::path::Path) {
+    if !extra_get(state, "mock_skills_loaded").is_empty() {
+        return;
+    }
+
+    let path = home.join("data/mock-skills.json");
+    if let Ok(raw) = std::fs::read(&path) {
+        if let Ok(skills) = serde_json::from_slice::<Vec<Value>>(&raw) {
+            extra_set(state, "skills", skills);
+            extra_set(state, "mock_skills_loaded", vec![json!({"loaded":true})]);
+            return;
+        }
+    }
+
+    let mut skills = extra_get(state, "skills");
+    if skills.is_empty() {
+        skills.extend([
+            skill_default(
+                "agent-browser",
+                "浏览器自动化和页面交互",
+                "builtin",
+                Some("# agent-browser\nUse the browser tool for web interactions."),
+            ),
+            skill_default(
+                "macbot-collab",
+                "Mac Bot 多 Bot 协作",
+                "builtin",
+                Some("# macbot-collab\nCoordinate work through the main bot."),
+            ),
+            skill_default(
+                "project-home",
+                "项目目录和文件约定",
+                "builtin",
+                Some("# project-home\nKeep project artifacts under the project home."),
+            ),
+        ]);
+    }
+
+    if !skills
+        .iter()
+        .any(|skill| skill.get("name").and_then(Value::as_str) == Some("web-auth-patterns"))
+    {
+        let mut skill = skill_default(
+            "web-auth-patterns",
+            "登录、注册和找回密码的实现规范",
+            "user",
+            Some("---\nname: web-auth-patterns\ndescription: 登录、注册和找回密码的实现规范\n---\n# 登录实现规范\n使用 bcrypt，检查会话安全，并为邮件验证与密码重置补齐测试。"),
+        );
+        let last_invoked_at = (Utc::now() - Duration::hours(2)).to_rfc3339();
+        skill["path"] = json!("~/MacBot/skills/web-auth-patterns");
+        skill["invocations_7d"] = json!({
+            "total":14,
+            "by_bot":[{"bot_id":"bot_code","count":12},{"bot_id":"bot_test","count":2}]
+        });
+        skill["last_invoked_at"] = json!(last_invoked_at);
+        skills.push(skill);
+    }
+
+    if !skills
+        .iter()
+        .any(|skill| skill.get("name").and_then(Value::as_str) == Some("prd-template"))
+    {
+        let mut draft = skill_default(
+            "prd-template",
+            "登录功能产品需求文档模板",
+            "draft",
+            Some("---\nname: prd-template\ndescription: 登录功能产品需求文档模板\n---\n# 产品需求文档\n## 背景\n## 用户故事\n## 验收标准"),
+        );
+        draft["path"] = json!("~/MacBot/skills/.drafts/prd-template");
+        draft["enabled"] = json!(false);
+        draft["draft_from"] = json!({
+            "bot_id":"bot_product",
+            "bot_name":"产品",
+            "project_id":"prj_login",
+            "project_name":"登录功能"
+        });
+        skills.push(draft);
+    }
+
+    extra_set(state, "skills", skills);
+    extra_set(state, "mock_skills_loaded", vec![json!({"loaded":true})]);
 }
 
 fn seed_mock_artifact_files(state: &MockState, home: &std::path::Path) {
@@ -1448,17 +1528,22 @@ fn user_profile_update(state: &mut MockState, params: &Value) -> RpcResult {
     Ok(json!({"profile":profile}))
 }
 
-fn ensure_mock_artifact_history(state: &mut MockState) {
-    if !extra_get(state, "artifact_versions").is_empty() {
+fn ensure_mock_artifact_history(state: &mut MockState, home: &std::path::Path) {
+    if !extra_get(state, "mock_artifact_history_seeded").is_empty() {
         return;
     }
+
+    let mut versions = extra_get(state, "artifact_versions");
     let version_one = "# 登录功能 PRD\n\n版本 1：邮箱登录，支持邮箱验证码。";
     let version_two =
         "# 登录功能 PRD\n\n版本 2：仅做邮箱登录，不做手机号；密码至少 8 位并包含字母和数字。";
-    extra_set(
-        state,
-        "artifact_versions",
-        vec![
+    if !versions.iter().any(|entry| {
+        entry
+            .pointer("/version/artifact_id")
+            .and_then(Value::as_str)
+            == Some("art_prd")
+    }) {
+        versions.extend([
             json!({
                 "version":{"artifact_id":"art_prd","version":1,"title":"PRD","path_or_url":"product/prd.md","bot_id":"bot_product","assignment_id":"asg_product","kind":"file","created_at":"2026-10-09T10:18:00Z","byte_size":version_one.len(),"mime":"text/markdown"},
                 "content":version_one
@@ -1467,7 +1552,80 @@ fn ensure_mock_artifact_history(state: &mut MockState) {
                 "version":{"artifact_id":"art_prd","version":2,"title":"PRD","path_or_url":"product/prd.md","bot_id":"bot_product","assignment_id":"asg_product","kind":"file","created_at":"2026-10-09T10:24:00Z","byte_size":version_two.len(),"mime":"text/markdown"},
                 "content":version_two
             }),
-        ],
+        ]);
+    }
+
+    let review_artifacts = extra_get(state, "announcements")
+        .into_iter()
+        .find(|announcement| {
+            announcement.get("project_id").and_then(Value::as_str) == Some("prj_mock_review")
+        })
+        .and_then(|announcement| announcement.get("artifacts").cloned())
+        .and_then(|artifacts| artifacts.as_array().cloned())
+        .unwrap_or_default();
+    let review_slug = state
+        .projects
+        .iter()
+        .find(|project| project.get("id").and_then(Value::as_str) == Some("prj_mock_review"))
+        .and_then(|project| project.get("slug"))
+        .and_then(Value::as_str)
+        .filter(|slug| {
+            let mut components = std::path::Path::new(slug).components();
+            matches!(components.next(), Some(std::path::Component::Normal(_)))
+                && components.next().is_none()
+        })
+        .unwrap_or("mock-review");
+    for (artifact_id, relative_path, fallback_content) in [
+        (
+            "art_mock_brief",
+            "docs/brief.md",
+            "# 项目说明\n\nMock 待验收项目：交付示例文件，用于验证项目目录和文件预览。\n",
+        ),
+        (
+            "art_mock_report",
+            "reports/acceptance.md",
+            "# 验收报告\n\nMock 场景示例：项目说明、实现代码和验收报告均已交付。\n",
+        ),
+    ] {
+        if versions.iter().any(|entry| {
+            entry
+                .pointer("/version/artifact_id")
+                .and_then(Value::as_str)
+                == Some(artifact_id)
+        }) {
+            continue;
+        }
+        let Some(artifact) = review_artifacts
+            .iter()
+            .find(|artifact| artifact.get("id").and_then(Value::as_str) == Some(artifact_id))
+        else {
+            continue;
+        };
+        let file_path = home.join("projects").join(review_slug).join(relative_path);
+        let content =
+            std::fs::read_to_string(file_path).unwrap_or_else(|_| fallback_content.to_owned());
+        versions.push(json!({
+            "version":{
+                "artifact_id":artifact_id,
+                "version":1,
+                "title":artifact["title"],
+                "path_or_url":artifact["path_or_url"],
+                "bot_id":artifact["bot_id"],
+                "assignment_id":artifact["assignment_id"],
+                "kind":"file",
+                "created_at":artifact["created_at"],
+                "byte_size":content.len(),
+                "mime":"text/markdown"
+            },
+            "content":content
+        }));
+    }
+
+    extra_set(state, "artifact_versions", versions);
+    extra_set(
+        state,
+        "mock_artifact_history_seeded",
+        vec![json!({"seeded":true})],
     );
 }
 
@@ -5002,11 +5160,14 @@ mod contract_tests {
 
     async fn gateway() -> Gateway {
         let home = tempfile::tempdir().unwrap();
-        // Keep the directory alive for the duration of the gateway. The mock
-        // itself is in-memory, but Gateway::new reads settings from this path.
+        // Keep the directory alive so a gateway can read persisted mock data.
         let path = home.keep();
+        gateway_at(path).await
+    }
+
+    async fn gateway_at(home: std::path::PathBuf) -> Gateway {
         Gateway::new(GatewayConfig {
-            home: path,
+            home,
             mock: true,
             password: Some("dev".into()),
             ..Default::default()
@@ -6216,6 +6377,55 @@ mod contract_tests {
         assert_eq!(content["content_encoding"], "utf8");
         assert!(content["content"].as_str().unwrap().contains("版本 1"));
 
+        for (artifact_id, relative_path, title) in [
+            ("art_mock_brief", "docs/brief.md", "项目说明"),
+            ("art_mock_report", "reports/acceptance.md", "验收报告"),
+        ] {
+            let history = call(
+                &gateway,
+                "artifact.versions.list",
+                json!({"artifact_id":artifact_id,"limit":20}),
+            )
+            .await;
+            let history: macbot_protocol::ArtifactVersionsResult =
+                serde_json::from_value(history).unwrap();
+            assert_eq!(history.versions.len(), 1);
+            assert_eq!(history.versions[0].artifact_id, artifact_id);
+            assert_eq!(history.versions[0].version, 1);
+            assert_eq!(history.versions[0].title, title);
+            assert_eq!(
+                history.versions[0].kind,
+                macbot_protocol::ArtifactKind::File
+            );
+
+            let current = call(
+                &gateway,
+                "artifact.version.get",
+                json!({"artifact_id":artifact_id,"version":1}),
+            )
+            .await;
+            let current: macbot_protocol::ArtifactVersionGetResult =
+                serde_json::from_value(current).unwrap();
+            let expected = std::fs::read_to_string(
+                gateway
+                    .state
+                    .home
+                    .join("projects/mock-review")
+                    .join(relative_path),
+            )
+            .unwrap();
+            assert_eq!(current.content, expected);
+            assert_eq!(current.version.byte_size as usize, expected.len());
+
+            let repeated = call(
+                &gateway,
+                "artifact.versions.list",
+                json!({"artifact_id":artifact_id,"limit":20}),
+            )
+            .await;
+            assert_eq!(repeated["versions"].as_array().unwrap().len(), 1);
+        }
+
         let no_history = call(
             &gateway,
             "artifact.versions.list",
@@ -6505,6 +6715,138 @@ mod contract_tests {
         )
         .await;
         let _: Model = serde_json::from_value(model["model"].clone()).unwrap();
+    }
+
+    #[tokio::test]
+    async fn mock_skill_examples_support_design_screens_and_stay_deleted() {
+        let gateway = gateway().await;
+        let listed = call(&gateway, "skill.list", json!({})).await;
+        let skills = listed["skills"].as_array().unwrap();
+        for skill in skills {
+            let _: Skill = serde_json::from_value(skill.clone()).unwrap();
+        }
+
+        let web_auth = skills
+            .iter()
+            .find(|skill| skill["name"] == "web-auth-patterns")
+            .unwrap();
+        assert_eq!(web_auth["source"], "user");
+        assert_eq!(web_auth["invocations_7d"]["total"], 14);
+        assert_eq!(
+            web_auth["invocations_7d"]["by_bot"][0]["bot_id"],
+            "bot_code"
+        );
+        assert_eq!(
+            web_auth["invocations_7d"]["by_bot"][1]["bot_id"],
+            "bot_test"
+        );
+        let last_invoked_at = web_auth["last_invoked_at"].as_str().unwrap();
+        let last_invoked_at = last_invoked_at.parse::<chrono::DateTime<Utc>>().unwrap();
+        assert!(last_invoked_at > Utc::now() - Duration::days(7));
+
+        let draft = skills
+            .iter()
+            .find(|skill| skill["name"] == "prd-template")
+            .unwrap();
+        let _: Skill = serde_json::from_value(draft.clone()).unwrap();
+        assert_eq!(draft["source"], "draft");
+        assert_eq!(draft["enabled"], false);
+        assert_eq!(draft["draft_from"]["bot_id"], "bot_product");
+        assert_eq!(draft["draft_from"]["project_id"], "prj_login");
+
+        let detail = call(&gateway, "skill.get", json!({"name":"web-auth-patterns"})).await;
+        let detail: SkillDetail = serde_json::from_value(detail["skill"].clone()).unwrap();
+        assert!(detail.content.contains("bcrypt"));
+
+        let published = call(&gateway, "skill.publish", json!({"name":"prd-template"})).await;
+        let published: Skill = serde_json::from_value(published["skill"].clone()).unwrap();
+        assert_eq!(published.source, macbot_protocol::SkillSource::User);
+        assert!(published.enabled);
+        assert_eq!(
+            published.draft_from.unwrap().project_id.as_deref(),
+            Some("prj_login")
+        );
+
+        let created = call(
+            &gateway,
+            "skill.create",
+            json!({"name":"screen-created-skill","content":"---\nname: screen-created-skill\ndescription: Created in the UI\n---\nBody"}),
+        )
+        .await;
+        assert_eq!(created["skill"]["source"], "user");
+        call(
+            &gateway,
+            "skill.delete",
+            json!({"name":"screen-created-skill"}),
+        )
+        .await;
+        call(&gateway, "skill.delete", json!({"name":"prd-template"})).await;
+        call(
+            &gateway,
+            "skill.delete",
+            json!({"name":"web-auth-patterns"}),
+        )
+        .await;
+        let listed_again = call(&gateway, "skill.list", json!({})).await;
+        let remaining = listed_again["skills"].as_array().unwrap();
+        assert!(!remaining.iter().any(|skill| {
+            matches!(
+                skill["name"].as_str(),
+                Some("screen-created-skill" | "prd-template" | "web-auth-patterns")
+            )
+        }));
+    }
+
+    #[tokio::test]
+    async fn mock_skill_deletions_survive_gateway_restart_while_fresh_home_gets_examples() {
+        let home = tempfile::tempdir().unwrap().keep();
+        let gateway = gateway_at(home.clone()).await;
+        let initial = call(&gateway, "skill.list", json!({})).await;
+        assert!(initial["skills"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|skill| skill["name"] == "web-auth-patterns"));
+        assert!(initial["skills"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|skill| skill["name"] == "prd-template"));
+
+        call(
+            &gateway,
+            "skill.delete",
+            json!({"name":"web-auth-patterns"}),
+        )
+        .await;
+        call(&gateway, "skill.delete", json!({"name":"prd-template"})).await;
+        drop(gateway);
+
+        let restarted = gateway_at(home).await;
+        let after_restart = call(&restarted, "skill.list", json!({})).await;
+        let names = after_restart["skills"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|skill| skill["name"].as_str())
+            .collect::<Vec<_>>();
+        assert!(!names.contains(&"web-auth-patterns"));
+        assert!(!names.contains(&"prd-template"));
+        assert!(names.contains(&"agent-browser"));
+
+        let fresh_home = tempfile::tempdir().unwrap().keep();
+        let fresh = gateway_at(fresh_home).await;
+        let fresh_skills = call(&fresh, "skill.list", json!({})).await["skills"].clone();
+        assert!(fresh_skills
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|skill| skill["name"] == "web-auth-patterns"));
+        assert!(fresh_skills
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|skill| skill["name"] == "prd-template"));
     }
 
     #[tokio::test]
