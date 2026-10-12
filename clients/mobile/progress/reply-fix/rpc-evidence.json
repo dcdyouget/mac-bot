@@ -1,0 +1,32 @@
+{
+  "environment": {
+    "home": "/tmp/macbot-mobile-reply-verify-20261012",
+    "port": 17905,
+    "note": "Independent isolated --mock instance; bootstrap chat_login seeded original message at seq 18. The request mirrors ChatScreen.kt's chat.send fields; this is an RPC contract reproduction, not an AVD capture."
+  },
+  "request": {
+    "method": "chat.send",
+    "params": {
+      "chat_id": "chat_login",
+      "text": "replycheck",
+      "mentions": [],
+      "attachments": [],
+      "quote": "msg_mock_login_questions",
+      "quote_mode": "reply",
+      "client_locale": "zh-CN"
+    }
+  },
+  "response_and_chat_history_seq_19": {
+    "seq": 19,
+    "id": "msg_01a12e86-1a04-7393-809f-9b20dda0f637",
+    "reply_to": null,
+    "quote": {
+      "message_id": "msg_mock_login_questions",
+      "sender": { "bot_id": "bot_code", "kind": "bot" },
+      "excerpt": "登录方案有 3 个问题：验证邮件发件地址、失败锁定策略和记住我。"
+    },
+    "mentions": [{ "bot_id": "bot_code", "instruction": null, "kind": "bot" }],
+    "delivery": []
+  },
+  "result": "quote.message_id matches the source message ID; reply_to=null is prescribed by the current protocol. reply_to_message_id is not a current Message field."
+}
