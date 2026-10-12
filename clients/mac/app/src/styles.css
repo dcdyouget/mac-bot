@@ -737,3 +737,81 @@ kbd { padding: 1px 5px; border-radius: 4px; box-shadow: 0 0 0 1px var(--border-d
 .send-button:not(:disabled) { animation: pop var(--duration-spring) var(--ease-spring) both; box-shadow: 0 2px 8px rgb(30 50 90 / 30%); }
 .send-button:active { transform: scale(.97); }
 [data-material='opaque'] .composer-box { background: var(--bg-elevated); -webkit-backdrop-filter: none; backdrop-filter: none; }
+
+/* v1.2 §4 — glass chrome and finer corners on the app's real surfaces. */
+.conversation-toolbar.glass-toolbar,
+.desktop-page-toolbar.glass-toolbar,
+.memory-page-toolbar,
+.panel-heading {
+  background: var(--glass);
+  -webkit-backdrop-filter: blur(20px) saturate(var(--saturate));
+  backdrop-filter: blur(20px) saturate(var(--saturate));
+}
+.day-separator {
+  position: sticky;
+  top: 8px;
+  z-index: 3;
+  padding: 2px 10px;
+  font-weight: 600;
+  letter-spacing: .02em;
+  background: var(--glass);
+  box-shadow: 0 1px 4px var(--shadow-color), 0 0 0 .5px var(--border-subtle);
+  -webkit-backdrop-filter: blur(16px);
+  backdrop-filter: blur(16px);
+}
+.bubble .message-hover-tools,
+.message-context-menu.glass-pop,
+.chat-skill-picker.glass-pop,
+.chat-attachment-menu.glass-pop,
+.host-popover {
+  border: .5px solid var(--border-default);
+  border-radius: 14px;
+  background: var(--glass);
+  box-shadow: var(--elevation-float);
+  -webkit-backdrop-filter: blur(16px) saturate(var(--saturate));
+  backdrop-filter: blur(16px) saturate(var(--saturate));
+}
+.bubble .message-hover-tools { animation: rise var(--duration-normal) var(--ease-spring) both; }
+.message-context-menu.glass-pop,
+.chat-skill-picker.glass-pop,
+.chat-attachment-menu.glass-pop,
+.host-popover { animation: popIn var(--duration-normal) var(--ease-spring) both; transform-origin: bottom left; }
+.card,
+.question-card,
+.approval-card,
+.completion-card,
+.review-card,
+.bot-panel.glass-panel,
+.routines-list.glass-panel,
+.artifact-list.glass-panel,
+.memory-card,
+.memory-list {
+  border-radius: var(--radius-card);
+  border-width: .5px;
+  border-color: var(--border-default);
+  box-shadow: 0 0 0 .5px var(--border-default), 0 1px 3px rgb(0 0 0 / 4%);
+}
+.chat-row { border-radius: 12px; transition: background var(--duration-instant) var(--ease-standard), transform var(--duration-instant) var(--ease-standard); }
+.group-status-chip { box-shadow: 0 1px 2px rgb(30 50 90 / 12%); }
+.pending-badge { border-radius: 8px; }
+.segmented-control { border-radius: 10px; }
+.segmented-control button { border-radius: 8px; }
+.host-choice,
+.chat-row,
+.group-status-chip,
+.completed-group-row { transition: transform var(--duration-instant) var(--ease-standard), background var(--duration-instant) var(--ease-standard); }
+[data-material='opaque'] .conversation-toolbar.glass-toolbar,
+[data-material='opaque'] .desktop-page-toolbar.glass-toolbar,
+[data-material='opaque'] .memory-page-toolbar,
+[data-material='opaque'] .panel-heading,
+[data-material='opaque'] .bubble .message-hover-tools,
+[data-material='opaque'] .message-context-menu.glass-pop,
+[data-material='opaque'] .chat-skill-picker.glass-pop,
+[data-material='opaque'] .chat-attachment-menu.glass-pop,
+[data-material='opaque'] .host-popover,
+[data-material='opaque'] .day-separator,
+[data-material='opaque'] .message-group .bubble .message-reaction-pill {
+  background: var(--bg-elevated);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}

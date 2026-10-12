@@ -2790,7 +2790,9 @@ function App() {
           </div>}
         </div>
           : currentMessages.length ? <div className="message-list">
-          {buildMessageTimeline(currentMessages).map((entry, index) => <div id={`message-${entry.message.id}`} data-message-id={entry.message.id} className={`timeline-fragment ${messageMenu?.message.id === entry.message.id ? 'message-context-selected' : ''}`} key={entry.message.id} tabIndex={focusedMessageId ? (focusedMessageId === entry.message.id ? 0 : -1) : (index === 0 ? 0 : -1)} role="group" aria-label={t('chat.message.keyboard_actions')} onFocus={() => setFocusedMessageId(entry.message.id)} onKeyDown={(event) => {
+          {buildMessageTimeline(currentMessages).map((entry, index) => <React.Fragment key={entry.message.id}>
+          {entry.dayLabel && <div className="day-separator">{entry.dayLabel}</div>}
+          <div id={`message-${entry.message.id}`} data-message-id={entry.message.id} className={`timeline-fragment ${messageMenu?.message.id === entry.message.id ? 'message-context-selected' : ''}`} tabIndex={focusedMessageId ? (focusedMessageId === entry.message.id ? 0 : -1) : (index === 0 ? 0 : -1)} role="group" aria-label={t('chat.message.keyboard_actions')} onFocus={() => setFocusedMessageId(entry.message.id)} onKeyDown={(event) => {
             if (event.target !== event.currentTarget || messageMenu || (entry.message as Message & { deleted?: boolean }).deleted) return
             if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
               const messages = Array.from(event.currentTarget.parentElement?.querySelectorAll<HTMLElement>('.timeline-fragment') ?? [])
@@ -2803,7 +2805,6 @@ function App() {
             else if (action === 'reference') { event.preventDefault(); quoteMessage(entry.message, 'reference') }
             else if (action === 'copy') { event.preventDefault(); void copyMessage(entry.message) }
           }} onContextMenu={(event) => { event.preventDefault(); event.stopPropagation(); if ((entry.message as Message & { deleted?: boolean }).deleted) return; setFocusedMessageId(entry.message.id); setMessageMenu({ message: entry.message, x: event.clientX, y: event.clientY }) }}>
-            {entry.dayLabel && <div className="day-separator">{entry.dayLabel}</div>}
             {entry.timeSeparator && <div className="time-separator">{entry.timeSeparator}</div>}
           <MessageBubble message={entry.message} skillNames={skillsDataScope === hostScope ? getRenderableSkillNames(skills) : []} pending={Boolean(state.pending_messages[entry.message.id]) && entry.groupEnd} senderName={entry.message.sender?.kind === 'user' ? t('common.user') : state.bots[entry.message.sender?.bot_id ?? '']?.name ?? t('common.bot')} senderRole={entry.message.sender?.bot_id ? String(state.bots[entry.message.sender.bot_id]?.label ?? state.bots[entry.message.sender.bot_id]?.title ?? '') : ''} groupStart={entry.groupStart} groupEnd={entry.groupEnd} headerTime={entry.headerTime} exactTime={entry.exactTime} questions={currentQuestions} approvals={currentApprovalRecords} assignments={state.assignments} projects={state.projects} bots={state.bots} chats={state.chats} chatTitle={currentChat.title ?? ''} onOpenProject={openProject} onTaskDetail={openTrace} onReact={(message, emoji) => void reactToMessage(message, emoji)} onReplyMessage={(message) => quoteMessage(message, 'reply')} onOpenMessageMenu={(message, x, y) => { setFocusedMessageId(message.id); setMessageMenu({ message, x, y }) }} onOpenComputer={openComputer} onPreviewArtifact={(artifact) => void openArtifactReference(artifact)} onConfirmProject={(projectId, messageId, blockIndex) => confirmProject(projectId, messageId, blockIndex)} onRequestChanges={(projectId, messageId, blockIndex, text) => requestProjectChanges(projectId, messageId, blockIndex, text)} onApprovalDecide={async (approvalId, decision) => {
             const decisionScope = hostScope
@@ -2820,7 +2821,8 @@ function App() {
               setState((current) => ({ ...current, questions: { ...current.questions, [result.question!.id]: result.question! } }))
             }
           }} />
-          </div>)}
+          </div>
+          </React.Fragment>)}
           </div> : historyLoadingChat === currentChat.id ? <div className="message-list history-loading" aria-busy="true" />
             : currentChat.kind === 'project' || currentChat.project_id ? <EmptyGroupSuggestions
               title={t('onboarding.empty.title')}
