@@ -9,8 +9,9 @@ use async_trait::async_trait;
 use chrono::Utc;
 use macbot_memory::{
     default_l0_platform_rules, AsyncMaintenanceProvider, ContextPackage, ContextRequest,
-    ConversationIndex, MemoryAction, MemoryEntry, MemoryError, MemoryKind, MemoryRequest,
-    MemorySource, MemoryTarget, ProjectRecord, SessionMessage, SharedMemoryStore,
+    ConversationIndex, MemoryAction, MemoryChangeActor, MemoryChangeActorKind, MemoryEntry,
+    MemoryError, MemoryKind, MemoryRequest, MemorySource, MemoryTarget, ProjectRecord,
+    SessionMessage, SharedMemoryStore,
 };
 use macbot_providers::{
     Completion, HttpProvider, ModelProvider, ModelRequest, ProviderConfig, SecretStore, TokenUsage,
@@ -35,6 +36,7 @@ const CONVERSATIONS_FILE: &str = "data/features/conversations.json";
 const MAINTENANCE_FILE: &str = "data/features/maintenance.json";
 const PROFILE_ONBOARDING_FILE: &str = "data/features/profile_onboarding.json";
 const CURATOR_FILE: &str = "data/memory/curator.json";
+#[cfg(test)]
 const MEMORY_CHANGELOG_FILE: &str = "data/memory/changelog.jsonl";
 
 #[derive(Debug, Error)]
@@ -47,6 +49,8 @@ pub enum FeatureError {
     Store(#[from] StoreError),
     #[error("invalid feature request: {0}")]
     Invalid(String),
+    #[error("memory operation is not allowed: {0}")]
+    NotAllowed(String),
     #[error("feature request conflict: {0}")]
     Conflict(String),
     #[error("user memory version conflict")]
@@ -77,11 +81,16 @@ impl FeatureError {
             | Self::UserProfileConflict(_)
             | Self::MemoryMutationConflict(_)
             | Self::Memory(MemoryError::UserConflict(_))
+            | Self::Memory(MemoryError::VersionConflict { .. })
             | Self::Memory(MemoryError::ProfileConflict(_)) => "conflict",
             Self::Skill(SkillError::BuiltinReadOnly) => "forbidden",
-            Self::Memory(MemoryError::QuotaExceeded { .. }) => "quota_exceeded",
-            Self::Memory(MemoryError::UserQuotaFull { .. }) => "quota_full",
+            Self::NotAllowed(_) => "not_allowed",
+            Self::Memory(MemoryError::QuotaExceeded { .. })
+            | Self::Memory(MemoryError::UserQuotaFull { .. }) => "quota_full",
             Self::MemoryToolQuotaFull(_) => "quota_full",
+            Self::Memory(MemoryError::Io(_))
+            | Self::Memory(MemoryError::Serialization(_))
+            | Self::Memory(MemoryError::LockPoisoned) => "internal",
             Self::Invalid(_) | Self::Skill(_) | Self::Memory(_) => "invalid_params",
             Self::Store(_) | Self::Io(_) | Self::Provider(_) => "internal",
         }
@@ -168,7 +177,6 @@ pub struct FeatureService {
     profile_onboarding: Arc<Mutex<ProfileOnboardingState>>,
     project_finalize_lock: Arc<Mutex<()>>,
     curator_state: Arc<Mutex<CuratorState>>,
-    memory_changelog_lock: Arc<Mutex<()>>,
     curator_provider: Arc<RwLock<Option<Arc<dyn UserMemoryCuratorProvider>>>>,
     curator_run_lock: Arc<AsyncMutex<()>>,
 }
@@ -225,6 +233,7 @@ pub struct UserProfileOnboardingInput {
     pub name: Option<String>,
     pub language: Option<String>,
     pub identity: Option<String>,
+    pub complete: bool,
     pub skip: bool,
 }
 
@@ -415,7 +424,6 @@ impl FeatureService {
             profile_onboarding: Arc::new(Mutex::new(profile_onboarding)),
             project_finalize_lock: Arc::new(Mutex::new(())),
             curator_state: Arc::new(Mutex::new(curator_state)),
-            memory_changelog_lock: Arc::new(Mutex::new(())),
             curator_provider: Arc::new(RwLock::new(None)),
             curator_run_lock: Arc::new(AsyncMutex::new(())),
         };
@@ -475,7 +483,9 @@ impl FeatureService {
             *state = candidate;
         }
         Ok(ProfileOnboardingStatus {
-            available: true,
+            // Admission is attached to the single run which claims either
+            // the initial prompt or its one allowed reminder.
+            available: prompt.is_some(),
             prompt,
         })
     }
@@ -506,6 +516,9 @@ impl FeatureService {
         &self,
         input: UserProfileOnboardingInput,
     ) -> FeatureResult<FeatureResponse> {
+        let complete = input.skip
+            || input.complete
+            || (input.name.is_some() && input.language.is_some() && input.identity.is_some());
         if !input.skip
             && input.name.is_none()
             && input.language.is_none()
@@ -521,34 +534,41 @@ impl FeatureService {
             "name":input.name.clone(),
             "language":input.language.clone(),
             "identity":input.identity.clone(),
+            "complete":complete,
             "skip":input.skip,
+            "bot_id":input.bot_id,
+            "run_id":input.run_id,
         });
         self.transact_user_memory("memory.profile.onboard", &params, move |store| {
-            let profile =
-                store.apply_user_profile_onboarding(macbot_memory::UserProfileUpdate {
-                    // Existing profile state retains its Host timezone. This is
-                    // only a fallback for a malformed or legacy missing state.
-                    timezone: "UTC".into(),
-                    expected_version: input.expected_version,
-                    name: if input.skip {
-                        None
-                    } else {
-                        input.name.map(Some)
-                    },
-                    language: if input.skip {
-                        None
-                    } else {
-                        input.language.map(Some)
-                    },
-                    identity: if input.skip {
-                        None
-                    } else {
-                        input.identity.map(Some)
-                    },
-                    updated_by: macbot_memory::MemorySender::Bot {
-                        bot_id: input.bot_id,
-                    },
-                })?;
+            let update = macbot_memory::UserProfileUpdate {
+                // Existing profile state retains its Host timezone. This is
+                // only a fallback for a malformed or legacy missing state.
+                timezone: "UTC".into(),
+                expected_version: input.expected_version,
+                name: if input.skip {
+                    None
+                } else {
+                    input.name.map(Some)
+                },
+                language: if input.skip {
+                    None
+                } else {
+                    input.language.map(Some)
+                },
+                identity: if input.skip {
+                    None
+                } else {
+                    input.identity.map(Some)
+                },
+                updated_by: macbot_memory::MemorySender::Bot {
+                    bot_id: input.bot_id.clone(),
+                },
+            };
+            let profile = if complete {
+                store.apply_user_profile_onboarding(update)?
+            } else {
+                store.apply_user_profile_update(update)?
+            };
             let profile = protocol_user_profile(&profile);
             let result = json!({"profile":profile});
             Ok((
@@ -1167,7 +1187,7 @@ impl FeatureService {
             }
             _ => return self.complete_curator_operation(operation_id),
         };
-        let Some((event_name, event_data, op, entry_id, content, previous_content)) = applied
+        let Some((event_name, event_data, _op, _entry_id, _content, _previous_content)) = applied
         else {
             return self.complete_curator_operation(operation_id);
         };
@@ -1185,14 +1205,6 @@ impl FeatureService {
             &format!("memory-curator:{operation_id}"),
             event_name,
             event_data,
-        )?;
-        self.append_curator_changelog(
-            operation_id,
-            op,
-            entry_id.as_deref(),
-            &content,
-            previous_content.as_deref(),
-            &operation.source,
         )?;
         self.complete_curator_operation(operation_id)?;
         if let Some(event) = event {
@@ -1238,43 +1250,6 @@ impl FeatureService {
         );
         self.shared_store.write_snapshot(CURATOR_FILE, &*state)?;
         tracing::warn!(%chat_id, attempts, %retry_after, error = message, "user memory curator failed; retry is backed off");
-        Ok(())
-    }
-
-    fn append_curator_changelog(
-        &self,
-        operation_id: &str,
-        op: &str,
-        entry_id: Option<&str>,
-        content: &str,
-        prev_content: Option<&str>,
-        source: &CuratorInputMessage,
-    ) -> FeatureResult<()> {
-        let revision = self.shared_memory.revision()?;
-        self.append_memory_changelog_once(operation_id, json!({
-            "operation_id":operation_id,"revision":revision,"op":op,"entry_id":entry_id,"target":{"scope":"user","owner_id":"local-user"},
-            "kind":"user_preference","content":content,"prev_content":prev_content,
-            "actor":{"kind":"system","chat_id":source.chat_id,"message_id":source.message_id},"at":Utc::now()
-        }))?;
-        Ok(())
-    }
-
-    fn append_memory_changelog_once(&self, operation_id: &str, row: Value) -> FeatureResult<()> {
-        let _guard = self
-            .memory_changelog_lock
-            .lock()
-            .map_err(|_| FeatureError::Invalid("memory changelog lock poisoned".into()))?;
-        let existing = self
-            .shared_store
-            .read_jsonl::<Value>(MEMORY_CHANGELOG_FILE)?;
-        if existing
-            .iter()
-            .any(|row| row.get("operation_id").and_then(Value::as_str) == Some(operation_id))
-        {
-            return Ok(());
-        }
-        self.shared_store
-            .append_jsonl(MEMORY_CHANGELOG_FILE, &row)?;
         Ok(())
     }
 
@@ -1690,60 +1665,6 @@ impl FeatureService {
         Ok(())
     }
 
-    pub fn begin_memory_run(&self, run_id: &str) -> FeatureResult<()> {
-        self.shared_memory.begin_run(run_id)?;
-        Ok(())
-    }
-
-    pub fn stage_memory(
-        &self,
-        actor: &MemoryActor,
-        run_id: &str,
-        request: MemoryRequest,
-    ) -> FeatureResult<()> {
-        self.stage_memory_with_access(actor, &MemoryAccess::default(), run_id, request)
-    }
-
-    pub fn stage_memory_with_access(
-        &self,
-        actor: &MemoryActor,
-        access: &MemoryAccess,
-        run_id: &str,
-        request: MemoryRequest,
-    ) -> FeatureResult<()> {
-        authorize_memory(actor, access, &request.target, &request.action)?;
-        self.shared_memory.stage(run_id, request)?;
-        Ok(())
-    }
-
-    pub fn commit_memory_run(&self, run_id: &str) -> FeatureResult<Vec<MemoryEntry>> {
-        self.commit_memory_run_with_events(run_id)
-            .map(|(entries, _)| entries)
-    }
-
-    /// Commit staged memory and return the already durable public events so
-    /// the gateway can fan them out without appending duplicate records.
-    pub fn commit_memory_run_with_events(
-        &self,
-        run_id: &str,
-    ) -> FeatureResult<(Vec<MemoryEntry>, Vec<Event>)> {
-        let entries = self
-            .shared_memory
-            .commit_run_persisted(run_id, &self.memory_path)?;
-        let mut events = Vec::with_capacity(entries.len());
-        for entry in &entries {
-            events.push(
-                self.shared_store
-                    .append_event("memory.updated", json!({"entry":entry}))?,
-            );
-        }
-        Ok((entries, events))
-    }
-
-    pub fn rollback_memory_run(&self, run_id: &str) -> FeatureResult<bool> {
-        Ok(self.shared_memory.rollback_run(run_id)?)
-    }
-
     /// Persist the final project summary as an idempotent project-memory
     /// transaction. The Bot's worklog has its own quota and lifecycle; a
     /// project confirmation must not consume that quota or fail because it is
@@ -1804,27 +1725,48 @@ impl FeatureService {
         }
 
         let run_id = format!("project-summary-run:{project_id}");
-        self.begin_memory_run(&run_id)?;
         let source = MemorySource {
             bot_id: Some(bot_id.to_owned()),
             run_id: Some(run_id.clone()),
             session_id: None,
         };
-        let request = MemoryRequest {
-            target: MemoryTarget::project(project_id),
+        let project_target = MemoryTarget::project(project_id);
+        let project_request = MemoryRequest {
+            target: project_target,
             action: if existing_project.is_some() {
                 MemoryAction::Replace
             } else {
                 MemoryAction::Add
             },
             content: summary.to_owned(),
-            id: Some(project_entry_id),
+            id: Some(project_entry_id.clone()),
             kind: Some(MemoryKind::Project),
-            source,
+            source: source.clone(),
         };
-        if let Err(error) = self.shared_memory.stage(&run_id, request) {
-            let _ = self.rollback_memory_run(&run_id);
-            return Err(error.into());
+        let project_operation = format!(
+            "project-finalize:{}:{}",
+            project_id,
+            signature("project", &json!({"summary":summary,"bot_id":bot_id}))
+        );
+        let project_result = self.shared_memory.mutate_persisted(
+            &self.memory_path,
+            project_request,
+            existing_project.as_ref().map(|entry| entry.version),
+            &project_operation,
+            MemoryChangeActor {
+                kind: MemoryChangeActorKind::Bot,
+                bot_id: Some(bot_id.to_owned()),
+                run_id: Some(run_id.clone()),
+            },
+        )?;
+        let mut entries = Vec::new();
+        if let Some(entry) = project_result.entry {
+            self.shared_store.append_event_once(
+                &format!("memory-operation:{project_operation}"),
+                "memory.updated",
+                json!({"entry":entry,"version":project_result.version,"revision":project_result.revision}),
+            )?;
+            entries.push(entry);
         }
         if worklog_can_be_saved {
             let worklog = MemoryRequest {
@@ -1843,18 +1785,31 @@ impl FeatureService {
                     session_id: None,
                 },
             };
-            if let Err(error) = self.shared_memory.stage(&run_id, worklog) {
-                let _ = self.rollback_memory_run(&run_id);
-                return Err(error.into());
+            let worklog_operation = format!(
+                "project-finalize:{project_id}:worklog:{}",
+                signature("worklog", &json!({"summary":summary}))
+            );
+            let worklog_result = self.shared_memory.mutate_persisted(
+                &self.memory_path,
+                worklog,
+                existing_worklog.as_ref().map(|entry| entry.version),
+                &worklog_operation,
+                MemoryChangeActor {
+                    kind: MemoryChangeActorKind::Bot,
+                    bot_id: Some("main".into()),
+                    run_id: Some(run_id.clone()),
+                },
+            )?;
+            if let Some(entry) = worklog_result.entry {
+                self.shared_store.append_event_once(
+                    &format!("memory-operation:{worklog_operation}"),
+                    "memory.updated",
+                    json!({"entry":entry,"version":worklog_result.version,"revision":worklog_result.revision}),
+                )?;
+                entries.push(entry);
             }
         }
-        match self.commit_memory_run(&run_id) {
-            Ok(entries) => Ok(entries),
-            Err(error) => {
-                let _ = self.rollback_memory_run(&run_id);
-                Err(error)
-            }
-        }
+        Ok(entries)
     }
 
     /// Complete a successful execution and append its durable Bot worklog in
@@ -1878,20 +1833,176 @@ impl FeatureService {
         worklog: Option<&str>,
         source: MemorySource,
     ) -> FeatureResult<(Vec<MemoryEntry>, Vec<Event>)> {
-        if let (Some(target), Some(worklog)) = (target, worklog) {
-            self.shared_memory.stage(
-                run_id,
+        match (target, worklog) {
+            (Some(target), Some(worklog)) if !worklog.trim().is_empty() => {
+                let (entry, events) =
+                    self.append_worklog_immediate_events(run_id, target, worklog, source)?;
+                Ok((entry.into_iter().collect(), events))
+            }
+            _ => Ok((Vec::new(), Vec::new())),
+        }
+    }
+
+    pub async fn summarize_worklog(
+        &self,
+        instruction: &str,
+        outcome: &str,
+    ) -> FeatureResult<String> {
+        let provider = self
+            .maintenance
+            .read()
+            .map_err(|_| FeatureError::Invalid("maintenance provider lock poisoned".into()))?
+            .clone()
+            .ok_or_else(|| FeatureError::Provider("maintenance provider is unavailable".into()))?;
+        let input = format!("Task: {}\nOutcome: {}", instruction.trim(), outcome.trim());
+        let summary = provider.summarize(&input).await?;
+        Ok(summary.trim().to_owned())
+    }
+
+    pub async fn summarize_segment(&self, transcript: &str) -> FeatureResult<String> {
+        let provider = self
+            .maintenance
+            .read()
+            .map_err(|_| FeatureError::Invalid("maintenance provider lock poisoned".into()))?
+            .clone()
+            .ok_or_else(|| FeatureError::Provider("maintenance provider is unavailable".into()))?;
+        Ok(provider.summarize(transcript).await?.trim().to_owned())
+    }
+
+    pub fn append_worklog_immediate_events(
+        &self,
+        run_id: &str,
+        target: MemoryTarget,
+        summary: &str,
+        source: MemorySource,
+    ) -> FeatureResult<(Option<MemoryEntry>, Vec<Event>)> {
+        if target.scope != macbot_memory::MemoryScope::Bot || summary.trim().is_empty() {
+            return Ok((None, Vec::new()));
+        }
+        let bot_id = source
+            .bot_id
+            .clone()
+            .unwrap_or_else(|| target.owner_id.clone());
+        let operation_id = format!("worklog:{run_id}");
+        let result = self.shared_memory.mutate_persisted(
+            &self.memory_path,
+            MemoryRequest {
+                target,
+                action: MemoryAction::Add,
+                content: summary.trim().to_owned(),
+                id: None,
+                kind: Some(MemoryKind::BotWorklog),
+                source,
+            },
+            None,
+            &operation_id,
+            MemoryChangeActor {
+                kind: MemoryChangeActorKind::Bot,
+                bot_id: Some(bot_id),
+                run_id: Some(run_id.to_owned()),
+            },
+        )?;
+        let entry = result.entry;
+        let events = if let Some(entry) = &entry {
+            self.shared_store
+                .append_event_once(
+                    &format!("memory-operation:{operation_id}"),
+                    "memory.updated",
+                    json!({"entry":entry,"entry_id":entry.id,"version":result.version,"revision":result.revision}),
+                )?
+                .into_iter()
+                .collect()
+        } else {
+            Vec::new()
+        };
+        Ok((entry, events))
+    }
+
+    pub async fn maintenance_extract_for_segment(
+        &self,
+        run_id: &str,
+        targets: &[MemoryTarget],
+        transcript: &str,
+        source: MemorySource,
+    ) -> FeatureResult<(Vec<MemoryEntry>, Vec<Event>)> {
+        if targets.is_empty()
+            || targets.iter().any(|target| {
+                !matches!(
+                    target.scope,
+                    macbot_memory::MemoryScope::Bot | macbot_memory::MemoryScope::Project
+                )
+            })
+        {
+            return Err(FeatureError::NotAllowed(
+                "segment extraction may write only Bot or project memory".into(),
+            ));
+        }
+        let provider = self
+            .maintenance
+            .read()
+            .map_err(|_| FeatureError::Invalid("maintenance provider lock poisoned".into()))?
+            .clone()
+            .ok_or_else(|| FeatureError::Provider("maintenance provider is unavailable".into()))?;
+        let drafts = provider.extract(transcript).await?;
+        let bot_id = source
+            .bot_id
+            .clone()
+            .or_else(|| {
+                targets
+                    .iter()
+                    .find(|target| target.scope == macbot_memory::MemoryScope::Bot)
+                    .map(|target| target.owner_id.clone())
+            })
+            .ok_or_else(|| {
+                FeatureError::Invalid("segment extraction requires a Bot source".into())
+            })?;
+        let mut entries = Vec::new();
+        let mut events = Vec::new();
+        for (index, draft) in drafts.into_iter().enumerate() {
+            if !targets.contains(&draft.target) {
+                return Err(FeatureError::NotAllowed(
+                    "maintenance extraction returned an out-of-scope memory target".into(),
+                ));
+            }
+            let draft_target = draft.target.clone();
+            let operation_id = format!(
+                "segment-extract:{run_id}:{}:{}:{index}",
+                draft_target.scope, draft_target.owner_id
+            );
+            let result = self.shared_memory.mutate_persisted(
+                &self.memory_path,
                 MemoryRequest {
-                    target,
+                    target: draft_target,
                     action: MemoryAction::Add,
-                    content: worklog.to_string(),
+                    content: draft.content,
                     id: None,
-                    kind: Some(MemoryKind::BotWorklog),
-                    source,
+                    kind: Some(draft.kind),
+                    source: MemorySource {
+                        bot_id: Some(bot_id.clone()),
+                        run_id: Some(run_id.to_owned()),
+                        session_id: source.session_id.clone(),
+                    },
+                },
+                None,
+                &operation_id,
+                MemoryChangeActor {
+                    kind: MemoryChangeActorKind::Bot,
+                    bot_id: Some(bot_id.clone()),
+                    run_id: Some(run_id.to_owned()),
                 },
             )?;
+            if let Some(entry) = result.entry {
+                if let Some(event) = self.shared_store.append_event_once(
+                    &format!("memory-operation:{operation_id}"),
+                    "memory.updated",
+                    json!({"entry":entry,"version":result.version,"revision":result.revision}),
+                )? {
+                    events.push(event);
+                }
+                entries.push(entry);
+            }
         }
-        self.commit_memory_run_with_events(run_id)
+        Ok((entries, events))
     }
 
     /// Stage a compaction summary in the active model run. It is committed
@@ -1905,22 +2016,59 @@ impl FeatureService {
         summary: &str,
         source: MemorySource,
     ) -> FeatureResult<()> {
+        self.persist_context_summary_immediate(actor, access, run_id, target, summary, source)
+            .map(|_| ())
+    }
+
+    pub fn persist_context_summary_immediate(
+        &self,
+        actor: &MemoryActor,
+        access: &MemoryAccess,
+        run_id: &str,
+        target: MemoryTarget,
+        summary: &str,
+        source: MemorySource,
+    ) -> FeatureResult<Vec<Event>> {
         if summary.trim().is_empty() {
-            return Ok(());
+            return Ok(Vec::new());
         }
-        self.stage_memory_with_access(
-            actor,
-            access,
-            run_id,
+        authorize_memory(actor, access, &target, &MemoryAction::Add)?;
+        if target.scope != macbot_memory::MemoryScope::Bot {
+            return Err(FeatureError::NotAllowed(
+                "context summaries can only be saved to Bot worklog".into(),
+            ));
+        }
+        let result = self.shared_memory.mutate_persisted(
+            &self.memory_path,
             MemoryRequest {
                 target,
                 action: MemoryAction::Add,
-                content: summary.to_owned(),
+                content: summary.trim().to_owned(),
                 id: None,
                 kind: Some(MemoryKind::BotWorklog),
                 source,
             },
-        )
+            None,
+            &format!("context-summary:{run_id}"),
+            MemoryChangeActor {
+                kind: MemoryChangeActorKind::Bot,
+                bot_id: actor.bot_id().map(str::to_owned),
+                run_id: Some(run_id.to_owned()),
+            },
+        )?;
+        let operation_id = format!("context-summary:{run_id}");
+        if let Some(entry) = result.entry {
+            return Ok(self
+                .shared_store
+                .append_event_once(
+                    &format!("memory-operation:{operation_id}"),
+                    "memory.updated",
+                    json!({"entry":entry,"version":result.version,"revision":result.revision}),
+                )?
+                .into_iter()
+                .collect());
+        }
+        Ok(Vec::new())
     }
 
     pub fn memory_rpc(&self, actor: &MemoryActor, params: Value) -> FeatureResult<Value> {
@@ -1933,6 +2081,18 @@ impl FeatureService {
         access: &MemoryAccess,
         params: Value,
     ) -> FeatureResult<Value> {
+        self.memory_mutation_with_access(actor, access, params)
+            .map(|(result, _events)| result)
+    }
+
+    /// Persist one model memory-tool call immediately and return its already
+    /// durable event for live fan-out by the execution sink.
+    pub fn memory_mutation_with_access(
+        &self,
+        actor: &MemoryActor,
+        access: &MemoryAccess,
+        params: Value,
+    ) -> FeatureResult<(Value, Vec<Event>)> {
         let target = memory_target(&params)?;
         let action = params
             .get("action")
@@ -1977,7 +2137,7 @@ impl FeatureService {
             source,
         };
         if request.target.scope == macbot_memory::MemoryScope::User {
-            return Err(FeatureError::Invalid(
+            return Err(FeatureError::NotAllowed(
                 "user preferences are written only through the authenticated user RPC or curator"
                     .into(),
             ));
@@ -1985,7 +2145,6 @@ impl FeatureService {
         authorize_memory(actor, access, &request.target, &request.action)?;
         let expected_version = params
             .get("expected_version")
-            .or_else(|| params.get("version"))
             .map(|value| {
                 value.as_u64().ok_or_else(|| {
                     FeatureError::Invalid("expected_version must be a non-negative integer".into())
@@ -1999,10 +2158,44 @@ impl FeatureService {
                 "replace/remove require expected_version".into(),
             ));
         }
+        let operation_id = params
+            .get("operation_id")
+            .or_else(|| params.get("tool_call_id"))
+            .and_then(Value::as_str)
+            .map(str::to_owned)
+            .filter(|id| !id.trim().is_empty())
+            .ok_or_else(|| FeatureError::Invalid("operation_id is required".into()))?;
+        let change_actor = match actor {
+            MemoryActor::System => MemoryChangeActor {
+                kind: MemoryChangeActorKind::System,
+                bot_id: None,
+                run_id: Some(run_id.to_owned()),
+            },
+            MemoryActor::MainBot { bot_id } | MemoryActor::Bot { bot_id } => MemoryChangeActor {
+                kind: MemoryChangeActorKind::Bot,
+                bot_id: Some(bot_id.clone()),
+                run_id: Some(run_id.to_owned()),
+            },
+        };
         let result =
             self.shared_memory
-                .mutate_persisted(&self.memory_path, request.clone(), expected_version)
+                .mutate_persisted(
+                    &self.memory_path,
+                    request.clone(),
+                    expected_version,
+                    &operation_id,
+                    change_actor,
+                )
                 .map_err(|error| match error {
+                    MemoryError::UserConflict(current) => {
+                        FeatureError::MemoryMutationConflict(json!({
+                            "current": {
+                                "entry_id": current.id,
+                                "version": current.version,
+                                "content": current.content,
+                            }
+                        }))
+                    }
                     MemoryError::VersionConflict { current, version } => {
                         FeatureError::MemoryMutationConflict(json!({
                             "current": {
@@ -2019,6 +2212,8 @@ impl FeatureService {
                         .map(|entry| json!({
                             "entry_id":entry.id,
                             "version":self.shared_memory.entry_version(&entry.id).ok().flatten().unwrap_or(1),
+                            "kind":entry.kind,
+                            "scope":entry.target.scope,
                             "content":entry.content,
                         }))
                         .collect::<Vec<_>>();
@@ -2032,17 +2227,21 @@ impl FeatureService {
             .map(|entry| entry.id.clone())
             .or_else(|| request.id.clone())
             .unwrap_or_default();
-        self.shared_store.append_event(
+        let event = self.shared_store.append_event_once(
+            &format!("memory-operation:{operation_id}"),
             "memory.updated",
             json!({"entry":result.entry,"entry_id":entry_id,"version":result.version,"revision":result.revision}),
         )?;
-        Ok(json!({
-            "ok":true,
-            "entry_id":entry_id,
-            "version":result.version,
-            "revision":result.revision,
-            "remaining_chars":result.remaining_chars,
-        }))
+        Ok((
+            json!({
+                "ok":true,
+                "entry_id":entry_id,
+                "version":result.version,
+                "revision":result.revision,
+                "remaining_chars":result.remaining_chars,
+            }),
+            event.into_iter().collect(),
+        ))
     }
 
     /// Execute the client protocol's user-memory and profile RPCs.  The
@@ -2266,23 +2465,80 @@ impl FeatureService {
         message_id: &str,
     ) -> FeatureResult<FeatureResponse> {
         let target = MemoryTarget::user("local-user");
-        let record = self.shared_memory.user_create_persisted(
-            &self.memory_path,
-            target.clone(),
-            content,
-            macbot_memory::MemorySender::System,
-            Some(chat_id.to_owned()),
-            Some(message_id.to_owned()),
+        let params = json!({"operation_id":operation_id,"op":"add","content":content,"chat_id":chat_id,"message_id":message_id});
+        self.transact_curator_memory(operation_id, &params, move |store| {
+            let record = store.apply_user_create(
+                target.clone(),
+                content,
+                macbot_memory::MemorySender::System,
+                Some(chat_id.to_owned()),
+                Some(message_id.to_owned()),
+            )?;
+            let entry = protocol_user_entry(&record);
+            let quota = protocol_user_quota(store.user_quota(&target));
+            let result = json!({"entry":entry,"quota":quota});
+            let audit = user_memory_audit_data(
+                operation_id.to_owned(),
+                "add",
+                Some(&record.id),
+                None,
+                Some(&record.content),
+            );
+            Ok((
+                result.clone(),
+                "memory.user.updated".into(),
+                result,
+                Some(audit),
+            ))
+        })
+    }
+
+    fn transact_curator_memory<F>(
+        &self,
+        operation_id: &str,
+        params: &Value,
+        operation: F,
+    ) -> FeatureResult<FeatureResponse>
+    where
+        F: FnOnce(
+            &mut macbot_memory::MemoryStore,
+        ) -> Result<(Value, String, Value, Option<Value>), MemoryError>,
+    {
+        let signature = signature("memory.curator", params);
+        let transaction = self
+            .shared_memory
+            .transact_user_persisted_with_actor(
+                &self.memory_path,
+                Some(operation_id),
+                &signature,
+                MemoryChangeActor {
+                    kind: MemoryChangeActorKind::System,
+                    bot_id: None,
+                    run_id: Some(operation_id.to_owned()),
+                },
+                operation,
+            )
+            .map_err(FeatureError::Memory)?;
+        let receipt = transaction.receipt;
+        if let Some(audit) = receipt.audit_data.as_ref() {
+            if let Err(error) = self.apply_user_memory_audit(audit) {
+                self.shared_store.append_event_once(
+                    &format!("memory-curator-audit-failed:{operation_id}"),
+                    "memory.failed",
+                    json!({"operation_id":operation_id,"error":error.to_string()}),
+                )?;
+                return Err(error);
+            }
+        }
+        let event = self.shared_store.append_event_once(
+            &format!("memory-curator:{operation_id}"),
+            receipt.event_name,
+            receipt.event_data,
         )?;
-        let entry = protocol_user_entry(&record);
-        let quota = protocol_user_quota(self.shared_memory.user_quota(&target)?);
-        let result = json!({"entry":entry,"quota":quota});
-        self.finish_curator_memory_mutation(
-            operation_id,
-            &result,
-            "memory.user.updated",
-            json!({"entry":entry,"quota":quota}),
-        )
+        Ok(FeatureResponse {
+            result: receipt.result,
+            events: event.into_iter().collect(),
+        })
     }
 
     pub fn curate_user_memory_update(
@@ -2313,10 +2569,22 @@ impl FeatureService {
         message_id: &str,
     ) -> FeatureResult<FeatureResponse> {
         let target = MemoryTarget::user("local-user");
-        let record = self
-            .shared_memory
-            .user_update_with_source_persisted(
-                &self.memory_path,
+        let params = json!({
+            "operation_id":operation_id,
+            "op":"replace",
+            "entry_id":entry_id,
+            "content":content.clone(),
+            "expected_version":expected_version,
+            "chat_id":chat_id,
+            "message_id":message_id,
+        });
+        self.transact_curator_memory(operation_id, &params, move |store| {
+            let previous = store
+                .user_records(&target)
+                .into_iter()
+                .find(|record| record.id == entry_id)
+                .ok_or_else(|| MemoryError::NotFound(entry_id.to_owned()))?;
+            let record = store.apply_user_update_with_source(
                 &target,
                 entry_id,
                 content,
@@ -2324,22 +2592,24 @@ impl FeatureService {
                 macbot_memory::MemorySender::System,
                 Some(chat_id.to_owned()),
                 Some(message_id.to_owned()),
-            )
-            .map_err(|error| match error {
-                MemoryError::UserConflict(current) => FeatureError::UserMemoryConflict(
-                    json!({"current":protocol_user_entry(&current)}),
-                ),
-                other => FeatureError::Memory(other),
-            })?;
-        let entry = protocol_user_entry(&record);
-        let quota = protocol_user_quota(self.shared_memory.user_quota(&target)?);
-        let result = json!({"entry":entry,"quota":quota});
-        self.finish_curator_memory_mutation(
-            operation_id,
-            &result,
-            "memory.user.updated",
-            json!({"entry":entry,"quota":quota}),
-        )
+            )?;
+            let entry = protocol_user_entry(&record);
+            let quota = protocol_user_quota(store.user_quota(&target));
+            let result = json!({"entry":entry,"quota":quota});
+            let audit = user_memory_audit_data(
+                operation_id.to_owned(),
+                "replace",
+                Some(entry_id),
+                Some(&previous.content),
+                Some(&record.content),
+            );
+            Ok((
+                result.clone(),
+                "memory.user.updated".into(),
+                json!({"entry":entry,"quota":quota}),
+                Some(audit),
+            ))
+        })
     }
 
     pub fn curate_user_memory_delete(
@@ -2361,27 +2631,30 @@ impl FeatureService {
         expected_version: u64,
     ) -> FeatureResult<FeatureResponse> {
         let target = MemoryTarget::user("local-user");
-        let record = self
-            .shared_memory
-            .user_records(&target)?
-            .into_iter()
-            .find(|record| record.id == entry_id)
-            .ok_or_else(|| FeatureError::Memory(MemoryError::NotFound(entry_id.to_owned())))?;
-        self.shared_memory.user_delete_persisted(
-            &self.memory_path,
-            &target,
-            entry_id,
-            expected_version,
-        )?;
-        self.record_curator_tombstone(&record.content, Some(operation_id), Some(&record.id))?;
-        let quota = protocol_user_quota(self.shared_memory.user_quota(&target)?);
-        let result = json!({"quota":quota});
-        self.finish_curator_memory_mutation(
-            operation_id,
-            &result,
-            "memory.user.deleted",
-            json!({"entry_id":entry_id,"quota":quota}),
-        )
+        let params = json!({"operation_id":operation_id,"op":"delete","entry_id":entry_id,"expected_version":expected_version});
+        self.transact_curator_memory(operation_id, &params, move |store| {
+            let previous = store
+                .user_records(&target)
+                .into_iter()
+                .find(|record| record.id == entry_id)
+                .ok_or_else(|| MemoryError::NotFound(entry_id.to_owned()))?;
+            store.apply_user_delete(&target, entry_id, expected_version)?;
+            let quota = protocol_user_quota(store.user_quota(&target));
+            let result = json!({"quota":quota});
+            let audit = user_memory_audit_data(
+                operation_id.to_owned(),
+                "delete",
+                Some(entry_id),
+                Some(&previous.content),
+                None,
+            );
+            Ok((
+                result.clone(),
+                "memory.user.deleted".into(),
+                json!({"entry_id":entry_id,"quota":quota}),
+                Some(audit),
+            ))
+        })
     }
 
     fn record_curator_tombstone(
@@ -2422,28 +2695,11 @@ impl FeatureService {
             .ok_or_else(|| FeatureError::Invalid("memory audit op is missing".into()))?;
         let entry_id = audit.get("entry_id").and_then(Value::as_str);
         let previous = audit.get("prev_content").and_then(Value::as_str);
-        let content = audit.get("content").and_then(Value::as_str).unwrap_or("");
         if op == "delete" {
             if let (Some(previous), Some(entry_id)) = (previous, entry_id) {
                 self.record_curator_tombstone(previous, Some(operation_id), Some(entry_id))?;
             }
         }
-        self.append_memory_changelog_once(
-            operation_id,
-            json!({
-                "operation_id":operation_id,
-                "revision":self.shared_memory.revision()?,
-                "op":op,
-                "entry_id":entry_id,
-                "target":{"scope":"user","owner_id":"local-user"},
-                "kind":if op == "profile_update" { "user_profile" } else { "user_preference" },
-                "content":content,
-                "prev_content":previous,
-                "actor":{"kind":"user"},
-                "source":{"by":{"kind":"user"},"chat_id":null,"message_id":null},
-                "at":Utc::now()
-            }),
-        )?;
         Ok(())
     }
 
@@ -2474,33 +2730,38 @@ impl FeatureService {
         language: Option<Option<String>>,
         identity: Option<Option<String>>,
     ) -> FeatureResult<FeatureResponse> {
-        let profile = self
-            .shared_memory
-            .user_profile_update_persisted(
-                &self.memory_path,
-                macbot_memory::UserProfileUpdate {
-                    timezone: timezone.to_owned(),
-                    expected_version,
-                    name,
-                    language,
-                    identity,
-                    updated_by: macbot_memory::MemorySender::System,
-                },
-            )
-            .map_err(|error| match error {
-                MemoryError::ProfileConflict(current) => FeatureError::UserProfileConflict(
-                    json!({"current":protocol_user_profile(&current)}),
-                ),
-                other => FeatureError::Memory(other),
+        let params = json!({
+            "operation_id":operation_id,
+            "op":"profile_update",
+            "expected_version":expected_version,
+            "name":name.clone(),
+            "language":language.clone(),
+            "identity":identity.clone(),
+        });
+        self.transact_curator_memory(operation_id, &params, move |store| {
+            let updated = store.apply_user_profile_update(macbot_memory::UserProfileUpdate {
+                timezone: timezone.to_owned(),
+                expected_version,
+                name,
+                language,
+                identity,
+                updated_by: macbot_memory::MemorySender::System,
             })?;
-        let profile = protocol_user_profile(&profile);
-        let result = json!({"profile":profile});
-        self.finish_curator_memory_mutation(
-            operation_id,
-            &result,
-            "memory.profile.updated",
-            json!({"profile":profile}),
-        )
+            let profile = protocol_user_profile(&updated);
+            let audit = json!({
+                "operation_id":operation_id,
+                "op":"profile_update",
+                "entry_id":null,
+                "prev_content":null,
+                "content":serde_json::to_string(&profile).unwrap_or_default(),
+            });
+            Ok((
+                json!({"profile":profile}),
+                "memory.profile.updated".into(),
+                json!({"profile":profile}),
+                Some(audit),
+            ))
+        })
     }
 
     fn transact_user_memory<F>(
@@ -2535,9 +2796,34 @@ impl FeatureService {
             .map(str::to_owned)
             .unwrap_or_else(|| format!("internal:{}", Uuid::new_v4()));
         let signature = signature(method, params);
+        let actor = if method == "memory.profile.onboard" {
+            MemoryChangeActor {
+                kind: MemoryChangeActorKind::Bot,
+                bot_id: params
+                    .get("bot_id")
+                    .and_then(Value::as_str)
+                    .map(str::to_owned),
+                run_id: params
+                    .get("run_id")
+                    .and_then(Value::as_str)
+                    .map(str::to_owned),
+            }
+        } else {
+            MemoryChangeActor {
+                kind: MemoryChangeActorKind::User,
+                bot_id: None,
+                run_id: None,
+            }
+        };
         let transaction = self
             .shared_memory
-            .transact_user_persisted(&self.memory_path, Some(&request_id), &signature, operation)
+            .transact_user_persisted_with_actor(
+                &self.memory_path,
+                Some(&request_id),
+                &signature,
+                actor,
+                operation,
+            )
             .map_err(|error| match error {
                 MemoryError::UserConflict(current) => FeatureError::UserMemoryConflict(
                     json!({"current":protocol_user_entry(&current)}),
@@ -2573,9 +2859,22 @@ impl FeatureService {
                     .append_event(receipt.event_name.clone(), receipt.event_data.clone())?,
             )
         };
+        let mut events = event.into_iter().collect::<Vec<_>>();
         if let Some(audit_data) = receipt.audit_data.as_ref() {
             if let Err(error) = self.apply_user_memory_audit(audit_data) {
-                tracing::warn!(%error, method, "memory changelog/tombstone finalization deferred to receipt recovery");
+                let failure_event = if let Some(request_id) = request_id {
+                    self.shared_store.append_event_once(
+                        &format!("memory-user-audit-failed:{request_id}"),
+                        "memory.failed",
+                        json!({"operation_id":request_id,"method":method,"error":error.to_string()}),
+                    )?
+                } else {
+                    Some(self.shared_store.append_event(
+                        "memory.failed",
+                        json!({"method":method,"error":error.to_string()}),
+                    )?)
+                };
+                events.extend(failure_event);
             }
         }
         if let Err(error) = self.save_idempotency(method, params, &receipt.result) {
@@ -2586,25 +2885,7 @@ impl FeatureService {
         }
         Ok(FeatureResponse {
             result: receipt.result,
-            events: event.into_iter().collect(),
-        })
-    }
-
-    fn finish_curator_memory_mutation(
-        &self,
-        operation_id: &str,
-        result: &Value,
-        event_name: &str,
-        event_data: Value,
-    ) -> FeatureResult<FeatureResponse> {
-        let event = self.shared_store.append_event_once(
-            &format!("memory-curator:{operation_id}"),
-            event_name,
-            event_data,
-        )?;
-        Ok(FeatureResponse {
-            result: result.clone(),
-            events: event.into_iter().collect(),
+            events,
         })
     }
 
@@ -2807,16 +3088,6 @@ impl FeatureService {
                 return Err(error.into());
             }
         };
-        // Extraction is an additive maintenance pass. A provider that
-        // returns malformed extraction JSON must not discard a valid
-        // worklog summary; retain the summary and skip only those drafts.
-        let drafts = match provider.extract(&transcript).await {
-            Ok(drafts) => drafts,
-            Err(error) => {
-                tracing::warn!(%error, bot_id = %target.owner_id, "maintenance extraction skipped");
-                Vec::new()
-            }
-        };
         // The unique run id prevents collision with an in-flight model run.
         let run_id = format!("maintenance-{}", uuid::Uuid::now_v7());
         let maintenance_source = MemorySource {
@@ -2824,78 +3095,78 @@ impl FeatureService {
             run_id: Some(run_id.clone()),
             session_id: Some("maintenance".into()),
         };
-        let commit = (|| -> FeatureResult<(Vec<MemoryEntry>, Vec<Event>)> {
-            self.begin_memory_run(&run_id)?;
-            for row in rows {
-                self.shared_memory.stage(
-                    &run_id,
-                    MemoryRequest {
-                        target: row.target,
-                        action: MemoryAction::Remove,
-                        content: String::new(),
-                        id: Some(row.id),
-                        kind: Some(MemoryKind::BotWorklog),
-                        source: MemorySource::default(),
-                    },
-                )?;
-            }
-            self.shared_memory.stage(
-                &run_id,
-                MemoryRequest {
-                    target: target.clone(),
-                    action: MemoryAction::Add,
-                    content: summary,
-                    id: None,
-                    kind: Some(MemoryKind::BotWorklog),
-                    source: maintenance_source.clone(),
-                },
-            )?;
-            for draft in drafts {
-                // Maintenance reads only this Bot's worklog. Keep extracted
-                // memories within that same private scope so a model cannot
-                // turn private Bot history into user/project data.
-                if draft.target != *target {
-                    return Err(FeatureError::Invalid(
-                        "maintenance drafts must target the source Bot".into(),
-                    ));
+        let Some(first) = rows.first() else {
+            return Ok(None);
+        };
+        let mut events = Vec::new();
+        let summary_result = self.shared_memory.mutate_persisted(
+            &self.memory_path,
+            MemoryRequest {
+                target: target.clone(),
+                action: MemoryAction::Replace,
+                content: summary,
+                id: Some(first.id.clone()),
+                kind: Some(MemoryKind::BotWorklog),
+                source: maintenance_source,
+            },
+            Some(first.version),
+            &format!("{run_id}:summary"),
+            MemoryChangeActor {
+                kind: MemoryChangeActorKind::System,
+                bot_id: Some(target.owner_id.clone()),
+                run_id: Some(run_id.clone()),
+            },
+        );
+        let summary_entry = match summary_result {
+            Ok(result) => {
+                if let Some(entry) = &result.entry {
+                    if let Some(event) = self.shared_store.append_event_once(
+                        &format!("memory-operation:{run_id}:summary"),
+                        "memory.updated",
+                        json!({"entry":entry,"version":result.version,"revision":result.revision}),
+                    )? {
+                        events.push(event);
+                    }
                 }
-                let mut source = draft.source;
-                // Extraction output is untrusted model data.  Keep only its
-                // content/kind; all provenance is assigned by maintenance.
-                source.bot_id = Some(target.owner_id.clone());
-                source.run_id = Some(run_id.clone());
-                source.session_id = Some("maintenance".into());
-                self.shared_memory.stage(
-                    &run_id,
-                    MemoryRequest {
-                        target: draft.target,
-                        action: MemoryAction::Add,
-                        content: draft.content,
-                        id: None,
-                        kind: Some(draft.kind),
-                        source,
-                    },
-                )?;
+                result.entry
             }
-            self.commit_memory_run_with_events(&run_id)
-        })();
-        let (entries, events) = match commit {
-            Ok(result) => result,
             Err(error) => {
-                let _ = self.rollback_memory_run(&run_id);
                 self.release_maintenance(&target.owner_id)?;
-                return Err(error);
+                return Err(error.into());
             }
         };
-        Ok(entries
-            .into_iter()
-            .find(|entry| entry.target == *target)
-            .map(|entry| (entry, events)))
+        for row in rows.into_iter().skip(1) {
+            let operation_id = format!("{run_id}:remove:{}", row.id);
+            let result = self.shared_memory.mutate_persisted(
+                &self.memory_path,
+                MemoryRequest {
+                    target: target.clone(),
+                    action: MemoryAction::Remove,
+                    content: String::new(),
+                    id: Some(row.id.clone()),
+                    kind: Some(MemoryKind::BotWorklog),
+                    source: MemorySource::default(),
+                },
+                Some(row.version),
+                &operation_id,
+                MemoryChangeActor {
+                    kind: MemoryChangeActorKind::System,
+                    bot_id: Some(target.owner_id.clone()),
+                    run_id: Some(run_id.clone()),
+                },
+            )?;
+            if let Some(event) = self.shared_store.append_event_once(
+                &format!("memory-operation:{operation_id}"),
+                "memory.updated",
+                json!({"entry_id":row.id,"revision":result.revision}),
+            )? {
+                events.push(event);
+            }
+        }
+        Ok(summary_entry.map(|entry| (entry, events)))
     }
 
-    /// Persist a compacted context segment through the same atomic run path
-    /// as model memory writes. This makes compact summaries recoverable after
-    /// restart without exposing them as a client-facing protocol event.
+    /// Persist a compacted context segment immediately as a Bot worklog.
     pub fn persist_context_summary(
         &self,
         target: MemoryTarget,
@@ -2906,25 +3177,8 @@ impl FeatureService {
             return Ok(None);
         }
         let run_id = format!("compact-{}", uuid::Uuid::now_v7());
-        self.begin_memory_run(&run_id)?;
-        self.shared_memory.stage(
-            &run_id,
-            MemoryRequest {
-                target: target.clone(),
-                action: MemoryAction::Add,
-                content: summary.to_owned(),
-                id: None,
-                kind: Some(MemoryKind::BotWorklog),
-                source,
-            },
-        )?;
-        match self.commit_memory_run(&run_id) {
-            Ok(entries) => Ok(entries.into_iter().find(|entry| entry.target == target)),
-            Err(error) => {
-                let _ = self.rollback_memory_run(&run_id);
-                Err(error)
-            }
-        }
+        let (entry, _) = self.append_worklog_immediate_events(&run_id, target, summary, source)?;
+        Ok(entry)
     }
 
     /// Returns whether the scheduler should run private worklog maintenance.
@@ -3146,28 +3400,6 @@ impl FeatureService {
     }
 }
 
-#[async_trait]
-pub trait ExecutionSink: Send + Sync {
-    async fn run_started(&self, run_id: &str) -> FeatureResult<()>;
-    async fn run_succeeded(&self, run_id: &str) -> FeatureResult<Vec<MemoryEntry>>;
-    async fn run_failed(&self, run_id: &str) -> FeatureResult<bool>;
-}
-
-#[async_trait]
-impl ExecutionSink for FeatureService {
-    async fn run_started(&self, run_id: &str) -> FeatureResult<()> {
-        self.begin_memory_run(run_id)
-    }
-
-    async fn run_succeeded(&self, run_id: &str) -> FeatureResult<Vec<MemoryEntry>> {
-        self.commit_memory_run(run_id)
-    }
-
-    async fn run_failed(&self, run_id: &str) -> FeatureResult<bool> {
-        self.rollback_memory_run(run_id)
-    }
-}
-
 pub trait ContextProvider: Send + Sync {
     fn context(&self, request: &ContextRequest) -> FeatureResult<ContextPackage>;
 }
@@ -3288,6 +3520,17 @@ impl ModelMaintenanceAdapter {
         system: &str,
         text: &str,
     ) -> Result<Completion, FeatureError> {
+        self.complete_with_tools(phase, system, text, Vec::new())
+            .await
+    }
+
+    async fn complete_with_tools(
+        &self,
+        phase: &str,
+        system: &str,
+        text: &str,
+        tools: Vec<Value>,
+    ) -> Result<Completion, FeatureError> {
         let completion = self
             .provider
             .complete(ModelRequest {
@@ -3296,7 +3539,7 @@ impl ModelMaintenanceAdapter {
                     json!({"role":"system","content":system}),
                     json!({"role":"user","content":text}),
                 ],
-                tools: Vec::new(),
+                tools,
                 max_output: 4096,
                 session_id: None,
             })
@@ -3331,15 +3574,101 @@ impl AsyncMaintenanceProvider for ModelMaintenanceAdapter {
 
     async fn extract(&self, text: &str) -> Result<Vec<macbot_memory::MemoryDraft>, MemoryError> {
         let completion = self
-            .complete(
+            .complete_with_tools(
                 "memory",
-                "Extract only durable memories as a JSON array with target, kind, and content fields. Return [] when none.",
+                "Review the supplied segment for durable facts worth retaining. Use the memory tool only for lasting Bot experience or project conclusions. Never write user preferences, temporary tasks, or full conversation transcripts. Prefer concise entries and only write when supported by the text.",
                 text,
+                vec![json!({
+                    "type":"function",
+                    "function":{
+                        "name":"memory",
+                        "description":"Add one durable Bot experience or project conclusion.",
+                        "parameters":{
+                            "type":"object",
+                            "required":["scope","action","content","kind"],
+                            "properties":{
+                                "scope":{"type":"string","enum":["bot","project"]},
+                                "action":{"type":"string","enum":["add"]},
+                                "bot_id":{"type":"string"},
+                                "project_id":{"type":"string"},
+                                "kind":{"type":"string","enum":["bot_experience","bot_worklog","project"]},
+                                "content":{"type":"string","minLength":1,"maxLength":500}
+                            },
+                            "allOf":[
+                                {"if":{"properties":{"scope":{"const":"bot"}},"required":["scope"]},"then":{"required":["bot_id"]}},
+                                {"if":{"properties":{"scope":{"const":"project"}},"required":["scope"]},"then":{"required":["project_id"]}}
+                            ]
+                        }
+                    }
+                })],
             )
             .await
             .map_err(|error| MemoryError::Provider(error.to_string()))?;
-        serde_json::from_str(&completion.text)
-            .map_err(|error| MemoryError::Provider(format!("maintenance JSON: {error}")))
+        completion
+            .tool_calls
+            .into_iter()
+            .filter(|call| call.name == "memory")
+            .map(|call| {
+                let scope = call
+                    .args
+                    .get("scope")
+                    .and_then(Value::as_str)
+                    .ok_or_else(|| {
+                        MemoryError::Provider("maintenance memory call is missing scope".into())
+                    })?;
+                let target = match scope {
+                    "bot" => MemoryTarget::bot(
+                        call.args
+                            .get("bot_id")
+                            .and_then(Value::as_str)
+                            .filter(|id| !id.is_empty())
+                            .ok_or_else(|| {
+                                MemoryError::Provider(
+                                    "maintenance memory call is missing bot_id".into(),
+                                )
+                            })?,
+                    ),
+                    "project" => MemoryTarget::project(
+                        call.args
+                            .get("project_id")
+                            .and_then(Value::as_str)
+                            .filter(|id| !id.is_empty())
+                            .ok_or_else(|| {
+                                MemoryError::Provider(
+                                    "maintenance memory call is missing project_id".into(),
+                                )
+                            })?,
+                    ),
+                    "user" => {
+                        return Err(MemoryError::Provider(
+                            "maintenance extraction cannot write user memory".into(),
+                        ))
+                    }
+                    _ => {
+                        return Err(MemoryError::Provider(
+                            "maintenance memory call has an invalid scope".into(),
+                        ))
+                    }
+                };
+                let kind =
+                    serde_json::from_value(call.args.get("kind").cloned().unwrap_or(Value::Null))?;
+                let content = call
+                    .args
+                    .get("content")
+                    .and_then(Value::as_str)
+                    .filter(|content| !content.trim().is_empty())
+                    .ok_or_else(|| {
+                        MemoryError::Provider("maintenance memory call has empty content".into())
+                    })?
+                    .to_owned();
+                Ok(macbot_memory::MemoryDraft {
+                    target,
+                    kind,
+                    content,
+                    source: MemorySource::default(),
+                })
+            })
+            .collect()
     }
 
     async fn compact(&self, text: &str) -> Result<String, MemoryError> {
@@ -3546,7 +3875,7 @@ fn authorize_memory(
         return Ok(());
     }
     if target.scope == macbot_memory::MemoryScope::User {
-        return Err(FeatureError::Invalid(
+        return Err(FeatureError::NotAllowed(
             "only the user or curator may write user preferences".into(),
         ));
     }
@@ -3568,7 +3897,7 @@ fn authorize_memory(
             ))
         }
         macbot_memory::MemoryScope::User => {
-            return Err(FeatureError::Invalid(
+            return Err(FeatureError::NotAllowed(
                 "user memory requires the authenticated user context".into(),
             ))
         }
@@ -4233,11 +4562,37 @@ mod tests {
         // Crash point: memory snapshot committed, later event/changelog writes did not.
         service
             .shared_memory
-            .user_delete_persisted(
+            .transact_user_persisted_with_actor(
                 &service.memory_path,
-                &MemoryTarget::user("local-user"),
-                &entry_id,
-                previous.version,
+                Some(&operation_id),
+                &signature(
+                    "curator.delete",
+                    &json!({"entry_id":entry_id,"version":previous.version}),
+                ),
+                MemoryChangeActor {
+                    kind: MemoryChangeActorKind::System,
+                    bot_id: None,
+                    run_id: Some(operation_id.clone()),
+                },
+                |store| {
+                    store.apply_user_delete(
+                        &MemoryTarget::user("local-user"),
+                        &entry_id,
+                        previous.version,
+                    )?;
+                    Ok((
+                        json!({"entry_id":entry_id}),
+                        "memory.user.deleted".into(),
+                        json!({"entry_id":entry_id}),
+                        Some(user_memory_audit_data(
+                            operation_id.clone(),
+                            "delete",
+                            Some(&entry_id),
+                            Some(&previous.content),
+                            None,
+                        )),
+                    ))
+                },
             )
             .unwrap();
         drop(service);
@@ -4350,25 +4705,26 @@ mod tests {
             .shared_store
             .read_jsonl::<Value>(MEMORY_CHANGELOG_FILE)
             .unwrap();
-        assert_eq!(changelog.len(), 4);
+        assert_eq!(changelog.len(), 5);
         let find = |operation_id: &str| {
             changelog
                 .iter()
                 .find(|row| row["operation_id"] == operation_id)
                 .unwrap()
         };
-        let created = find("user-memory:manual-create");
-        assert_eq!(created["op"], "create");
+        let created = find("manual-create");
+        assert_eq!(created["op"], "add");
         assert_eq!(created["content"], "偏好 A");
         assert_eq!(created["prev_content"], Value::Null);
         assert_eq!(created["actor"]["kind"], "user");
         assert_eq!(created["source"]["by"]["kind"], "user");
         assert_eq!(created["source"]["chat_id"], Value::Null);
 
-        let updated = find("user-memory:manual-update");
+        let updated = find("manual-update");
+        assert_eq!(updated["op"], "replace");
         assert_eq!(updated["prev_content"], "偏好 A");
         assert_eq!(updated["content"], "偏好 B");
-        let profile = find("user-memory:manual-profile");
+        let profile = find("manual-profile");
         assert_eq!(profile["kind"], "user_profile");
         assert!(profile["prev_content"]
             .as_str()
@@ -4378,7 +4734,8 @@ mod tests {
             .as_str()
             .unwrap()
             .contains("\"name\":\"小林\""));
-        let deleted = find("user-memory:manual-delete");
+        let deleted = find("manual-delete");
+        assert_eq!(deleted["op"], "remove");
         assert_eq!(deleted["prev_content"], "偏好 B");
         assert_eq!(deleted["content"], "");
         let curator_state = service
@@ -4428,7 +4785,7 @@ mod tests {
         assert_eq!(
             changelog
                 .iter()
-                .filter(|row| row["operation_id"] == "user-memory:concurrent-memory-create")
+                .filter(|row| row["operation_id"] == "concurrent-memory-create")
                 .count(),
             1
         );
@@ -4513,7 +4870,7 @@ mod tests {
         assert_eq!(
             changelog
                 .iter()
-                .filter(|row| row["operation_id"] == "user-memory:crash-manual-delete")
+                .filter(|row| row["operation_id"] == "crash-manual-delete")
                 .count(),
             1
         );
@@ -4700,7 +5057,7 @@ mod tests {
             &MemoryActor::main("bot-main"), &MemoryAccess::user("local-user"),
             json!({"scope":"user","user_id":"local-user","run_id":"bot-run","content":"must not write user preference"}),
         );
-        assert!(matches!(bot_write, Err(FeatureError::Invalid(_))));
+        assert!(matches!(bot_write, Err(FeatureError::NotAllowed(_))));
     }
 
     #[test]
@@ -4719,6 +5076,7 @@ mod tests {
                 name: Some("Ari".into()),
                 language: Some("zh-CN".into()),
                 identity: Some("product designer".into()),
+                complete: false,
                 skip: false,
             })
             .unwrap();
@@ -4740,6 +5098,7 @@ mod tests {
             name: Some("Other".into()),
             language: None,
             identity: None,
+            complete: false,
             skip: false,
         });
         assert!(matches!(stale, Err(FeatureError::UserProfileConflict(_))));
@@ -4761,11 +5120,12 @@ mod tests {
         assert_eq!(initial.prompt, Some(ProfileOnboardingPrompt::Initialize));
         let reminder = service.profile_onboarding_status("UTC").unwrap();
         assert_eq!(reminder.prompt, Some(ProfileOnboardingPrompt::Reminder));
+        assert!(reminder.available);
         drop(service);
 
         let restored = FeatureService::open(home.clone(), Vec::<PathBuf>::new()).unwrap();
         let after_restart = restored.profile_onboarding_status("UTC").unwrap();
-        assert!(after_restart.available);
+        assert!(!after_restart.available);
         assert_eq!(after_restart.prompt, None);
         let skipped = restored
             .set_user_profile_onboarding(UserProfileOnboardingInput {
@@ -4775,6 +5135,7 @@ mod tests {
                 name: None,
                 language: None,
                 identity: None,
+                complete: false,
                 skip: true,
             })
             .unwrap();
@@ -4782,6 +5143,47 @@ mod tests {
         assert_eq!(skipped.result["profile"]["updated_by"]["kind"], "bot");
         assert_eq!(skipped.result["profile"]["timezone"], "Asia/Shanghai");
         assert!(!restored.profile_onboarding_status("UTC").unwrap().available);
+    }
+
+    #[test]
+    fn partial_profile_answer_stays_unonboarded_until_complete_or_skip() {
+        let service = service();
+        let initial = service.profile_onboarding_status("Asia/Shanghai").unwrap();
+        assert_eq!(initial.prompt, Some(ProfileOnboardingPrompt::Initialize));
+        let partial = service
+            .set_user_profile_onboarding(UserProfileOnboardingInput {
+                run_id: "run-profile-partial".into(),
+                bot_id: "main-bot".into(),
+                expected_version: 1,
+                name: Some("Ari".into()),
+                language: None,
+                identity: None,
+                complete: false,
+                skip: false,
+            })
+            .unwrap();
+        assert_eq!(partial.result["profile"]["name"], "Ari");
+        assert_eq!(partial.result["profile"]["onboarded"], false);
+
+        let reminder = service.profile_onboarding_status("UTC").unwrap();
+        assert_eq!(reminder.prompt, Some(ProfileOnboardingPrompt::Reminder));
+        assert!(reminder.available);
+        let completed = service
+            .set_user_profile_onboarding(UserProfileOnboardingInput {
+                run_id: "run-profile-complete".into(),
+                bot_id: "main-bot".into(),
+                expected_version: 2,
+                name: None,
+                language: Some("zh-CN".into()),
+                identity: None,
+                complete: true,
+                skip: false,
+            })
+            .unwrap();
+        assert_eq!(completed.result["profile"]["name"], "Ari");
+        assert_eq!(completed.result["profile"]["language"], "zh-CN");
+        assert_eq!(completed.result["profile"]["onboarded"], true);
+        assert!(!service.profile_onboarding_status("UTC").unwrap().available);
     }
 
     #[test]
@@ -5214,36 +5616,47 @@ mod tests {
     #[test]
     fn memory_actor_permissions_and_context_hook() {
         let service = service();
-        service.begin_memory_run("run-1").unwrap();
+        let actor = MemoryActor::bot("bot-a");
+        let add = |scope: &str, owner: &str, operation_id: &str| {
+            json!({
+                "scope":scope,
+                if scope == "bot" {"bot_id"} else {"project_id"}:owner,
+                "action":"add",
+                "kind":if scope == "bot" {"bot_experience"} else {"project"},
+                "content":"fact",
+                "run_id":"run-1",
+                "operation_id":operation_id
+            })
+        };
         service
-            .stage_memory(
-                &MemoryActor::bot("bot-a"),
-                "run-1",
-                MemoryRequest {
-                    target: MemoryTarget::bot("bot-a"),
-                    action: MemoryAction::Add,
-                    content: "fact".into(),
-                    id: None,
-                    kind: Some(MemoryKind::BotExperience),
-                    source: MemorySource::default(),
-                },
+            .memory_rpc_with_access(
+                &actor,
+                &MemoryAccess::user("u"),
+                add("bot", "bot-a", "run-1:call-bot"),
             )
             .unwrap();
         assert!(service
-            .stage_memory(
-                &MemoryActor::bot("bot-a"),
-                "run-1",
-                MemoryRequest {
-                    target: MemoryTarget::bot("bot-b"),
-                    action: MemoryAction::Add,
-                    content: "denied".into(),
-                    id: None,
-                    kind: Some(MemoryKind::BotExperience),
-                    source: MemorySource::default(),
-                },
+            .memory_rpc_with_access(
+                &actor,
+                &MemoryAccess::user("u"),
+                add("bot", "bot-b", "run-1:call-denied"),
             )
             .is_err());
-        service.commit_memory_run("run-1").unwrap();
+        assert!(service
+            .memory_rpc_with_access(
+                &actor,
+                &MemoryAccess::group("p", vec!["bot-b".into()]),
+                add("project", "p", "run-1:call-project-denied"),
+            )
+            .is_err());
+        service
+            .memory_rpc_with_access(
+                &actor,
+                &MemoryAccess::group("p", vec!["bot-a".into()]),
+                add("project", "p", "run-1:call-project"),
+            )
+            .unwrap();
+        assert_eq!(service.shared_memory.entries().unwrap().len(), 2);
         let package = service
             .context(&ContextRequest {
                 kind: macbot_memory::ConversationKind::Private,
@@ -5435,6 +5848,27 @@ mod tests {
         }
     }
 
+    struct RecordingMaintenanceRequest(Arc<std::sync::Mutex<Option<ModelRequest>>>);
+
+    #[async_trait]
+    impl ModelProvider for RecordingMaintenanceRequest {
+        async fn stream(
+            &self,
+            request: ModelRequest,
+            _events: mpsc::Sender<ModelEvent>,
+        ) -> macbot_providers::Result<Completion> {
+            *self.0.lock().unwrap() = Some(request);
+            Ok(Completion {
+                text: String::new(),
+                assistant_content: None,
+                thinking: String::new(),
+                tool_calls: Vec::new(),
+                usage: TokenUsage::default(),
+                stop_reason: "stop".into(),
+            })
+        }
+    }
+
     struct FailingMaintenance;
     #[async_trait]
     impl AsyncMaintenanceProvider for FailingMaintenance {
@@ -5498,6 +5932,26 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn maintenance_extract_calls_model_with_only_memory_tool() {
+        let captured = Arc::new(std::sync::Mutex::new(None));
+        let adapter = ModelMaintenanceAdapter::new(
+            Arc::new(RecordingMaintenanceRequest(Arc::clone(&captured))),
+            "mock",
+        );
+        assert!(adapter
+            .extract("a durable decision")
+            .await
+            .unwrap()
+            .is_empty());
+        let request = captured.lock().unwrap().clone().unwrap();
+        assert_eq!(request.tools.len(), 1);
+        assert_eq!(
+            request.tools[0]["function"]["name"],
+            Value::String("memory".into())
+        );
+    }
+
+    #[tokio::test]
     async fn maintenance_adapter_uses_model_provider_and_commits_summary() {
         let service = service();
         service
@@ -5524,7 +5978,7 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_eq!(result.content, "summarized work");
-        assert_eq!(events.len(), 1);
+        assert_eq!(events.len(), 2);
         assert_eq!(events[0].event, "memory.updated");
         assert_eq!(
             service
@@ -5534,7 +5988,7 @@ mod tests {
                 .iter()
                 .filter(|event| event.event == "memory.updated")
                 .count(),
-            1
+            2
         );
         assert!(service
             .maintain_worklog(&MemoryTarget::bot("bot-a"))
@@ -5571,7 +6025,7 @@ mod tests {
             .await;
 
         assert_eq!(report.committed.len(), 1);
-        assert_eq!(report.events.len(), 1);
+        assert_eq!(report.events.len(), 2);
         assert_eq!(report.events[0].event, "memory.updated");
         assert!(report.error.is_some());
         assert_eq!(
@@ -5582,51 +6036,41 @@ mod tests {
                 .iter()
                 .filter(|event| event.event == "memory.updated")
                 .count(),
-            1
+            2
         );
     }
 
     #[test]
     fn memory_access_separates_user_group_and_private_scopes() {
         let service = service();
-        service.begin_memory_run("access").unwrap();
         let actor = MemoryActor::bot("bot-a");
-        let user = MemoryRequest {
-            target: MemoryTarget::user("u"),
-            action: MemoryAction::Add,
-            content: "preference".into(),
-            id: None,
-            kind: Some(MemoryKind::UserPreference),
-            source: MemorySource::default(),
-        };
-        assert!(service
-            .stage_memory_with_access(&actor, &MemoryAccess::user("u"), "access", user)
-            .is_err());
-        let project = MemoryRequest {
-            target: MemoryTarget::project("p"),
-            action: MemoryAction::Add,
-            content: "group decision".into(),
-            id: None,
-            kind: Some(MemoryKind::Project),
-            source: MemorySource::default(),
-        };
-        assert!(service
-            .stage_memory_with_access(
-                &actor,
-                &MemoryAccess::group("p", vec!["bot-b".into()]),
-                "access",
-                project.clone()
-            )
-            .is_err());
-        assert!(service
-            .stage_memory_with_access(
-                &actor,
-                &MemoryAccess::group("p", vec!["bot-a".into()]),
-                "access",
-                project
-            )
-            .is_ok());
-        service.commit_memory_run("access").unwrap();
+        let user = service.memory_rpc_with_access(
+            &actor,
+            &MemoryAccess::user("u"),
+            json!({
+                "scope":"user", "user_id":"u", "action":"add",
+                "kind":"user_preference", "content":"preference", "operation_id":"access:user"
+            }),
+        );
+        assert!(matches!(user, Err(FeatureError::NotAllowed(_))));
+        let denied = service.memory_rpc_with_access(
+            &actor,
+            &MemoryAccess::group("p", vec!["bot-b".into()]),
+            json!({
+                "scope":"project", "project_id":"p", "action":"add",
+                "kind":"project", "content":"group decision", "operation_id":"access:denied"
+            }),
+        );
+        assert!(denied.is_err());
+        let allowed = service.memory_rpc_with_access(
+            &actor,
+            &MemoryAccess::group("p", vec!["bot-a".into()]),
+            json!({
+                "scope":"project", "project_id":"p", "action":"add",
+                "kind":"project", "content":"group decision", "operation_id":"access:allowed"
+            }),
+        );
+        assert!(allowed.is_ok());
         assert_eq!(service.shared_memory.entries().unwrap().len(), 1);
     }
 
@@ -5646,6 +6090,7 @@ mod tests {
                     "kind": "bot_experience",
                     "content": "source sentinel",
                     "run_id": "actual-run",
+                    "operation_id":"actual-run:call-1",
                     "source": {
                         "bot_id": "other-bot",
                         "run_id": "forged-run",
@@ -5664,11 +6109,61 @@ mod tests {
     }
 
     #[test]
-    fn compact_summary_is_staged_until_run_success() {
+    fn memory_tool_mutations_are_immediate_versioned_and_idempotent() {
+        let service = service();
+        let actor = MemoryActor::bot("bot-a");
+        let access = MemoryAccess::user("local-user");
+        let (created, events) = service
+            .memory_mutation_with_access(
+                &actor,
+                &access,
+                json!({"scope":"bot","bot_id":"bot-a","kind":"bot_experience","content":"first","run_id":"r1","operation_id":"r1:c1"}),
+            )
+            .unwrap();
+        assert_eq!(created["ok"], true);
+        assert_eq!(created["version"], 1);
+        assert_eq!(events.len(), 1);
+        let entry_id = created["entry_id"].as_str().unwrap();
+        assert_eq!(service.shared_memory.entries().unwrap().len(), 1);
+
+        let missing_version = service.memory_rpc_with_access(
+            &actor,
+            &access,
+            json!({"scope":"bot","bot_id":"bot-a","action":"replace","id":entry_id,"content":"missing version","run_id":"r1","operation_id":"r1:c2"}),
+        );
+        assert!(matches!(missing_version, Err(FeatureError::Invalid(_))));
+
+        let (updated, events) = service
+            .memory_mutation_with_access(
+                &actor,
+                &access,
+                json!({"scope":"bot","bot_id":"bot-a","action":"replace","id":entry_id,"expected_version":1,"content":"second","run_id":"r1","operation_id":"r1:c3"}),
+            )
+            .unwrap();
+        assert_eq!(updated["version"], 2);
+        assert_eq!(events.len(), 1);
+        assert_eq!(
+            service.shared_memory.entries().unwrap()[0].content,
+            "second"
+        );
+
+        let replay = service
+            .memory_mutation_with_access(
+                &actor,
+                &access,
+                json!({"scope":"bot","bot_id":"bot-a","action":"replace","id":entry_id,"expected_version":1,"content":"second","run_id":"r1","operation_id":"r1:c3"}),
+            )
+            .unwrap();
+        assert_eq!(replay.0, updated);
+        assert!(replay.1.is_empty());
+        assert_eq!(service.shared_memory.entries().unwrap()[0].version, 2);
+    }
+
+    #[test]
+    fn compact_summary_is_persisted_immediately() {
         let service = service();
         let actor = MemoryActor::bot("bot-a");
         let access = MemoryAccess::user("u");
-        service.begin_memory_run("compact-fail").unwrap();
         service
             .stage_context_summary(
                 &actor,
@@ -5683,28 +6178,6 @@ mod tests {
                 },
             )
             .unwrap();
-        assert!(service
-            .memory_search("compacted", Some(&MemoryTarget::bot("bot-a")))
-            .unwrap()
-            .is_empty());
-        service.rollback_memory_run("compact-fail").unwrap();
-        assert!(service
-            .memory_search("compacted", Some(&MemoryTarget::bot("bot-a")))
-            .unwrap()
-            .is_empty());
-
-        service.begin_memory_run("compact-ok").unwrap();
-        service
-            .stage_context_summary(
-                &actor,
-                &access,
-                "compact-ok",
-                MemoryTarget::bot("bot-a"),
-                "compacted context",
-                MemorySource::default(),
-            )
-            .unwrap();
-        service.commit_memory_run("compact-ok").unwrap();
         assert_eq!(
             service
                 .memory_search("compacted", Some(&MemoryTarget::bot("bot-a")))

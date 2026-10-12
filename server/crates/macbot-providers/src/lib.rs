@@ -259,6 +259,10 @@ pub fn wire_request(kind: ApiKind, request: &ModelRequest) -> (String, Value) {
                     let mut message = message.clone();
                     if let Some(object) = message.as_object_mut() {
                         object.remove("assistant_content");
+                        object.remove("cache_control");
+                        object.remove("macbot_context");
+                        object.remove("memory_update_consumed");
+                        object.remove("macbot_dynamic_system");
                     }
                     message
                 })
@@ -315,7 +319,12 @@ pub fn wire_request(kind: ApiKind, request: &ModelRequest) -> (String, Value) {
             for message in &request.messages {
                 let role = message["role"].as_str().unwrap_or("user");
                 if role == "system" {
-                    system.push(message["content"].as_str().unwrap_or("").to_owned());
+                    let text = message["content"].as_str().unwrap_or("");
+                    let mut block = json!({"type":"text","text":text});
+                    if let Some(cache_control) = message.get("cache_control") {
+                        block["cache_control"] = cache_control.clone();
+                    }
+                    system.push(block);
                     continue;
                 }
                 let content = if role == "assistant"
@@ -353,7 +362,7 @@ pub fn wire_request(kind: ApiKind, request: &ModelRequest) -> (String, Value) {
                 };
                 messages.push(json!({"role":if role=="assistant" {"assistant"} else {"user"},"content":content}));
             }
-            let mut body = json!({"model":request.model,"messages":messages,"system":system.join("\n\n"),"max_tokens":max_output,"stream":true});
+            let mut body = json!({"model":request.model,"messages":messages,"system":system,"max_tokens":max_output,"stream":true});
             if !request.tools.is_empty() {
                 body["tools"] = json!(request.tools.iter().map(|t| json!({"name":t["function"]["name"],"description":t["function"]["description"],"input_schema":t["function"]["parameters"]})).collect::<Vec<_>>());
             }
@@ -910,12 +919,29 @@ mod tests {
             ..Default::default()
         };
         let (_, body) = wire_request(ApiKind::AnthropicMessages, &request);
-        assert_eq!(body["system"], "rules");
+        assert_eq!(body["system"][0]["text"], "rules");
         assert_eq!(
             body["messages"][0]["content"][0]["source"]["media_type"],
             "image/png"
         );
         assert_eq!(body["messages"][1]["content"][0]["tool_use_id"], "c");
+    }
+
+    #[test]
+    fn anthropic_system_cache_breakpoint_is_preserved() {
+        let request = ModelRequest {
+            model: "m".into(),
+            messages: vec![
+                json!({"role":"system","content":"L0-L1"}),
+                json!({"role":"system","content":"L2","cache_control":{"type":"ephemeral"}}),
+                json!({"role":"system","content":"L3-L4"}),
+            ],
+            max_output: 10,
+            ..Default::default()
+        };
+        let (_, body) = wire_request(ApiKind::AnthropicMessages, &request);
+        assert_eq!(body["system"][1]["cache_control"]["type"], "ephemeral");
+        assert!(body["system"][0].get("cache_control").is_none());
     }
     #[test]
     fn responses_tool_call_id_is_preserved() {

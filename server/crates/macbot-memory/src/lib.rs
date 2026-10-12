@@ -1,13 +1,14 @@
 //! Server-owned memory, search and prompt-context primitives.
 //!
 //! The gateway owns authorization and chooses the target identifiers.  This
-//! crate owns quotas, run staging, stable snapshots and the small search index
+//! crate owns quotas, immediate persistence, stable snapshots and the small search index
 //! used by memory/session/project tools.
 
 use chrono::{DateTime, Datelike, Duration, Utc};
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeMap, HashMap};
-use std::fs;
+use std::collections::BTreeMap;
+use std::fs::{self, OpenOptions};
+use std::io::{BufRead, BufReader, Write};
 use std::path::Path;
 use std::sync::{Arc, RwLock};
 use thiserror::Error;
@@ -19,6 +20,7 @@ pub const BOT_WORKLOG_LIMIT: usize = 1_500;
 pub const PROJECT_LIMIT: usize = 3_000;
 pub const SNAPSHOT_MAX_AGE_HOURS: i64 = 24;
 pub const GROUP_RECENT_MESSAGES: usize = 30;
+pub const SEGMENT_RETENTION_DAYS: i64 = 7;
 
 /// Stable L0 platform rules shared by every context. Keep this string fixed
 /// across turns so prompt caching remains effective; dynamic Bot/project data
@@ -28,7 +30,10 @@ pub const DEFAULT_L0_PLATFORM_RULES: &str = r#"Platform rules:
 - Bot-to-Bot communication uses send_msg. Every message must be self-contained; do not rely on private model context.
 - Main-Bot-only actions (project creation, member assignment, and cross-Bot coordination) are unavailable to ordinary Bots.
 - Before a write, exec, external request, browser payment, sudo, destructive rm, or git push, follow the approval policy.
-- When the user expresses a preference, corrects the Bot, or a durable conclusion is reached, record it with the memory tool.
+- When corrected or when you learn a durable lesson, record Bot experience in Bot memory.
+- When a group reaches a durable conclusion, record it in project memory.
+- Do not write user preferences; the memory curator handles them.
+- Store worklogs as a concise summary of what was done and the result, not as a full reply.
 - A forced /skill-name prefix loads that skill before the remaining text is treated as the instruction."#;
 
 pub fn default_l0_platform_rules() -> &'static str {
@@ -63,10 +68,6 @@ pub enum MemoryError {
     ProfileConflict(Box<UserProfile>),
     #[error("idempotency key was reused with different request content: {0}")]
     IdempotencyConflict(String),
-    #[error("run already exists: {0}")]
-    RunExists(String),
-    #[error("run has no staged changes: {0}")]
-    NoStagedChanges(String),
     #[error("invalid memory request: {0}")]
     Invalid(String),
     #[error("I/O error: {0}")]
@@ -77,6 +78,13 @@ pub enum MemoryError {
     Provider(String),
     #[error("memory store lock poisoned")]
     LockPoisoned,
+    #[error(
+        "memory change log no longer covers revision {seen_revision}; earliest available revision is {earliest_revision}"
+    )]
+    ChangeLogGap {
+        seen_revision: u64,
+        earliest_revision: u64,
+    },
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Hash)]
@@ -101,6 +109,7 @@ impl std::fmt::Display for MemoryScope {
 #[serde(rename_all = "snake_case")]
 pub enum MemoryKind {
     UserPreference,
+    UserProfile,
     BotExperience,
     BotWorklog,
     Project,
@@ -118,6 +127,7 @@ impl MemoryKind {
         matches!(
             (scope, self),
             (MemoryScope::User, Self::UserPreference)
+                | (MemoryScope::User, Self::UserProfile)
                 | (MemoryScope::Bot, Self::BotExperience | Self::BotWorklog)
                 | (MemoryScope::Project, Self::Project)
         )
@@ -125,6 +135,7 @@ impl MemoryKind {
     fn limit(&self) -> usize {
         match self {
             Self::UserPreference => USER_LIMIT,
+            Self::UserProfile => 0,
             Self::BotExperience => BOT_EXPERIENCE_LIMIT,
             Self::BotWorklog => BOT_WORKLOG_LIMIT,
             Self::Project => PROJECT_LIMIT,
@@ -218,9 +229,120 @@ pub struct MemoryEntry {
     pub target: MemoryTarget,
     pub kind: MemoryKind,
     pub content: String,
+    #[serde(default = "initial_entry_version")]
+    pub version: u64,
     pub source: MemorySource,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+}
+
+fn initial_entry_version() -> u64 {
+    1
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum MemoryOperation {
+    Add,
+    Replace,
+    Remove,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum MemoryChangeKind {
+    UserPreference,
+    UserProfile,
+    BotExperience,
+    ProjectKnowledge,
+    Worklog,
+}
+
+impl From<&MemoryKind> for MemoryChangeKind {
+    fn from(kind: &MemoryKind) -> Self {
+        match kind {
+            MemoryKind::UserPreference => Self::UserPreference,
+            MemoryKind::UserProfile => Self::UserProfile,
+            MemoryKind::BotExperience => Self::BotExperience,
+            MemoryKind::Project => Self::ProjectKnowledge,
+            MemoryKind::BotWorklog => Self::Worklog,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum MemoryChangeActorKind {
+    User,
+    Bot,
+    System,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct MemoryChangeActor {
+    pub kind: MemoryChangeActorKind,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bot_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub run_id: Option<String>,
+}
+
+impl Default for MemoryChangeActor {
+    fn default() -> Self {
+        Self {
+            kind: MemoryChangeActorKind::System,
+            bot_id: None,
+            run_id: None,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct MemoryChange {
+    pub operation_id: String,
+    pub revision: u64,
+    pub op: MemoryOperation,
+    pub entry_id: String,
+    pub target: MemoryTarget,
+    pub kind: MemoryChangeKind,
+    pub content: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prev_content: Option<String>,
+    pub actor: MemoryChangeActor,
+    pub source: MemoryChangeSource,
+    pub at: DateTime<Utc>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    recovery_state: Option<Box<PersistedState>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    legacy_payload: Option<serde_json::Value>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct MemorySegmentRecord {
+    pub run_id: String,
+    #[serde(default)]
+    pub segment_no: u64,
+    pub seen_revision: u64,
+    #[serde(default)]
+    pub delta_chars: usize,
+    pub updated_at: DateTime<Utc>,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct MemoryChangeSource {
+    pub bot_id: Option<String>,
+    pub run_id: Option<String>,
+    pub session_id: Option<String>,
+    pub by: Option<MemorySender>,
+    pub chat_id: Option<String>,
+    pub message_id: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+struct MemoryThreadSegmentRecord {
+    thread_id: String,
+    current_segment_id: String,
+    segment_no: u64,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -292,7 +414,7 @@ pub struct UserProfileUpdate {
     pub updated_by: MemorySender,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct MemoryMutationResult {
     pub entry: Option<MemoryEntry>,
     pub version: u64,
@@ -319,6 +441,10 @@ struct PersistedState {
     user_profile: Option<UserProfile>,
     #[serde(default)]
     operation_receipts: BTreeMap<String, MemoryOperationReceipt>,
+    #[serde(default)]
+    deleted_user_entries: BTreeMap<String, u64>,
+    #[serde(default)]
+    snapshot_cache: BTreeMap<String, MemorySnapshot>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -343,8 +469,10 @@ pub struct MemoryStore {
     user_metadata: BTreeMap<String, UserMemoryMetadata>,
     user_profile: Option<UserProfile>,
     operation_receipts: BTreeMap<String, MemoryOperationReceipt>,
-    staged: HashMap<String, Vec<MemoryRequest>>,
     revision: u64,
+    deleted_user_entries: BTreeMap<String, u64>,
+    storage_path: Option<std::path::PathBuf>,
+    snapshot_cache: BTreeMap<String, MemorySnapshot>,
 }
 
 /// Thread-safe facade for gateway handlers. Quota checks and mutations happen
@@ -360,49 +488,6 @@ impl SharedMemoryStore {
         Self {
             inner: Arc::new(RwLock::new(store)),
         }
-    }
-
-    pub fn begin_run(&self, run_id: impl Into<String>) -> Result<(), MemoryError> {
-        self.inner
-            .write()
-            .map_err(|_| MemoryError::LockPoisoned)?
-            .begin_run(run_id)
-    }
-
-    pub fn stage(&self, run_id: &str, request: MemoryRequest) -> Result<(), MemoryError> {
-        self.inner
-            .write()
-            .map_err(|_| MemoryError::LockPoisoned)?
-            .stage(run_id, request)
-    }
-
-    pub fn commit_run(&self, run_id: &str) -> Result<Vec<MemoryEntry>, MemoryError> {
-        self.inner
-            .write()
-            .map_err(|_| MemoryError::LockPoisoned)?
-            .commit_run(run_id)
-    }
-
-    /// Commit a run and replace its durable snapshot as one logical operation.
-    /// The candidate state is written before it becomes visible through the
-    /// shared store, so a failed write cannot leave the process ahead of disk.
-    pub fn commit_run_persisted(
-        &self,
-        run_id: &str,
-        path: impl AsRef<Path>,
-    ) -> Result<Vec<MemoryEntry>, MemoryError> {
-        self.inner
-            .write()
-            .map_err(|_| MemoryError::LockPoisoned)?
-            .commit_run_persisted(run_id, path)
-    }
-
-    pub fn rollback_run(&self, run_id: &str) -> Result<bool, MemoryError> {
-        Ok(self
-            .inner
-            .write()
-            .map_err(|_| MemoryError::LockPoisoned)?
-            .rollback_run(run_id))
     }
 
     pub fn add(&self, request: MemoryRequest) -> Result<MemoryEntry, MemoryError> {
@@ -475,6 +560,134 @@ impl SharedMemoryStore {
             .revision())
     }
 
+    pub fn changes_since(&self, seen_revision: u64) -> Result<Vec<MemoryChange>, MemoryError> {
+        let store = self.inner.read().map_err(|_| MemoryError::LockPoisoned)?;
+        let path = store
+            .storage_path
+            .as_deref()
+            .ok_or_else(|| MemoryError::Invalid("memory store has no storage path".into()))?;
+        read_memory_changes(path, seen_revision)
+    }
+
+    pub fn record_segment_seen(&self, run_id: &str, seen_revision: u64) -> Result<(), MemoryError> {
+        let store = self.inner.write().map_err(|_| MemoryError::LockPoisoned)?;
+        let state_path = store
+            .storage_path
+            .as_deref()
+            .ok_or_else(|| MemoryError::Invalid("memory store has no storage path".into()))?;
+        write_segment_seen(state_path, run_id, seen_revision)
+    }
+
+    pub fn current_segment_id(&self, thread_id: &str) -> Result<Option<String>, MemoryError> {
+        let store = self.inner.read().map_err(|_| MemoryError::LockPoisoned)?;
+        let state_path = store
+            .storage_path
+            .as_deref()
+            .ok_or_else(|| MemoryError::Invalid("memory store has no storage path".into()))?;
+        read_thread_segment(state_path, thread_id)
+            .map(|record| record.map(|item| item.current_segment_id))
+    }
+
+    pub fn open_segment(&self, thread_id: &str, seen_revision: u64) -> Result<String, MemoryError> {
+        let store = self.inner.write().map_err(|_| MemoryError::LockPoisoned)?;
+        let state_path = store
+            .storage_path
+            .as_deref()
+            .ok_or_else(|| MemoryError::Invalid("memory store has no storage path".into()))?;
+        let prior = read_thread_segment(state_path, thread_id)?;
+        let segment_no = prior
+            .map(|item| item.segment_no.saturating_add(1))
+            .unwrap_or(1);
+        let segment_id = Uuid::now_v7().to_string();
+        write_segment_seen(state_path, &segment_id, seen_revision)?;
+        if let Some(mut segment) = read_segment_record(state_path, &segment_id)? {
+            segment.segment_no = segment_no;
+            write_segment_record(state_path, &segment)?;
+        }
+        write_thread_segment(
+            state_path,
+            &MemoryThreadSegmentRecord {
+                thread_id: thread_id.to_owned(),
+                current_segment_id: segment_id.clone(),
+                segment_no,
+            },
+        )?;
+        Ok(segment_id)
+    }
+
+    pub fn segment_delta_chars(&self, run_id: &str) -> Result<usize, MemoryError> {
+        let store = self.inner.read().map_err(|_| MemoryError::LockPoisoned)?;
+        let path = store
+            .storage_path
+            .as_deref()
+            .ok_or_else(|| MemoryError::Invalid("memory store has no storage path".into()))?;
+        Ok(read_segment_record(path, run_id)?
+            .map(|record| record.delta_chars)
+            .unwrap_or(0))
+    }
+
+    pub fn add_segment_delta_chars(
+        &self,
+        run_id: &str,
+        count: usize,
+    ) -> Result<usize, MemoryError> {
+        let store = self.inner.write().map_err(|_| MemoryError::LockPoisoned)?;
+        let state_path = store
+            .storage_path
+            .as_deref()
+            .ok_or_else(|| MemoryError::Invalid("memory store has no storage path".into()))?;
+        let mut record = read_segment_record(state_path, run_id)?.unwrap_or(MemorySegmentRecord {
+            run_id: run_id.to_owned(),
+            segment_no: 0,
+            seen_revision: store.revision,
+            delta_chars: 0,
+            updated_at: Utc::now(),
+        });
+        record.delta_chars = record.delta_chars.saturating_add(count);
+        record.updated_at = Utc::now();
+        write_segment_record(state_path, &record)?;
+        Ok(record.delta_chars)
+    }
+
+    pub fn snapshot_cache_get(
+        &self,
+        cache_key: &str,
+    ) -> Result<Option<MemorySnapshot>, MemoryError> {
+        let store = self.inner.read().map_err(|_| MemoryError::LockPoisoned)?;
+        Ok(store.snapshot_cache.get(cache_key).cloned())
+    }
+
+    pub fn snapshot_cache_put(
+        &self,
+        cache_key: impl Into<String>,
+        snapshot: MemorySnapshot,
+    ) -> Result<(), MemoryError> {
+        let mut store = self.inner.write().map_err(|_| MemoryError::LockPoisoned)?;
+        store.snapshot_cache.insert(cache_key.into(), snapshot);
+        if let Some(path) = store.storage_path.as_ref() {
+            store.save_to(path)?;
+        }
+        Ok(())
+    }
+
+    pub fn segment_seen_revision(&self, run_id: &str) -> Result<Option<u64>, MemoryError> {
+        let store = self.inner.read().map_err(|_| MemoryError::LockPoisoned)?;
+        let state_path = store
+            .storage_path
+            .as_deref()
+            .ok_or_else(|| MemoryError::Invalid("memory store has no storage path".into()))?;
+        read_segment_seen(state_path, run_id)
+    }
+
+    pub fn prune_expired_segments(&self, now: DateTime<Utc>) -> Result<(), MemoryError> {
+        let store = self.inner.read().map_err(|_| MemoryError::LockPoisoned)?;
+        let state_path = store
+            .storage_path
+            .as_deref()
+            .ok_or_else(|| MemoryError::Invalid("memory store has no storage path".into()))?;
+        prune_expired_memory_files(state_path, now)
+    }
+
     pub fn entries(&self) -> Result<Vec<MemoryEntry>, MemoryError> {
         Ok(self
             .inner
@@ -487,13 +700,10 @@ impl SharedMemoryStore {
 
     pub fn entry_version(&self, entry_id: &str) -> Result<Option<u64>, MemoryError> {
         let store = self.inner.read().map_err(|_| MemoryError::LockPoisoned)?;
-        Ok(store.entries.contains_key(entry_id).then(|| {
-            store
-                .user_metadata
-                .get(entry_id)
-                .map(|metadata| metadata.version.max(1))
-                .unwrap_or(1)
-        }))
+        Ok(store
+            .entries
+            .get(entry_id)
+            .map(|entry| entry.version.max(1)))
     }
 
     pub fn user_records(
@@ -546,7 +756,56 @@ impl SharedMemoryStore {
             MemoryError,
         >,
     {
+        self.transact_user_persisted_internal(path, request_id, signature, None, operation)
+    }
+
+    pub fn transact_user_persisted_with_actor<F>(
+        &self,
+        path: impl AsRef<Path>,
+        request_id: Option<&str>,
+        signature: &str,
+        actor: MemoryChangeActor,
+        operation: F,
+    ) -> Result<MemoryTransactionResult, MemoryError>
+    where
+        F: FnOnce(
+            &mut MemoryStore,
+        ) -> Result<
+            (
+                serde_json::Value,
+                String,
+                serde_json::Value,
+                Option<serde_json::Value>,
+            ),
+            MemoryError,
+        >,
+    {
+        self.transact_user_persisted_internal(path, request_id, signature, Some(actor), operation)
+    }
+
+    fn transact_user_persisted_internal<F>(
+        &self,
+        path: impl AsRef<Path>,
+        request_id: Option<&str>,
+        signature: &str,
+        actor: Option<MemoryChangeActor>,
+        operation: F,
+    ) -> Result<MemoryTransactionResult, MemoryError>
+    where
+        F: FnOnce(
+            &mut MemoryStore,
+        ) -> Result<
+            (
+                serde_json::Value,
+                String,
+                serde_json::Value,
+                Option<serde_json::Value>,
+            ),
+            MemoryError,
+        >,
+    {
         let mut store = self.inner.write().map_err(|_| MemoryError::LockPoisoned)?;
+        recover_pending_state(path.as_ref(), &mut store)?;
         if let Some(request_id) = request_id {
             if let Some(receipt) = store.operation_receipts.get(request_id) {
                 if receipt.signature != signature {
@@ -558,8 +817,12 @@ impl SharedMemoryStore {
                 });
             }
         }
-        let mut candidate = store.clone_without_staging();
+        let before = store.clone_for_transaction();
+        let mut candidate = before.clone_for_transaction();
         let (result, event_name, event_data, audit_data) = operation(&mut candidate)?;
+        let op_id = request_id
+            .map(str::to_owned)
+            .unwrap_or_else(|| format!("txn:{}", Uuid::now_v7()));
         let receipt = MemoryOperationReceipt {
             signature: signature.to_owned(),
             result,
@@ -572,6 +835,7 @@ impl SharedMemoryStore {
                 .operation_receipts
                 .insert(request_id.to_owned(), receipt.clone());
         }
+        append_state_diff(path.as_ref(), &before, &mut candidate, &op_id, actor)?;
         candidate.save_to(path)?;
         *store = candidate;
         Ok(MemoryTransactionResult {
@@ -587,10 +851,23 @@ impl SharedMemoryStore {
         path: impl AsRef<Path>,
         request: MemoryRequest,
         expected_version: Option<u64>,
+        operation_id: &str,
+        actor: MemoryChangeActor,
     ) -> Result<MemoryMutationResult, MemoryError> {
         validate_request(&request)?;
+        if operation_id.trim().is_empty() {
+            return Err(MemoryError::Invalid("operation_id is empty".into()));
+        }
         let mut store = self.inner.write().map_err(|_| MemoryError::LockPoisoned)?;
-        let mut candidate = store.clone_without_staging();
+        recover_pending_state(path.as_ref(), &mut store)?;
+        let signature = serde_json::to_string(&(&request, expected_version, &actor))?;
+        if let Some(receipt) = store.operation_receipts.get(operation_id) {
+            if receipt.signature != signature {
+                return Err(MemoryError::IdempotencyConflict(operation_id.to_owned()));
+            }
+            return Ok(serde_json::from_value(receipt.result.clone())?);
+        }
+        let mut candidate = store.clone_for_transaction();
         let prior = match &request.action {
             MemoryAction::Add => None,
             MemoryAction::Replace | MemoryAction::Remove => {
@@ -605,21 +882,31 @@ impl SharedMemoryStore {
                     .cloned()
                     .ok_or_else(|| MemoryError::NotFound(id.to_owned()))?;
                 let version = candidate
-                    .user_metadata
+                    .entries
                     .get(id)
-                    .map(|metadata| metadata.version.max(1))
+                    .map(|entry| entry.version.max(1))
                     .unwrap_or(1);
                 if expected_version != Some(version) {
-                    return Err(MemoryError::VersionConflict {
-                        current: Box::new(current),
-                        version,
-                    });
+                    return Err(MemoryError::UserConflict(Box::new(
+                        candidate.user_record(&current),
+                    )));
                 }
                 Some(current)
             }
         };
-        let changed = candidate.apply(request.clone())?;
+        let changed = candidate.apply(request.clone(), expected_version)?;
         candidate.revision = candidate.revision.wrapping_add(1);
+        if matches!(&request.action, MemoryAction::Remove)
+            && prior
+                .as_ref()
+                .is_some_and(|entry| entry.kind == MemoryKind::UserPreference)
+        {
+            if let Some(entry) = &prior {
+                candidate
+                    .deleted_user_entries
+                    .insert(entry.id.clone(), candidate.revision);
+            }
+        }
         let (entry, version, kind) = match &request.action {
             MemoryAction::Add => {
                 let entry = changed.into_iter().next().expect("add creates entry");
@@ -635,21 +922,68 @@ impl SharedMemoryStore {
                 (Some(entry.clone()), version, entry.kind)
             }
             MemoryAction::Remove => {
-                let old = prior.expect("remove has an existing entry");
+                let old = prior.as_ref().expect("remove has an existing entry");
                 let version = expected_version.unwrap_or(1).saturating_add(1);
-                (None, version, old.kind)
+                (None, version, old.kind.clone())
             }
         };
         let used = candidate.used(&request.target, &kind);
         let remaining_chars = kind.limit().saturating_sub(used);
+        let result = MemoryMutationResult {
+            entry: entry.clone(),
+            version,
+            revision: candidate.revision,
+            remaining_chars,
+        };
+        let changed_entry = entry
+            .as_ref()
+            .or(prior.as_ref())
+            .expect("mutation has an entry");
+        let mut change = MemoryChange {
+            operation_id: operation_id.to_owned(),
+            revision: candidate.revision,
+            op: match &request.action {
+                MemoryAction::Add => MemoryOperation::Add,
+                MemoryAction::Replace => MemoryOperation::Replace,
+                MemoryAction::Remove => MemoryOperation::Remove,
+            },
+            entry_id: changed_entry.id.clone(),
+            target: changed_entry.target.clone(),
+            kind: MemoryChangeKind::from(&changed_entry.kind),
+            content: entry
+                .as_ref()
+                .map(|item| item.content.clone())
+                .unwrap_or_default(),
+            prev_content: prior.as_ref().map(|item| item.content.clone()),
+            actor,
+            source: change_source(
+                changed_entry,
+                candidate.user_metadata.get(&changed_entry.id),
+            ),
+            at: Utc::now(),
+            recovery_state: None,
+            legacy_payload: None,
+        };
+        candidate.operation_receipts.insert(
+            operation_id.to_owned(),
+            MemoryOperationReceipt {
+                signature,
+                result: serde_json::to_value(&result)?,
+                event_name: "memory.updated".to_owned(),
+                event_data: serde_json::to_value(change_without_recovery(&change))?,
+                audit_data: None,
+            },
+        );
+        change.recovery_state = Some(Box::new(candidate.persisted_state()));
+        candidate
+            .operation_receipts
+            .get_mut(operation_id)
+            .expect("receipt inserted")
+            .event_data = serde_json::to_value(change_without_recovery(&change))?;
+        append_memory_change(path.as_ref(), &change)?;
         candidate.save_to(path)?;
         *store = candidate;
-        Ok(MemoryMutationResult {
-            entry,
-            version,
-            revision: store.revision,
-            remaining_chars,
-        })
+        Ok(result)
     }
 
     pub fn user_create_persisted(
@@ -663,7 +997,9 @@ impl SharedMemoryStore {
     ) -> Result<UserMemoryRecord, MemoryError> {
         validate_user_content(&content)?;
         let mut store = self.inner.write().map_err(|_| MemoryError::LockPoisoned)?;
-        let mut candidate = store.clone_without_staging();
+        recover_pending_state(path.as_ref(), &mut store)?;
+        let before = store.clone_for_transaction();
+        let mut candidate = store.clone_for_transaction();
         let entry = match candidate.add(MemoryRequest {
             target,
             action: MemoryAction::Add,
@@ -696,9 +1032,17 @@ impl SharedMemoryStore {
                     chat_id,
                     message_id,
                 }),
-                updated_by: Some(by),
+                updated_by: Some(by.clone()),
             },
         );
+        let actor = actor_for_sender(&by, entry.source.run_id.clone());
+        append_state_diff(
+            path.as_ref(),
+            &before,
+            &mut candidate,
+            &format!("user-create:{}", entry.id),
+            Some(actor),
+        )?;
         candidate.save_to(path)?;
         *store = candidate;
         Ok(store.user_record(&entry))
@@ -739,7 +1083,9 @@ impl SharedMemoryStore {
     ) -> Result<UserMemoryRecord, MemoryError> {
         validate_user_content(&content)?;
         let mut store = self.inner.write().map_err(|_| MemoryError::LockPoisoned)?;
-        let mut candidate = store.clone_without_staging();
+        recover_pending_state(path.as_ref(), &mut store)?;
+        let before = store.clone_for_transaction();
+        let mut candidate = store.clone_for_transaction();
         let old = candidate
             .entries
             .get(entry_id)
@@ -752,14 +1098,17 @@ impl SharedMemoryStore {
         if old_record.version != expected_version {
             return Err(MemoryError::UserConflict(Box::new(old_record)));
         }
-        let mut entry = match candidate.replace(MemoryRequest {
-            target: target.clone(),
-            action: MemoryAction::Replace,
-            content,
-            id: Some(entry_id.to_owned()),
-            kind: Some(MemoryKind::UserPreference),
-            source: old.source.clone(),
-        }) {
+        let mut entry = match candidate.replace(
+            MemoryRequest {
+                target: target.clone(),
+                action: MemoryAction::Replace,
+                content,
+                id: Some(entry_id.to_owned()),
+                kind: Some(MemoryKind::UserPreference),
+                source: old.source.clone(),
+            },
+            expected_version,
+        ) {
             Ok(entry) => entry,
             Err(MemoryError::QuotaExceeded {
                 used,
@@ -780,7 +1129,7 @@ impl SharedMemoryStore {
             .entry(entry_id.to_owned())
             .or_default();
         metadata.version = old_record.version.saturating_add(1);
-        metadata.source = Some(if matches!(updated_by, MemorySender::System) {
+        metadata.source = Some(if matches!(&updated_by, MemorySender::System) {
             UserMemorySource {
                 by: MemorySender::System,
                 chat_id: source_chat_id,
@@ -789,11 +1138,19 @@ impl SharedMemoryStore {
         } else {
             old_record.source
         });
-        metadata.updated_by = Some(updated_by);
+        metadata.updated_by = Some(updated_by.clone());
         // Generic memory records preserve their own provenance. User-facing
         // source and updater are carried in the metadata map above.
         entry.source = old.source;
         candidate.entries.insert(entry_id.to_owned(), entry.clone());
+        let actor = actor_for_sender(&updated_by, entry.source.run_id.clone());
+        append_state_diff(
+            path.as_ref(),
+            &before,
+            &mut candidate,
+            &format!("user-update:{entry_id}:{}", entry.version),
+            Some(actor),
+        )?;
         candidate.save_to(path)?;
         *store = candidate;
         Ok(store.user_record(&entry))
@@ -807,7 +1164,9 @@ impl SharedMemoryStore {
         expected_version: u64,
     ) -> Result<(), MemoryError> {
         let mut store = self.inner.write().map_err(|_| MemoryError::LockPoisoned)?;
-        let mut candidate = store.clone_without_staging();
+        recover_pending_state(path.as_ref(), &mut store)?;
+        let before = store.clone_for_transaction();
+        let mut candidate = store.clone_for_transaction();
         let old = candidate
             .entries
             .get(entry_id)
@@ -820,15 +1179,28 @@ impl SharedMemoryStore {
         if old_record.version != expected_version {
             return Err(MemoryError::UserConflict(Box::new(old_record)));
         }
-        candidate.remove(MemoryRequest {
-            target: target.clone(),
-            action: MemoryAction::Remove,
-            content: String::new(),
-            id: Some(entry_id.to_owned()),
-            kind: Some(MemoryKind::UserPreference),
-            source: old.source,
-        })?;
+        candidate.remove(
+            MemoryRequest {
+                target: target.clone(),
+                action: MemoryAction::Remove,
+                content: String::new(),
+                id: Some(entry_id.to_owned()),
+                kind: Some(MemoryKind::UserPreference),
+                source: old.source.clone(),
+            },
+            expected_version,
+        )?;
         candidate.user_metadata.remove(entry_id);
+        append_state_diff(
+            path.as_ref(),
+            &before,
+            &mut candidate,
+            &format!("user-delete:{entry_id}:{expected_version}"),
+            Some(actor_for_sender(
+                &MemorySender::System,
+                old.source.run_id.clone(),
+            )),
+        )?;
         candidate.save_to(path)?;
         *store = candidate;
         Ok(())
@@ -840,6 +1212,7 @@ impl SharedMemoryStore {
         timezone: &str,
     ) -> Result<UserProfile, MemoryError> {
         let mut store = self.inner.write().map_err(|_| MemoryError::LockPoisoned)?;
+        recover_pending_state(path.as_ref(), &mut store)?;
         if let Some(profile) = &store.user_profile {
             return Ok(profile.clone());
         }
@@ -858,8 +1231,16 @@ impl SharedMemoryStore {
             updated_by: MemorySender::System,
             updated_at: Utc::now(),
         };
-        let mut candidate = store.clone_without_staging();
+        let mut candidate = store.clone_for_transaction();
+        let before = store.clone_for_transaction();
         candidate.user_profile = Some(profile.clone());
+        append_state_diff(
+            path.as_ref(),
+            &before,
+            &mut candidate,
+            &format!("profile-init:{}", profile.version),
+            Some(actor_for_sender(&profile.updated_by, None)),
+        )?;
         candidate.save_to(path)?;
         *store = candidate;
         Ok(profile)
@@ -871,7 +1252,10 @@ impl SharedMemoryStore {
         update: UserProfileUpdate,
     ) -> Result<UserProfile, MemoryError> {
         let mut store = self.inner.write().map_err(|_| MemoryError::LockPoisoned)?;
-        let mut candidate = store.clone_without_staging();
+        recover_pending_state(path.as_ref(), &mut store)?;
+        let before = store.clone_for_transaction();
+        let actor = actor_for_sender(&update.updated_by, None);
+        let mut candidate = store.clone_for_transaction();
         if candidate.user_profile.is_none() {
             candidate.user_profile = Some(UserProfile {
                 name: None,
@@ -923,6 +1307,13 @@ impl SharedMemoryStore {
         current.updated_by = update.updated_by;
         current.updated_at = Utc::now();
         let profile = current.clone();
+        append_state_diff(
+            path.as_ref(),
+            &before,
+            &mut candidate,
+            &format!("profile-update:{}", profile.version),
+            Some(actor),
+        )?;
         candidate.save_to(path)?;
         *store = candidate;
         Ok(profile)
@@ -937,8 +1328,18 @@ impl SharedMemoryStore {
         update: UserProfileUpdate,
     ) -> Result<UserProfile, MemoryError> {
         let mut store = self.inner.write().map_err(|_| MemoryError::LockPoisoned)?;
-        let mut candidate = store.clone_without_staging();
+        recover_pending_state(path.as_ref(), &mut store)?;
+        let before = store.clone_for_transaction();
+        let actor = actor_for_sender(&update.updated_by, None);
+        let mut candidate = store.clone_for_transaction();
         let profile = candidate.apply_user_profile_onboarding(update)?;
+        append_state_diff(
+            path.as_ref(),
+            &before,
+            &mut candidate,
+            &format!("profile-onboard:{}", profile.version),
+            Some(actor),
+        )?;
         candidate.save_to(path)?;
         *store = candidate;
         Ok(profile)
@@ -1005,6 +1406,28 @@ impl MemoryStore {
         expected_version: u64,
         updated_by: MemorySender,
     ) -> Result<UserMemoryRecord, MemoryError> {
+        self.apply_user_update_with_source(
+            target,
+            entry_id,
+            content,
+            expected_version,
+            updated_by,
+            None,
+            None,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn apply_user_update_with_source(
+        &mut self,
+        target: &MemoryTarget,
+        entry_id: &str,
+        content: String,
+        expected_version: u64,
+        updated_by: MemorySender,
+        source_chat_id: Option<String>,
+        source_message_id: Option<String>,
+    ) -> Result<UserMemoryRecord, MemoryError> {
         validate_user_content(&content)?;
         let old = self
             .entries
@@ -1016,14 +1439,17 @@ impl MemoryStore {
         if old_record.version != expected_version {
             return Err(MemoryError::UserConflict(Box::new(old_record)));
         }
-        let mut entry = match self.replace(MemoryRequest {
-            target: target.clone(),
-            action: MemoryAction::Replace,
-            content,
-            id: Some(entry_id.to_owned()),
-            kind: Some(MemoryKind::UserPreference),
-            source: old.source.clone(),
-        }) {
+        let mut entry = match self.replace(
+            MemoryRequest {
+                target: target.clone(),
+                action: MemoryAction::Replace,
+                content,
+                id: Some(entry_id.to_owned()),
+                kind: Some(MemoryKind::UserPreference),
+                source: old.source.clone(),
+            },
+            expected_version,
+        ) {
             Ok(entry) => entry,
             Err(MemoryError::QuotaExceeded {
                 used,
@@ -1041,7 +1467,15 @@ impl MemoryStore {
         };
         let metadata = self.user_metadata.entry(entry_id.to_owned()).or_default();
         metadata.version = old_record.version.saturating_add(1);
-        metadata.source = Some(old_record.source);
+        metadata.source = Some(if matches!(&updated_by, MemorySender::System) {
+            UserMemorySource {
+                by: MemorySender::System,
+                chat_id: source_chat_id,
+                message_id: source_message_id,
+            }
+        } else {
+            old_record.source
+        });
         metadata.updated_by = Some(updated_by);
         entry.source = old.source;
         self.entries.insert(entry_id.to_owned(), entry.clone());
@@ -1064,14 +1498,17 @@ impl MemoryStore {
         if old_record.version != expected_version {
             return Err(MemoryError::UserConflict(Box::new(old_record)));
         }
-        self.remove(MemoryRequest {
-            target: target.clone(),
-            action: MemoryAction::Remove,
-            content: String::new(),
-            id: Some(entry_id.to_owned()),
-            kind: Some(MemoryKind::UserPreference),
-            source: old.source,
-        })?;
+        self.remove(
+            MemoryRequest {
+                target: target.clone(),
+                action: MemoryAction::Remove,
+                content: String::new(),
+                id: Some(entry_id.to_owned()),
+                kind: Some(MemoryKind::UserPreference),
+                source: old.source,
+            },
+            expected_version,
+        )?;
         self.user_metadata.remove(entry_id);
         Ok(())
     }
@@ -1171,108 +1608,57 @@ impl MemoryStore {
         self.entries.values()
     }
 
-    pub fn begin_run(&mut self, run_id: impl Into<String>) -> Result<(), MemoryError> {
-        let run_id = run_id.into();
-        if self.staged.contains_key(&run_id) {
-            return Err(MemoryError::RunExists(run_id));
-        }
-        self.staged.insert(run_id, Vec::new());
-        Ok(())
-    }
-
-    pub fn stage(&mut self, run_id: &str, request: MemoryRequest) -> Result<(), MemoryError> {
-        if !self.staged.contains_key(run_id) {
-            self.begin_run(run_id)?;
-        }
-        validate_request(&request)?;
-        let staged = self.staged.get_mut(run_id).expect("run inserted");
-        // Execution may ask for context more than once while refreshing a
-        // snapshot.  Identical writes in one run are retries, not distinct
-        // memories; dedupe before quota accounting and commit.
-        if !staged.iter().any(|existing| existing == &request) {
-            staged.push(request);
-        }
-        Ok(())
-    }
-
-    pub fn rollback_run(&mut self, run_id: &str) -> bool {
-        self.staged.remove(run_id).is_some()
-    }
-
-    /// Apply all staged operations atomically from the caller's point of view.
-    /// Quotas are checked against a cloned state before the live state changes.
-    pub fn commit_run(&mut self, run_id: &str) -> Result<Vec<MemoryEntry>, MemoryError> {
-        let requests = self
-            .staged
-            .remove(run_id)
-            .ok_or_else(|| MemoryError::NoStagedChanges(run_id.to_string()))?;
-        let mut candidate = self.clone_without_staging();
-        let mut changed = Vec::new();
-        for request in requests {
-            changed.extend(candidate.apply(request)?);
-        }
-        self.entries = candidate.entries;
-        self.user_metadata = candidate.user_metadata;
-        self.user_profile = candidate.user_profile;
-        self.operation_receipts = candidate.operation_receipts;
-        self.revision = self.revision.wrapping_add(1);
-        Ok(changed)
-    }
-
-    fn commit_run_persisted(
-        &mut self,
-        run_id: &str,
-        path: impl AsRef<Path>,
-    ) -> Result<Vec<MemoryEntry>, MemoryError> {
-        let requests = self
-            .staged
-            .get(run_id)
-            .cloned()
-            .ok_or_else(|| MemoryError::NoStagedChanges(run_id.to_string()))?;
-        let mut candidate = self.clone_without_staging();
-        let mut changed = Vec::new();
-        for request in requests {
-            changed.extend(candidate.apply(request)?);
-        }
-        candidate.revision = candidate.revision.wrapping_add(1);
-        candidate.save_to(path)?;
-        self.entries = candidate.entries;
-        self.user_metadata = candidate.user_metadata;
-        self.user_profile = candidate.user_profile;
-        self.revision = candidate.revision;
-        self.staged.remove(run_id);
-        Ok(changed)
-    }
-
     pub fn add(&mut self, mut request: MemoryRequest) -> Result<MemoryEntry, MemoryError> {
         request.action = MemoryAction::Add;
-        let changed = self.apply(request)?;
+        let changed = self.apply(request, None)?;
         self.revision = self.revision.wrapping_add(1);
         Ok(changed.into_iter().next().expect("add creates entry"))
     }
 
-    pub fn replace(&mut self, mut request: MemoryRequest) -> Result<MemoryEntry, MemoryError> {
+    pub fn replace(
+        &mut self,
+        mut request: MemoryRequest,
+        expected_version: u64,
+    ) -> Result<MemoryEntry, MemoryError> {
         request.action = MemoryAction::Replace;
-        let changed = self.apply(request)?;
+        let changed = self.apply(request, Some(expected_version))?;
         self.revision = self.revision.wrapping_add(1);
         Ok(changed.into_iter().next().expect("replace creates entry"))
     }
 
-    pub fn remove(&mut self, mut request: MemoryRequest) -> Result<(), MemoryError> {
+    pub fn remove(
+        &mut self,
+        mut request: MemoryRequest,
+        expected_version: u64,
+    ) -> Result<(), MemoryError> {
         request.action = MemoryAction::Remove;
-        self.apply(request)?;
+        self.apply(request, Some(expected_version))?;
         self.revision = self.revision.wrapping_add(1);
         Ok(())
     }
 
-    fn clone_without_staging(&self) -> Self {
+    fn clone_for_transaction(&self) -> Self {
         Self {
             entries: self.entries.clone(),
             user_metadata: self.user_metadata.clone(),
             user_profile: self.user_profile.clone(),
             operation_receipts: self.operation_receipts.clone(),
-            staged: HashMap::new(),
             revision: self.revision,
+            deleted_user_entries: self.deleted_user_entries.clone(),
+            storage_path: self.storage_path.clone(),
+            snapshot_cache: self.snapshot_cache.clone(),
+        }
+    }
+
+    fn persisted_state(&self) -> PersistedState {
+        PersistedState {
+            entries: self.entries.values().cloned().collect(),
+            revision: self.revision,
+            user_metadata: self.user_metadata.clone(),
+            user_profile: self.user_profile.clone(),
+            operation_receipts: self.operation_receipts.clone(),
+            deleted_user_entries: self.deleted_user_entries.clone(),
+            snapshot_cache: self.snapshot_cache.clone(),
         }
     }
 
@@ -1309,7 +1695,7 @@ impl MemoryStore {
         UserMemoryRecord {
             id: entry.id.clone(),
             content: entry.content.clone(),
-            version: metadata.version.max(1),
+            version: entry.version.max(metadata.version).max(1),
             source,
             updated_by: metadata.updated_by.unwrap_or(legacy_sender),
             created_at: entry.created_at,
@@ -1317,14 +1703,11 @@ impl MemoryStore {
         }
     }
 
-    fn entry_version(&self, entry_id: &str) -> u64 {
-        self.user_metadata
-            .get(entry_id)
-            .map(|metadata| metadata.version.max(1))
-            .unwrap_or(1)
-    }
-
-    fn apply(&mut self, request: MemoryRequest) -> Result<Vec<MemoryEntry>, MemoryError> {
+    fn apply(
+        &mut self,
+        request: MemoryRequest,
+        expected_version: Option<u64>,
+    ) -> Result<Vec<MemoryEntry>, MemoryError> {
         validate_request(&request)?;
         let kind = request
             .kind
@@ -1341,6 +1724,7 @@ impl MemoryStore {
                     target: request.target,
                     kind,
                     content: request.content,
+                    version: 1,
                     source: request.source,
                     created_at: now,
                     updated_at: now,
@@ -1375,6 +1759,9 @@ impl MemoryStore {
                 if old.target != request.target {
                     return Err(MemoryError::Invalid("entry target mismatch".into()));
                 }
+                if expected_version != Some(old.version) {
+                    return Err(MemoryError::UserConflict(Box::new(self.user_record(&old))));
+                }
                 let used = self
                     .used(&request.target, &old.kind)
                     .saturating_sub(old.content.chars().count());
@@ -1386,6 +1773,7 @@ impl MemoryStore {
                 )?;
                 let mut entry = old;
                 entry.content = request.content;
+                entry.version = entry.version.saturating_add(1);
                 entry.source = request.source;
                 entry.updated_at = Utc::now();
                 {
@@ -1414,6 +1802,9 @@ impl MemoryStore {
                     .ok_or_else(|| MemoryError::NotFound(id.clone()))?;
                 if old.target != request.target {
                     return Err(MemoryError::Invalid("entry target mismatch".into()));
+                }
+                if expected_version != Some(old.version) {
+                    return Err(MemoryError::UserConflict(Box::new(self.user_record(old))));
                 }
                 self.entries.remove(&id);
                 self.user_metadata.remove(&id);
@@ -1551,6 +1942,7 @@ impl MemoryStore {
                 target: target.clone(),
                 kind: MemoryKind::BotWorklog,
                 content: summary,
+                version: 1,
                 source: source.clone(),
                 created_at: now,
                 updated_at: now,
@@ -1615,12 +2007,7 @@ impl MemoryStore {
         previous: Option<&MemorySnapshot>,
         now: DateTime<Utc>,
     ) -> (MemorySnapshot, bool) {
-        let stale = previous.is_none_or(|snapshot| {
-            snapshot.targets != targets
-                || snapshot.revision != self.revision
-                || now.signed_duration_since(snapshot.generated_at)
-                    > Duration::hours(SNAPSHOT_MAX_AGE_HOURS)
-        });
+        let stale = previous.is_none_or(|snapshot| snapshot.targets != targets);
         if !stale {
             return (previous.expect("checked above").clone(), false);
         }
@@ -1636,19 +2023,21 @@ impl MemoryStore {
                 generated_at: now,
                 targets: targets.to_vec(),
                 entries,
+                user_profile: targets
+                    .iter()
+                    .any(|target| {
+                        target.scope == MemoryScope::User
+                            && matches!(target.owner_id.as_str(), "user" | "local-user")
+                    })
+                    .then(|| self.user_profile.clone())
+                    .flatten(),
             },
             true,
         )
     }
 
     pub fn save_to(&self, path: impl AsRef<Path>) -> Result<(), MemoryError> {
-        let state = PersistedState {
-            entries: self.entries.values().cloned().collect(),
-            revision: self.revision,
-            user_metadata: self.user_metadata.clone(),
-            user_profile: self.user_profile.clone(),
-            operation_receipts: self.operation_receipts.clone(),
-        };
+        let state = self.persisted_state();
         let path = path.as_ref();
         let temp = path.with_extension("tmp");
         let bytes = serde_json::to_vec_pretty(&state)?;
@@ -1669,22 +2058,56 @@ impl MemoryStore {
 
     pub fn load_from(path: impl AsRef<Path>) -> Result<Self, MemoryError> {
         if !path.as_ref().exists() {
-            return Ok(Self::new());
+            let changes = read_all_memory_changes(path.as_ref())?;
+            if let Some(state) = changes
+                .iter()
+                .rev()
+                .find_map(|change| change.recovery_state.clone())
+            {
+                write_persisted_state(path.as_ref(), &state)?;
+                return Self::load_from(path);
+            }
+            return Ok(Self {
+                storage_path: Some(path.as_ref().to_path_buf()),
+                ..Self::new()
+            });
         }
-        let state: PersistedState = serde_json::from_slice(&fs::read(path)?)?;
+        let mut state: PersistedState = serde_json::from_slice(&fs::read(path.as_ref())?)?;
+        let future_changes = read_all_memory_changes(path.as_ref())?
+            .into_iter()
+            .filter(|change| change.revision > state.revision)
+            .collect::<Vec<_>>();
+        if let Some(recovered) = future_changes
+            .iter()
+            .rev()
+            .find_map(|change| change.recovery_state.clone())
+        {
+            state = *recovered;
+            write_persisted_state(path.as_ref(), &state)?;
+        }
         let entries = state
             .entries
             .into_iter()
-            .map(|entry| (entry.id.clone(), entry))
+            .map(|mut entry| {
+                if let Some(metadata) = state.user_metadata.get(&entry.id) {
+                    entry.version = entry.version.max(metadata.version).max(1);
+                }
+                (entry.id.clone(), entry)
+            })
             .collect();
-        Ok(Self {
+        let store = Self {
             entries,
             user_metadata: state.user_metadata,
             user_profile: state.user_profile,
             operation_receipts: state.operation_receipts,
-            staged: HashMap::new(),
+            deleted_user_entries: state.deleted_user_entries,
             revision: state.revision,
-        })
+            storage_path: Some(path.as_ref().to_path_buf()),
+            snapshot_cache: state.snapshot_cache,
+        };
+        prune_memory_changes(path.as_ref(), store.revision, Utc::now())?;
+        prune_expired_memory_files(path.as_ref(), Utc::now())?;
+        Ok(store)
     }
 }
 
@@ -1727,6 +2150,674 @@ fn ensure_quota(
 
 fn new_id() -> String {
     Uuid::now_v7().to_string()
+}
+
+fn memory_directory(state_path: &Path) -> &Path {
+    state_path.parent().unwrap_or_else(|| Path::new("."))
+}
+
+fn changelog_path(state_path: &Path) -> std::path::PathBuf {
+    memory_directory(state_path).join("changelog.jsonl")
+}
+
+fn change_without_recovery(change: &MemoryChange) -> MemoryChange {
+    MemoryChange {
+        operation_id: change.operation_id.clone(),
+        revision: change.revision,
+        op: change.op.clone(),
+        entry_id: change.entry_id.clone(),
+        target: change.target.clone(),
+        kind: change.kind.clone(),
+        content: change.content.clone(),
+        prev_content: change.prev_content.clone(),
+        actor: change.actor.clone(),
+        source: change.source.clone(),
+        at: change.at,
+        recovery_state: None,
+        legacy_payload: change.legacy_payload.clone(),
+    }
+}
+
+fn append_memory_change(state_path: &Path, change: &MemoryChange) -> Result<(), MemoryError> {
+    let path = changelog_path(state_path);
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let mut file = OpenOptions::new().create(true).append(true).open(path)?;
+    serde_json::to_writer(&mut file, change)?;
+    file.write_all(b"\n")?;
+    file.sync_all()?;
+    Ok(())
+}
+
+fn actor_for_sender(sender: &MemorySender, run_id: Option<String>) -> MemoryChangeActor {
+    match sender {
+        MemorySender::User => MemoryChangeActor {
+            kind: MemoryChangeActorKind::User,
+            bot_id: None,
+            run_id,
+        },
+        MemorySender::System => MemoryChangeActor {
+            kind: MemoryChangeActorKind::System,
+            bot_id: None,
+            run_id,
+        },
+        MemorySender::Bot { bot_id } => MemoryChangeActor {
+            kind: MemoryChangeActorKind::Bot,
+            bot_id: Some(bot_id.clone()),
+            run_id,
+        },
+    }
+}
+
+fn change_source(entry: &MemoryEntry, metadata: Option<&UserMemoryMetadata>) -> MemoryChangeSource {
+    let provenance = metadata.and_then(|item| item.source.as_ref());
+    MemoryChangeSource {
+        bot_id: entry.source.bot_id.clone(),
+        run_id: entry.source.run_id.clone(),
+        session_id: entry.source.session_id.clone(),
+        by: provenance.map(|source| source.by.clone()),
+        chat_id: provenance.and_then(|source| source.chat_id.clone()),
+        message_id: provenance.and_then(|source| source.message_id.clone()),
+    }
+}
+
+fn append_state_diff(
+    state_path: &Path,
+    before: &MemoryStore,
+    candidate: &mut MemoryStore,
+    operation_id: &str,
+    actor_override: Option<MemoryChangeActor>,
+) -> Result<(), MemoryError> {
+    append_state_diff_with(
+        state_path,
+        before,
+        candidate,
+        operation_id,
+        actor_override,
+        append_memory_change,
+    )
+}
+
+fn append_state_diff_with<F>(
+    state_path: &Path,
+    before: &MemoryStore,
+    candidate: &mut MemoryStore,
+    operation_id: &str,
+    actor_override: Option<MemoryChangeActor>,
+    mut append: F,
+) -> Result<(), MemoryError>
+where
+    F: FnMut(&Path, &MemoryChange) -> Result<(), MemoryError>,
+{
+    let mut drafts: Vec<(
+        MemoryOperation,
+        MemoryEntry,
+        Option<String>,
+        MemoryChangeActor,
+        MemoryChangeSource,
+    )> = Vec::new();
+    for (id, entry) in &candidate.entries {
+        let old = before.entries.get(id);
+        if old.is_some_and(|old| old == entry) {
+            continue;
+        }
+        let sender = candidate
+            .user_metadata
+            .get(id)
+            .and_then(|metadata| metadata.updated_by.as_ref())
+            .cloned()
+            .unwrap_or_else(|| sender_for_memory_source(&entry.source));
+        drafts.push((
+            if old.is_some() {
+                MemoryOperation::Replace
+            } else {
+                MemoryOperation::Add
+            },
+            entry.clone(),
+            old.map(|old| old.content.clone()),
+            actor_override
+                .clone()
+                .unwrap_or_else(|| actor_for_sender(&sender, entry.source.run_id.clone())),
+            change_source(entry, candidate.user_metadata.get(id)),
+        ));
+    }
+    for (id, old) in &before.entries {
+        if !candidate.entries.contains_key(id) {
+            if old.kind == MemoryKind::UserPreference {
+                candidate
+                    .deleted_user_entries
+                    .insert(id.clone(), candidate.revision.max(before.revision + 1));
+            }
+            let sender = before
+                .user_metadata
+                .get(id)
+                .and_then(|metadata| metadata.updated_by.as_ref())
+                .cloned()
+                .unwrap_or_else(|| sender_for_memory_source(&old.source));
+            drafts.push((
+                MemoryOperation::Remove,
+                old.clone(),
+                Some(old.content.clone()),
+                actor_override
+                    .clone()
+                    .unwrap_or_else(|| actor_for_sender(&sender, old.source.run_id.clone())),
+                change_source(old, before.user_metadata.get(id)),
+            ));
+        }
+    }
+    if before.user_profile != candidate.user_profile {
+        let old = before.user_profile.as_ref();
+        let current = candidate.user_profile.as_ref();
+        drafts.push((
+            if old.is_some() {
+                MemoryOperation::Replace
+            } else {
+                MemoryOperation::Add
+            },
+            MemoryEntry {
+                id: "profile".into(),
+                target: MemoryTarget::user("local-user"),
+                kind: MemoryKind::UserProfile,
+                content: current
+                    .map(serde_json::to_string)
+                    .transpose()?
+                    .unwrap_or_default(),
+                version: current.map(|profile| profile.version).unwrap_or(1),
+                source: MemorySource::default(),
+                created_at: current
+                    .map(|profile| profile.updated_at)
+                    .unwrap_or_else(Utc::now),
+                updated_at: current
+                    .map(|profile| profile.updated_at)
+                    .unwrap_or_else(Utc::now),
+            },
+            old.map(serde_json::to_string).transpose()?,
+            actor_override
+                .clone()
+                .or_else(|| current.map(|profile| actor_for_sender(&profile.updated_by, None)))
+                .unwrap_or_default(),
+            MemoryChangeSource {
+                by: current.map(|profile| profile.updated_by.clone()),
+                ..MemoryChangeSource::default()
+            },
+        ));
+    }
+    if drafts.is_empty() {
+        return Ok(());
+    }
+    candidate.revision = candidate
+        .revision
+        .max(before.revision.saturating_add(drafts.len() as u64));
+    let recovery_state = Box::new(candidate.persisted_state());
+    let start_revision = candidate
+        .revision
+        .saturating_sub(drafts.len() as u64)
+        .saturating_add(1);
+    let last_index = drafts.len().saturating_sub(1);
+    for (index, (op, entry, prev_content, actor, source)) in drafts.into_iter().enumerate() {
+        let change = MemoryChange {
+            operation_id: operation_id.to_owned(),
+            revision: start_revision + index as u64,
+            op: op.clone(),
+            entry_id: entry.id,
+            target: entry.target,
+            kind: MemoryChangeKind::from(&entry.kind),
+            content: if matches!(op, MemoryOperation::Remove) {
+                String::new()
+            } else {
+                entry.content
+            },
+            prev_content,
+            actor,
+            source,
+            at: Utc::now(),
+            recovery_state: (index == last_index).then(|| recovery_state.clone()),
+            legacy_payload: None,
+        };
+        append(state_path, &change)?;
+    }
+    Ok(())
+}
+
+fn read_all_memory_changes(state_path: &Path) -> Result<Vec<MemoryChange>, MemoryError> {
+    let path = changelog_path(state_path);
+    if !path.exists() {
+        return Ok(Vec::new());
+    }
+    let file = fs::File::open(path)?;
+    let mut changes = Vec::new();
+    let lines = BufReader::new(file)
+        .lines()
+        .collect::<Result<Vec<_>, _>>()?;
+    for (index, line) in lines.iter().enumerate() {
+        if line.trim().is_empty() {
+            continue;
+        }
+        match serde_json::from_str::<serde_json::Value>(line) {
+            Ok(value) => {
+                let change = serde_json::from_value::<MemoryChange>(value.clone())
+                    .ok()
+                    .or_else(|| parse_legacy_memory_change(value))
+                    .ok_or_else(|| {
+                        MemoryError::Invalid(format!(
+                            "unsupported changelog row at line {}",
+                            index + 1
+                        ))
+                    })?;
+                changes.push(change);
+            }
+            Err(_) if index + 1 == lines.len() => break,
+            Err(_) => {
+                return Err(MemoryError::Invalid(format!(
+                    "malformed changelog row at line {}",
+                    index + 1
+                )));
+            }
+        }
+    }
+    changes.sort_by_key(|change| change.revision);
+    Ok(changes)
+}
+
+fn parse_legacy_memory_change(value: serde_json::Value) -> Option<MemoryChange> {
+    let object = value.as_object()?;
+    let revision = object.get("revision")?.as_u64()?;
+    let op_text = object.get("op")?.as_str()?.to_ascii_lowercase();
+    let op = match op_text.as_str() {
+        "add" | "create" | "profile" => MemoryOperation::Add,
+        "replace" | "update" | "profile_update" => MemoryOperation::Replace,
+        "remove" | "delete" => MemoryOperation::Remove,
+        _ => return None,
+    };
+    let kind_text = object
+        .get("kind")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("user_preference")
+        .to_ascii_lowercase();
+    let kind = match kind_text.as_str() {
+        "user_preference" | "user" => MemoryChangeKind::UserPreference,
+        "user_profile" | "profile" => MemoryChangeKind::UserProfile,
+        "bot_experience" | "bot" => MemoryChangeKind::BotExperience,
+        "project_knowledge" | "project" => MemoryChangeKind::ProjectKnowledge,
+        "worklog" | "bot_worklog" => MemoryChangeKind::Worklog,
+        _ => return None,
+    };
+    let target = object
+        .get("target")
+        .cloned()
+        .and_then(|target| serde_json::from_value::<MemoryTarget>(target).ok())
+        .unwrap_or_else(|| {
+            if kind == MemoryChangeKind::UserProfile || kind == MemoryChangeKind::UserPreference {
+                MemoryTarget::user("local-user")
+            } else {
+                MemoryTarget::bot("legacy")
+            }
+        });
+    let entry_id = object
+        .get("entry_id")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("profile")
+        .to_owned();
+    let actor_value = object
+        .get("actor")
+        .cloned()
+        .unwrap_or(serde_json::json!({"kind":"system"}));
+    let legacy_actor = actor_value.as_object();
+    let actor_kind = match legacy_actor
+        .and_then(|actor| actor.get("kind"))
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("system")
+        .to_ascii_lowercase()
+        .as_str()
+    {
+        "user" => MemoryChangeActorKind::User,
+        "bot" => MemoryChangeActorKind::Bot,
+        _ => MemoryChangeActorKind::System,
+    };
+    let actor = MemoryChangeActor {
+        kind: actor_kind,
+        bot_id: legacy_actor
+            .and_then(|actor| actor.get("bot_id"))
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_owned),
+        run_id: legacy_actor
+            .and_then(|actor| actor.get("run_id"))
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_owned),
+    };
+    let sender = match &actor.kind {
+        MemoryChangeActorKind::User => MemorySender::User,
+        MemoryChangeActorKind::Bot => MemorySender::Bot {
+            bot_id: actor.bot_id.clone().unwrap_or_else(|| "legacy".into()),
+        },
+        MemoryChangeActorKind::System => MemorySender::System,
+    };
+    let source = object
+        .get("source")
+        .cloned()
+        .and_then(|source| serde_json::from_value::<MemoryChangeSource>(source).ok())
+        .unwrap_or_else(|| MemoryChangeSource {
+            by: Some(sender),
+            chat_id: legacy_actor
+                .and_then(|actor| actor.get("chat_id"))
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_owned),
+            message_id: legacy_actor
+                .and_then(|actor| actor.get("message_id"))
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_owned),
+            ..MemoryChangeSource::default()
+        });
+    let at = object
+        .get("at")
+        .cloned()
+        .and_then(|at| serde_json::from_value::<DateTime<Utc>>(at).ok())
+        .unwrap_or_else(Utc::now);
+    Some(MemoryChange {
+        operation_id: object
+            .get("operation_id")
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_owned)
+            .unwrap_or_else(|| format!("legacy:{revision}:{entry_id}")),
+        revision,
+        op,
+        entry_id,
+        target,
+        kind,
+        content: object
+            .get("content")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or_default()
+            .to_owned(),
+        prev_content: object
+            .get("prev_content")
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_owned),
+        actor,
+        source,
+        at,
+        recovery_state: None,
+        legacy_payload: Some(value),
+    })
+}
+
+fn recover_pending_state(state_path: &Path, store: &mut MemoryStore) -> Result<(), MemoryError> {
+    if let Some(state) = read_all_memory_changes(state_path)?
+        .iter()
+        .rev()
+        .find(|change| change.revision > store.revision)
+        .and_then(|change| change.recovery_state.clone())
+    {
+        write_persisted_state(state_path, &state)?;
+        store.entries = state
+            .entries
+            .into_iter()
+            .map(|entry| (entry.id.clone(), entry))
+            .collect();
+        store.revision = state.revision;
+        store.user_metadata = state.user_metadata;
+        store.user_profile = state.user_profile;
+        store.operation_receipts = state.operation_receipts;
+        store.deleted_user_entries = state.deleted_user_entries;
+        store.snapshot_cache = state.snapshot_cache;
+    }
+    truncate_future_changes(state_path, store.revision)?;
+    Ok(())
+}
+
+fn truncate_future_changes(state_path: &Path, revision: u64) -> Result<(), MemoryError> {
+    let path = changelog_path(state_path);
+    if !path.exists() {
+        return Ok(());
+    }
+    let raw = fs::read(&path)?;
+    let changes = read_all_memory_changes(state_path)?;
+    let has_future_revision = changes.iter().any(|change| change.revision > revision);
+    let has_torn_tail = raw.last().is_some_and(|last| *last != b'\n')
+        || raw
+            .split(|byte| *byte == b'\n')
+            .rfind(|line| !line.iter().all(u8::is_ascii_whitespace))
+            .is_some_and(|line| serde_json::from_slice::<serde_json::Value>(line).is_err());
+    if !has_future_revision && !has_torn_tail {
+        return Ok(());
+    }
+    let changes = changes
+        .into_iter()
+        .filter(|change| change.revision <= revision)
+        .collect::<Vec<_>>();
+    let temp = path.with_extension("tmp");
+    let mut file = fs::File::create(&temp)?;
+    for change in changes {
+        serde_json::to_writer(&mut file, &change_without_recovery(&change))?;
+        file.write_all(b"\n")?;
+    }
+    file.sync_all()?;
+    fs::rename(temp, path)?;
+    Ok(())
+}
+
+fn read_memory_changes(
+    state_path: &Path,
+    seen_revision: u64,
+) -> Result<Vec<MemoryChange>, MemoryError> {
+    let changes = read_all_memory_changes(state_path)?;
+    let state: PersistedState = if state_path.exists() {
+        serde_json::from_slice(&fs::read(state_path)?)?
+    } else {
+        PersistedState::default()
+    };
+    if seen_revision < state.revision {
+        let available = changes
+            .iter()
+            .map(|change| change.revision)
+            .collect::<std::collections::BTreeSet<_>>();
+        if let Some(missing) =
+            ((seen_revision + 1)..=state.revision).find(|revision| !available.contains(revision))
+        {
+            return Err(MemoryError::ChangeLogGap {
+                seen_revision,
+                earliest_revision: missing,
+            });
+        }
+    }
+    Ok(changes
+        .into_iter()
+        .filter(|change| change.revision > seen_revision && change.revision <= state.revision)
+        .map(|mut change| {
+            change.recovery_state = None;
+            change
+        })
+        .collect())
+}
+
+fn write_persisted_state(path: &Path, state: &PersistedState) -> Result<(), MemoryError> {
+    let temp = path.with_extension("tmp");
+    let bytes = serde_json::to_vec_pretty(state)?;
+    let mut file = fs::File::create(&temp)?;
+    file.write_all(&bytes)?;
+    file.sync_all()?;
+    fs::rename(temp, path)?;
+    if let Some(parent) = path.parent() {
+        if let Ok(dir) = fs::File::open(parent) {
+            let _ = dir.sync_all();
+        }
+    }
+    Ok(())
+}
+
+fn segment_directory(state_path: &Path) -> std::path::PathBuf {
+    memory_directory(state_path).join("segments")
+}
+
+fn thread_segment_path(state_path: &Path, thread_id: &str) -> std::path::PathBuf {
+    let safe_id = thread_id
+        .chars()
+        .map(|character| {
+            if character.is_ascii_alphanumeric() || matches!(character, '-' | '_' | '.') {
+                character
+            } else {
+                '_'
+            }
+        })
+        .collect::<String>();
+    memory_directory(state_path)
+        .join("segments")
+        .join("threads")
+        .join(format!("{safe_id}.json"))
+}
+
+fn read_thread_segment(
+    state_path: &Path,
+    thread_id: &str,
+) -> Result<Option<MemoryThreadSegmentRecord>, MemoryError> {
+    let path = thread_segment_path(state_path, thread_id);
+    if !path.exists() {
+        return Ok(None);
+    }
+    Ok(Some(serde_json::from_slice(&fs::read(path)?)?))
+}
+
+fn write_thread_segment(
+    state_path: &Path,
+    record: &MemoryThreadSegmentRecord,
+) -> Result<(), MemoryError> {
+    let path = thread_segment_path(state_path, &record.thread_id);
+    fs::create_dir_all(path.parent().expect("thread segment file has parent"))?;
+    let temp = path.with_extension("tmp");
+    fs::write(&temp, serde_json::to_vec(record)?)?;
+    fs::rename(temp, path)?;
+    Ok(())
+}
+
+fn segment_path(state_path: &Path, run_id: &str) -> std::path::PathBuf {
+    let safe_id = run_id
+        .chars()
+        .map(|character| {
+            if character.is_ascii_alphanumeric() || matches!(character, '-' | '_' | '.') {
+                character
+            } else {
+                '_'
+            }
+        })
+        .collect::<String>();
+    segment_directory(state_path).join(format!("{safe_id}.json"))
+}
+
+fn write_segment_seen(
+    state_path: &Path,
+    run_id: &str,
+    seen_revision: u64,
+) -> Result<(), MemoryError> {
+    let mut record = read_segment_record(state_path, run_id)?.unwrap_or(MemorySegmentRecord {
+        run_id: run_id.to_owned(),
+        segment_no: 0,
+        seen_revision,
+        delta_chars: 0,
+        updated_at: Utc::now(),
+    });
+    record.seen_revision = seen_revision;
+    record.updated_at = Utc::now();
+    write_segment_record(state_path, &record)
+}
+
+fn write_segment_record(
+    state_path: &Path,
+    record: &MemorySegmentRecord,
+) -> Result<(), MemoryError> {
+    let path = segment_path(state_path, &record.run_id);
+    fs::create_dir_all(path.parent().expect("segment file has a parent"))?;
+    let temp = path.with_extension("tmp");
+    fs::write(&temp, serde_json::to_vec(record)?)?;
+    fs::rename(temp, path)?;
+    Ok(())
+}
+
+fn read_segment_seen(state_path: &Path, run_id: &str) -> Result<Option<u64>, MemoryError> {
+    Ok(read_segment_record(state_path, run_id)?.map(|record| record.seen_revision))
+}
+
+fn read_segment_record(
+    state_path: &Path,
+    run_id: &str,
+) -> Result<Option<MemorySegmentRecord>, MemoryError> {
+    let path = segment_path(state_path, run_id);
+    if !path.exists() {
+        return Ok(None);
+    }
+    let record: MemorySegmentRecord = serde_json::from_slice(&fs::read(path)?)?;
+    Ok(Some(record))
+}
+
+fn prune_expired_memory_files(state_path: &Path, now: DateTime<Utc>) -> Result<(), MemoryError> {
+    let dir = segment_directory(state_path);
+    if !dir.exists() {
+        return Ok(());
+    }
+    for item in fs::read_dir(dir)? {
+        let item = item?;
+        if !item.file_type()?.is_file() || item.path().extension().is_none_or(|ext| ext != "json") {
+            continue;
+        }
+        let record = match fs::read(item.path())
+            .ok()
+            .and_then(|bytes| serde_json::from_slice::<MemorySegmentRecord>(&bytes).ok())
+        {
+            Some(record) => record,
+            None => {
+                fs::remove_file(item.path())?;
+                continue;
+            }
+        };
+        if now.signed_duration_since(record.updated_at) > Duration::days(SEGMENT_RETENTION_DAYS) {
+            fs::remove_file(item.path())?;
+        }
+    }
+    Ok(())
+}
+
+fn prune_memory_changes(
+    state_path: &Path,
+    state_revision: u64,
+    now: DateTime<Utc>,
+) -> Result<(), MemoryError> {
+    let path = changelog_path(state_path);
+    let changes = read_all_memory_changes(state_path)?
+        .into_iter()
+        .filter(|change| change.revision <= state_revision)
+        .collect::<Vec<_>>();
+    prune_expired_memory_files(state_path, now)?;
+    let mut min_seen = state_revision;
+    let dir = segment_directory(state_path);
+    if dir.exists() {
+        for item in fs::read_dir(dir)? {
+            let item = item?;
+            if let Ok(record) = fs::read(item.path()).and_then(|bytes| {
+                serde_json::from_slice::<MemorySegmentRecord>(&bytes).map_err(std::io::Error::other)
+            }) {
+                min_seen = min_seen.min(record.seen_revision);
+            }
+        }
+    }
+    let cutoff = now - Duration::days(SEGMENT_RETENTION_DAYS);
+    let keep = changes
+        .into_iter()
+        .filter(|change| {
+            change.revision == state_revision || change.revision > min_seen || change.at >= cutoff
+        })
+        .collect::<Vec<_>>();
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let temp = path.with_extension("tmp");
+    let mut file = fs::File::create(&temp)?;
+    for change in keep {
+        serde_json::to_writer(&mut file, &change_without_recovery(&change))?;
+        file.write_all(b"\n")?;
+    }
+    file.sync_all()?;
+    fs::rename(temp, path)?;
+    Ok(())
 }
 
 fn sender_for_memory_source(source: &MemorySource) -> MemorySender {
@@ -1772,6 +2863,8 @@ pub struct MemorySnapshot {
     pub generated_at: DateTime<Utc>,
     pub targets: Vec<MemoryTarget>,
     pub entries: Vec<MemoryEntry>,
+    #[serde(default)]
+    pub user_profile: Option<UserProfile>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -1877,12 +2970,19 @@ pub struct ContextLayer {
 pub struct ContextPackage {
     pub layers: Vec<ContextLayer>,
     pub snapshot: MemorySnapshot,
+    pub large_entries: Vec<MemoryCatalogEntry>,
     pub new_segment: bool,
     pub segment_reason: Option<String>,
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct MemoryCatalogEntry {
+    pub entry_id: String,
+    pub topic: String,
+}
+
 pub fn assemble_context(store: &MemoryStore, request: &ContextRequest) -> ContextPackage {
-    let (snapshot, snapshot_stale) = store.snapshot(
+    let (snapshot, _snapshot_stale) = store.snapshot(
         &request.memory_targets,
         request.previous_snapshot.as_ref(),
         request.now,
@@ -1890,25 +2990,23 @@ pub fn assemble_context(store: &MemoryStore, request: &ContextRequest) -> Contex
     let memory_entries = snapshot
         .entries
         .iter()
+        .filter(|entry| {
+            matches!(
+                entry.kind,
+                MemoryKind::UserPreference | MemoryKind::BotExperience
+            )
+        })
         .map(|entry| {
             format!(
                 "[{} v{}] {}",
                 entry.kind_as_str(),
-                store.entry_version(&entry.id),
+                entry.version,
                 entry.content
             )
         })
         .collect::<Vec<_>>()
         .join("\n");
-    let profile_text = if request
-        .memory_targets
-        .iter()
-        .any(|target| target.scope == MemoryScope::User && target.owner_id == "user")
-    {
-        store.user_profile.as_ref().map(render_user_profile)
-    } else {
-        None
-    };
+    let profile_text = snapshot.user_profile.as_ref().map(render_user_profile);
     let memory_text = match (profile_text, memory_entries.is_empty()) {
         (Some(profile), true) => profile,
         (Some(profile), false) => format!("{profile}\n{memory_entries}"),
@@ -1972,17 +3070,33 @@ pub fn assemble_context(store: &MemoryStore, request: &ContextRequest) -> Contex
         / 4;
     let window_limit = request.model_context_window.saturating_mul(80) / 100;
     let threshold = window_limit > 0 && estimated_tokens >= window_limit;
-    let reason = if snapshot_stale {
-        Some("memory_snapshot_stale".into())
-    } else if threshold {
+    let reason = if threshold {
         Some("context_80_percent".into())
     } else {
         None
     };
+    let large_entries = snapshot
+        .entries
+        .iter()
+        .filter(|entry| matches!(entry.kind, MemoryKind::Project | MemoryKind::BotWorklog))
+        .map(|entry| MemoryCatalogEntry {
+            entry_id: entry.id.clone(),
+            topic: truncate_chars(
+                entry
+                    .content
+                    .lines()
+                    .next()
+                    .unwrap_or(&entry.content)
+                    .trim(),
+                120,
+            ),
+        })
+        .collect();
     ContextPackage {
         layers,
         snapshot,
-        new_segment: snapshot_stale || threshold,
+        large_entries,
+        new_segment: threshold,
         segment_reason: reason,
     }
 }
@@ -2021,6 +3135,7 @@ impl KindName for MemoryEntry {
     fn kind_as_str(&self) -> &'static str {
         match self.kind {
             MemoryKind::UserPreference => "user",
+            MemoryKind::UserProfile => "user_profile",
             MemoryKind::BotExperience => "bot",
             MemoryKind::BotWorklog => "worklog",
             MemoryKind::Project => "project",
@@ -2071,27 +3186,24 @@ pub fn maintenance_extract<P: MaintenanceProvider>(
     run_id: &str,
     transcript: &str,
 ) -> Result<Vec<MemoryEntry>, MemoryError> {
-    store.begin_run(run_id)?;
-    let result = (|| {
-        for draft in provider.extract(transcript)? {
-            store.stage(
-                run_id,
-                MemoryRequest {
-                    target: draft.target,
-                    action: MemoryAction::Add,
-                    content: draft.content,
-                    id: None,
-                    kind: Some(draft.kind),
-                    source: draft.source,
+    let drafts = provider.extract(transcript)?;
+    drafts
+        .into_iter()
+        .map(|draft| {
+            let entry = store.add(MemoryRequest {
+                target: draft.target,
+                action: MemoryAction::Add,
+                content: draft.content,
+                id: None,
+                kind: Some(draft.kind),
+                source: MemorySource {
+                    run_id: Some(run_id.to_owned()),
+                    ..draft.source
                 },
-            )?;
-        }
-        store.commit_run(run_id)
-    })();
-    if result.is_err() {
-        store.rollback_run(run_id);
-    }
-    result
+            })?;
+            Ok(entry)
+        })
+        .collect()
 }
 
 pub async fn async_maintenance_extract<P: AsyncMaintenanceProvider>(
@@ -2100,28 +3212,23 @@ pub async fn async_maintenance_extract<P: AsyncMaintenanceProvider>(
     run_id: &str,
     transcript: &str,
 ) -> Result<Vec<MemoryEntry>, MemoryError> {
-    store.begin_run(run_id)?;
-    let result = async {
-        for draft in provider.extract(transcript).await? {
-            store.stage(
-                run_id,
-                MemoryRequest {
-                    target: draft.target,
-                    action: MemoryAction::Add,
-                    content: draft.content,
-                    id: None,
-                    kind: Some(draft.kind),
-                    source: draft.source,
+    let drafts = provider.extract(transcript).await?;
+    drafts
+        .into_iter()
+        .map(|draft| {
+            store.add(MemoryRequest {
+                target: draft.target,
+                action: MemoryAction::Add,
+                content: draft.content,
+                id: None,
+                kind: Some(draft.kind),
+                source: MemorySource {
+                    run_id: Some(run_id.to_owned()),
+                    ..draft.source
                 },
-            )?;
-        }
-        store.commit_run(run_id)
-    }
-    .await;
-    if result.is_err() {
-        store.rollback_run(run_id);
-    }
-    result
+            })
+        })
+        .collect()
 }
 
 pub async fn async_compact_text<P: AsyncMaintenanceProvider>(
@@ -2277,52 +3384,6 @@ mod tests {
     }
 
     #[test]
-    fn staged_memory_commits_only_after_success_and_rolls_back() {
-        let mut store = MemoryStore::new();
-        store.begin_run("r1").unwrap();
-        store
-            .stage(
-                "r1",
-                request(
-                    MemoryTarget::user("u"),
-                    "likes concise replies",
-                    MemoryKind::UserPreference,
-                ),
-            )
-            .unwrap();
-        assert_eq!(store.entries().count(), 0);
-        store.commit_run("r1").unwrap();
-        assert_eq!(store.entries().count(), 1);
-        store.begin_run("r2").unwrap();
-        store
-            .stage(
-                "r2",
-                request(
-                    MemoryTarget::user("u"),
-                    "interrupted",
-                    MemoryKind::UserPreference,
-                ),
-            )
-            .unwrap();
-        store.rollback_run("r2");
-        assert_eq!(store.search("interrupted", None).len(), 0);
-    }
-
-    #[test]
-    fn identical_staged_memory_retries_are_deduplicated() {
-        let mut store = MemoryStore::new();
-        let write = request(
-            MemoryTarget::bot("b"),
-            "same context summary",
-            MemoryKind::BotWorklog,
-        );
-        store.stage("retry", write.clone()).unwrap();
-        store.stage("retry", write).unwrap();
-        let entries = store.commit_run("retry").unwrap();
-        assert_eq!(entries.len(), 1);
-    }
-
-    #[test]
     fn persisted_entries_keep_source_and_reload() {
         let temp = tempfile::tempdir().unwrap();
         let path = temp.path().join("memory.json");
@@ -2344,34 +3405,338 @@ mod tests {
     }
 
     #[test]
-    fn failed_commit_is_atomic_against_live_entries() {
-        let mut store = MemoryStore::new();
-        store.begin_run("quota").unwrap();
-        store
-            .stage(
-                "quota",
-                request(
-                    MemoryTarget::user("u"),
-                    &"x".repeat(USER_LIMIT),
-                    MemoryKind::UserPreference,
-                ),
+    fn immediate_mutations_require_versions_and_replay_by_operation_id() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("data/memory/state.json");
+        let shared = SharedMemoryStore::new(MemoryStore::load_from(&path).unwrap());
+        let add = request(
+            MemoryTarget::user("local-user"),
+            "likes quiet mornings",
+            MemoryKind::UserPreference,
+        );
+        let first = shared
+            .mutate_persisted(
+                &path,
+                add.clone(),
+                None,
+                "op-add",
+                MemoryChangeActor {
+                    kind: MemoryChangeActorKind::User,
+                    bot_id: None,
+                    run_id: None,
+                },
             )
             .unwrap();
-        store
-            .stage(
-                "quota",
-                request(
-                    MemoryTarget::user("u"),
-                    "overflow",
-                    MemoryKind::UserPreference,
-                ),
-            )
-            .unwrap();
+        assert_eq!(first.version, 1);
+        assert_eq!(
+            shared
+                .mutate_persisted(
+                    &path,
+                    add,
+                    None,
+                    "op-add",
+                    MemoryChangeActor {
+                        kind: MemoryChangeActorKind::User,
+                        bot_id: None,
+                        run_id: None
+                    }
+                )
+                .unwrap()
+                .revision,
+            first.revision
+        );
+        let mut replace = request(
+            MemoryTarget::user("local-user"),
+            "likes early walks",
+            MemoryKind::UserPreference,
+        );
+        replace.action = MemoryAction::Replace;
+        replace.id = first.entry.as_ref().map(|entry| entry.id.clone());
         assert!(matches!(
-            store.commit_run("quota"),
-            Err(MemoryError::QuotaExceeded { .. })
+            shared.mutate_persisted(
+                &path,
+                replace.clone(),
+                None,
+                "missing-cas",
+                MemoryChangeActor::default()
+            ),
+            Err(MemoryError::UserConflict(_))
         ));
-        assert_eq!(store.entries().count(), 0);
+        let result = shared
+            .mutate_persisted(
+                &path,
+                replace,
+                Some(1),
+                "op-replace",
+                MemoryChangeActor::default(),
+            )
+            .unwrap();
+        assert_eq!(result.version, 2);
+        assert_eq!(result.entry.unwrap().version, 2);
+    }
+
+    #[test]
+    fn write_ahead_record_recovers_failed_state_write_and_idempotency_receipt() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("state.json");
+        fs::create_dir(path.with_extension("tmp")).unwrap();
+        let shared = SharedMemoryStore::new(MemoryStore::new());
+        let mutation = request(
+            MemoryTarget::bot("b"),
+            "learned lesson",
+            MemoryKind::BotExperience,
+        );
+        assert!(shared
+            .mutate_persisted(
+                &path,
+                mutation.clone(),
+                None,
+                "durable-op",
+                MemoryChangeActor {
+                    kind: MemoryChangeActorKind::Bot,
+                    bot_id: Some("b".into()),
+                    run_id: Some("r".into())
+                }
+            )
+            .is_err());
+        fs::remove_dir(path.with_extension("tmp")).unwrap();
+        let recovered = SharedMemoryStore::new(MemoryStore::load_from(&path).unwrap());
+        assert_eq!(recovered.search("learned", None).unwrap().len(), 1);
+        let replay = recovered
+            .mutate_persisted(
+                &path,
+                mutation,
+                None,
+                "durable-op",
+                MemoryChangeActor {
+                    kind: MemoryChangeActorKind::Bot,
+                    bot_id: Some("b".into()),
+                    run_id: Some("r".into()),
+                },
+            )
+            .unwrap();
+        assert_eq!(replay.revision, 1);
+        assert_eq!(recovered.changes_since(0).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn recovery_keeps_healthy_changelog_append_only_and_repairs_partial_transactions() {
+        let temp = tempfile::tempdir().unwrap();
+        let healthy_path = temp.path().join("healthy/state.json");
+        fs::create_dir_all(healthy_path.parent().unwrap()).unwrap();
+        let mut healthy = MemoryStore::new();
+        healthy.revision = 1;
+        write_persisted_state(&healthy_path, &healthy.persisted_state()).unwrap();
+        let legacy_line = r#"{"operation_id":"legacy:1:profile","revision":1,"op":"profile_update","entry_id":null,"target":{"scope":"user","owner_id":"local-user"},"kind":"user_profile","content":"{}","actor":{"kind":"system"},"at":"2026-10-11T00:00:00Z"}"#;
+        fs::write(changelog_path(&healthy_path), format!("{legacy_line}\n")).unwrap();
+        let original_log = fs::read(changelog_path(&healthy_path)).unwrap();
+        healthy.storage_path = Some(healthy_path.clone());
+        recover_pending_state(&healthy_path, &mut healthy).unwrap();
+        assert_eq!(
+            fs::read(changelog_path(&healthy_path)).unwrap(),
+            original_log
+        );
+        OpenOptions::new()
+            .append(true)
+            .open(changelog_path(&healthy_path))
+            .unwrap()
+            .write_all(b"{\"torn\":")
+            .unwrap();
+        recover_pending_state(&healthy_path, &mut healthy).unwrap();
+        let repaired_log = fs::read_to_string(changelog_path(&healthy_path)).unwrap();
+        assert!(repaired_log.ends_with('\n'));
+        assert!(!repaired_log.contains("torn"));
+
+        for restart_after_failure in [false, true] {
+            let state_path = temp
+                .path()
+                .join(if restart_after_failure {
+                    "restart"
+                } else {
+                    "retry"
+                })
+                .join("state.json");
+            fs::create_dir_all(state_path.parent().unwrap()).unwrap();
+            MemoryStore::new().save_to(&state_path).unwrap();
+            let before = MemoryStore::load_from(&state_path).unwrap();
+            let mut partial = before.clone_for_transaction();
+            partial
+                .add(request(
+                    MemoryTarget::bot("worker"),
+                    "first change",
+                    MemoryKind::BotExperience,
+                ))
+                .unwrap();
+            partial
+                .add(request(
+                    MemoryTarget::bot("worker"),
+                    "second change",
+                    MemoryKind::BotExperience,
+                ))
+                .unwrap();
+            let mut append_count = 0;
+            let failed = append_state_diff_with(
+                &state_path,
+                &before,
+                &mut partial,
+                "partially-written",
+                None,
+                |path, change| {
+                    append_count += 1;
+                    if append_count == 2 {
+                        return Err(MemoryError::Invalid("injected append failure".into()));
+                    }
+                    append_memory_change(path, change)
+                },
+            );
+            assert!(failed.is_err());
+            assert_eq!(read_all_memory_changes(&state_path).unwrap().len(), 1);
+
+            let mut live = if restart_after_failure {
+                MemoryStore::load_from(&state_path).unwrap()
+            } else {
+                before.clone_for_transaction()
+            };
+            recover_pending_state(&state_path, &mut live).unwrap();
+            assert_eq!(live.revision, 0);
+            assert!(read_all_memory_changes(&state_path).unwrap().is_empty());
+
+            let before_retry = live.clone_for_transaction();
+            let mut retry = before_retry.clone_for_transaction();
+            retry
+                .add(request(
+                    MemoryTarget::bot("worker"),
+                    "first change",
+                    MemoryKind::BotExperience,
+                ))
+                .unwrap();
+            retry
+                .add(request(
+                    MemoryTarget::bot("worker"),
+                    "second change",
+                    MemoryKind::BotExperience,
+                ))
+                .unwrap();
+            append_state_diff(
+                &state_path,
+                &before_retry,
+                &mut retry,
+                "partially-written",
+                None,
+            )
+            .unwrap();
+            retry.save_to(&state_path).unwrap();
+            let revisions = read_all_memory_changes(&state_path)
+                .unwrap()
+                .into_iter()
+                .map(|change| change.revision)
+                .collect::<Vec<_>>();
+            assert_eq!(revisions, vec![1, 2]);
+            let reopened = MemoryStore::load_from(&state_path).unwrap();
+            assert_eq!(reopened.revision, 2);
+            assert_eq!(reopened.entries().count(), 2);
+        }
+    }
+
+    #[test]
+    fn changelog_gap_and_segment_retention_are_detected() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("state.json");
+        let shared = SharedMemoryStore::new(MemoryStore::load_from(&path).unwrap());
+        for index in 0..3 {
+            shared
+                .mutate_persisted(
+                    &path,
+                    request(
+                        MemoryTarget::bot("b"),
+                        &format!("lesson {index}"),
+                        MemoryKind::BotExperience,
+                    ),
+                    None,
+                    &format!("op-{index}"),
+                    MemoryChangeActor::default(),
+                )
+                .unwrap();
+        }
+        let changes = read_all_memory_changes(&path).unwrap();
+        let retained = changes
+            .into_iter()
+            .filter(|change| change.revision != 2)
+            .collect::<Vec<_>>();
+        let log = changelog_path(&path);
+        let mut file = fs::File::create(&log).unwrap();
+        for change in retained {
+            serde_json::to_writer(&mut file, &change_without_recovery(&change)).unwrap();
+            file.write_all(b"\n").unwrap();
+        }
+        assert!(matches!(
+            shared.changes_since(0),
+            Err(MemoryError::ChangeLogGap {
+                earliest_revision: 2,
+                ..
+            })
+        ));
+        write_segment_seen(&path, "old-run", 0).unwrap();
+        let old_path = segment_path(&path, "old-run");
+        let mut old: MemorySegmentRecord =
+            serde_json::from_slice(&fs::read(&old_path).unwrap()).unwrap();
+        old.updated_at = Utc::now() - Duration::days(SEGMENT_RETENTION_DAYS + 1);
+        write_segment_record(&path, &old).unwrap();
+        prune_expired_memory_files(&path, Utc::now()).unwrap();
+        assert!(!old_path.exists());
+    }
+
+    #[test]
+    fn empty_store_and_segment_snapshot_state_survive_restart() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("empty/state.json");
+        let shared = SharedMemoryStore::new(MemoryStore::load_from(&path).unwrap());
+        assert!(shared.changes_since(0).unwrap().is_empty());
+        let segment_id = shared.open_segment("bot:chat", 0).unwrap();
+        assert_eq!(
+            shared.current_segment_id("bot:chat").unwrap().as_deref(),
+            Some(segment_id.as_str())
+        );
+        let snapshot = MemorySnapshot {
+            revision: 0,
+            generated_at: Utc::now(),
+            targets: vec![],
+            entries: vec![],
+            user_profile: None,
+        };
+        shared
+            .snapshot_cache_put("bot:chat", snapshot.clone())
+            .unwrap();
+        let restarted = SharedMemoryStore::new(MemoryStore::load_from(&path).unwrap());
+        assert_eq!(
+            restarted.snapshot_cache_get("bot:chat").unwrap(),
+            Some(snapshot)
+        );
+        assert_eq!(
+            restarted.segment_seen_revision(&segment_id).unwrap(),
+            Some(0)
+        );
+        let next_id = restarted.open_segment("bot:chat", 0).unwrap();
+        assert_ne!(next_id, segment_id);
+    }
+
+    #[test]
+    fn legacy_changelog_rows_are_normalized_and_preserved_during_prune() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("memory/state.json");
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let mut state = PersistedState::default();
+        state.revision = 1;
+        write_persisted_state(&path, &state).unwrap();
+        let legacy = r#"{"operation_id":"old-op","revision":1,"op":"create","entry_id":"m-old","target":{"scope":"user","owner_id":"local-user"},"kind":"user_preference","content":"prefers examples","actor":{"kind":"system","chat_id":"chat-old","message_id":"msg-old"},"at":"2026-10-11T00:00:00Z"}"#;
+        fs::write(changelog_path(&path), format!("{legacy}\n")).unwrap();
+        let changes = read_all_memory_changes(&path).unwrap();
+        assert_eq!(changes[0].kind, MemoryChangeKind::UserPreference);
+        assert_eq!(changes[0].source.chat_id.as_deref(), Some("chat-old"));
+        prune_memory_changes(&path, 1, Utc::now()).unwrap();
+        let retained = fs::read_to_string(changelog_path(&path)).unwrap();
+        assert!(retained.contains("legacy_payload"));
+        assert!(retained.contains("chat-old"));
     }
 
     #[test]
@@ -2462,7 +3827,7 @@ mod tests {
     }
 
     #[test]
-    fn snapshot_expires_after_a_day_or_revision_change() {
+    fn snapshot_stays_frozen_until_a_new_segment_rebuilds_it() {
         let mut store = MemoryStore::new();
         let target = MemoryTarget::bot("b");
         let at = Utc::now();
@@ -2473,12 +3838,12 @@ mod tests {
             Some(&snap),
             at + Duration::hours(25),
         );
-        assert!(changed);
+        assert!(!changed);
         store
             .add(request(target.clone(), "new", MemoryKind::BotExperience))
             .unwrap();
         let (_, changed) = store.snapshot(&[target], Some(&snap), at + Duration::hours(25));
-        assert!(changed);
+        assert!(!changed);
     }
 
     #[test]
@@ -2508,7 +3873,7 @@ mod tests {
         let l3 = &package.layers[3].content;
         assert!(!l3.contains("m0"));
         assert!(l3.contains("m10"));
-        assert!(package.new_segment); // initial snapshot is intentionally a new segment
+        assert!(!package.new_segment); // rebuilding an initial snapshot alone does not roll the segment
     }
 
     #[test]
@@ -2599,6 +3964,65 @@ mod tests {
     }
 
     #[test]
+    fn l2_uses_frozen_entry_and_profile_values_until_new_snapshot() {
+        let mut store = MemoryStore::new();
+        let user_target = MemoryTarget::user("local-user");
+        let mut profile = UserProfile {
+            name: Some("旧称呼".into()),
+            language: Some("zh-CN".into()),
+            identity: None,
+            timezone: "Asia/Shanghai".into(),
+            onboarded: true,
+            version: 1,
+            updated_by: MemorySender::User,
+            updated_at: Utc::now(),
+        };
+        store.user_profile = Some(profile.clone());
+        let entry = store
+            .add(request(
+                user_target.clone(),
+                "喜欢旧版本",
+                MemoryKind::UserPreference,
+            ))
+            .unwrap();
+        let make_request = |previous_snapshot| ContextRequest {
+            kind: ConversationKind::Private,
+            memory_targets: vec![user_target.clone()],
+            l0_platform_rules: "rules".into(),
+            l1_bot_identity: "bot".into(),
+            announcement: String::new(),
+            task: String::new(),
+            trigger: String::new(),
+            references: vec![],
+            recent_messages: vec![],
+            segment_summary: String::new(),
+            recent_context: vec![],
+            run_events: vec![],
+            model_context_window: 10000,
+            previous_snapshot,
+            now: Utc::now(),
+        };
+        let first = assemble_context(&store, &make_request(None));
+        let frozen_l2 = first.layers[2].content.clone();
+        profile.name = Some("新称呼".into());
+        profile.version = 2;
+        store.user_profile = Some(profile);
+        let mut replacement = request(
+            user_target.clone(),
+            "喜欢新版本",
+            MemoryKind::UserPreference,
+        );
+        replacement.action = MemoryAction::Replace;
+        replacement.id = Some(entry.id);
+        store.replace(replacement, 1).unwrap();
+        let same_segment = assemble_context(&store, &make_request(Some(first.snapshot.clone())));
+        assert_eq!(same_segment.layers[2].content, frozen_l2);
+        let next_segment = assemble_context(&store, &make_request(None));
+        assert!(next_segment.layers[2].content.contains("新称呼"));
+        assert!(next_segment.layers[2].content.contains("喜欢新版本"));
+    }
+
+    #[test]
     fn searches_sessions_projects_and_history() {
         let mut index = ConversationIndex::default();
         let at = Utc::now();
@@ -2640,73 +4064,6 @@ mod tests {
                 source: MemorySource::default(),
             }])
         }
-    }
-
-    struct FailingExtractProvider;
-    impl MaintenanceProvider for FailingExtractProvider {
-        fn summarize(&self, _: &str) -> Result<String, MemoryError> {
-            Ok("unused".into())
-        }
-
-        fn extract(&self, _: &str) -> Result<Vec<MemoryDraft>, MemoryError> {
-            Err(MemoryError::Provider("extract failed".into()))
-        }
-    }
-
-    struct AsyncFailingExtractProvider;
-    #[async_trait::async_trait]
-    impl AsyncMaintenanceProvider for AsyncFailingExtractProvider {
-        async fn summarize(&self, _: &str) -> Result<String, MemoryError> {
-            Ok("unused".into())
-        }
-
-        async fn extract(&self, _: &str) -> Result<Vec<MemoryDraft>, MemoryError> {
-            Err(MemoryError::Provider("async extract failed".into()))
-        }
-    }
-
-    fn block_on<F: std::future::Future>(future: F) -> F::Output {
-        let waker = std::task::Waker::noop();
-        let mut context = std::task::Context::from_waker(waker);
-        let mut future = Box::pin(future);
-        loop {
-            match future.as_mut().poll(&mut context) {
-                std::task::Poll::Ready(value) => return value,
-                std::task::Poll::Pending => std::thread::yield_now(),
-            }
-        }
-    }
-
-    #[test]
-    fn maintenance_extract_rolls_back_when_provider_fails() {
-        let mut store = MemoryStore::new();
-        assert!(maintenance_extract(
-            &mut store,
-            &FailingExtractProvider,
-            "maintenance-fail",
-            "transcript"
-        )
-        .is_err());
-        assert!(matches!(
-            store.commit_run("maintenance-fail"),
-            Err(MemoryError::NoStagedChanges(_))
-        ));
-    }
-
-    #[test]
-    fn async_maintenance_extract_rolls_back_when_provider_fails() {
-        let mut store = MemoryStore::new();
-        let result = block_on(async_maintenance_extract(
-            &mut store,
-            &AsyncFailingExtractProvider,
-            "async-maintenance-fail",
-            "transcript",
-        ));
-        assert!(result.is_err());
-        assert!(matches!(
-            store.commit_run("async-maintenance-fail"),
-            Err(MemoryError::NoStagedChanges(_))
-        ));
     }
 
     #[test]

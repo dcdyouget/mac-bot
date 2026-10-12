@@ -7,13 +7,18 @@ use crate::features::{
     FeatureError, FeatureService, MemoryAccess, MemoryActor, UserProfileOnboardingInput,
 };
 use async_trait::async_trait;
-use macbot_memory::{ContextPackage, ContextRequest, MemoryEntry, MemorySource, MemoryTarget};
+use macbot_memory::{
+    ContextPackage, ContextRequest, MemoryChange, MemoryChangeActorKind, MemoryChangeKind,
+    MemoryOperation, MemoryScope, MemorySource, MemoryTarget,
+};
 use macbot_skills::SkillDraftFrom;
 use macbot_store::Event;
 use macbot_tools::{Risk, Tool, ToolContext, ToolResult};
 use serde_json::{json, Map, Value};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
+
+type PendingMemorySegment = (String, u64, usize);
 
 /// Per-run identity and visibility. A runtime must be created with the
 /// gateway's authenticated user and resolved project membership; tools never
@@ -36,6 +41,8 @@ pub struct FeatureRunContext {
     /// older callers keep the same context shape until they provide richer
     /// Bot/project settings.
     pub model_context_window: usize,
+    /// Current host timezone, independent of a segment-frozen profile.
+    pub host_timezone: Option<String>,
     pub bot_identity: Option<String>,
     pub draft_from: Option<SkillDraftFrom>,
     pub announcement: String,
@@ -60,6 +67,7 @@ impl FeatureRunContext {
             allow_memory: true,
             profile_onboarding: false,
             model_context_window: 128_000,
+            host_timezone: None,
             bot_identity: None,
             draft_from: None,
             announcement: String::new(),
@@ -84,6 +92,7 @@ impl FeatureRunContext {
             allow_memory: true,
             profile_onboarding: false,
             model_context_window: 128_000,
+            host_timezone: None,
             bot_identity: None,
             draft_from: None,
             announcement: String::new(),
@@ -153,11 +162,30 @@ impl FeatureRunContext {
 pub struct FeatureToolRuntime {
     pub service: Arc<FeatureService>,
     pub run: FeatureRunContext,
+    selected_project_id: Arc<Mutex<Option<String>>>,
 }
 
 impl FeatureToolRuntime {
     pub fn new(service: Arc<FeatureService>, run: FeatureRunContext) -> Self {
-        Self { service, run }
+        Self {
+            service,
+            run,
+            selected_project_id: Arc::new(Mutex::new(None)),
+        }
+    }
+
+    pub(crate) fn select_project_id(&self, project_id: String) -> Result<(), FeatureError> {
+        if !self.run.private {
+            return Err(FeatureError::NotAllowed(
+                "project memory can only be loaded into a private chat".into(),
+            ));
+        }
+        *self
+            .selected_project_id
+            .lock()
+            .map_err(|_| FeatureError::Invalid("project selection lock poisoned".into()))? =
+            Some(project_id);
+        Ok(())
     }
 
     /// Construct the per-run tools while retaining the gateway's shared
@@ -219,40 +247,6 @@ impl FeatureToolRuntime {
         tools
     }
 
-    pub fn run_started(&self, run_id: &str) -> Result<(), FeatureError> {
-        self.service.begin_memory_run(run_id)
-    }
-
-    pub fn run_succeeded(&self, run_id: &str) -> Result<Vec<MemoryEntry>, FeatureError> {
-        self.service.commit_memory_run(run_id)
-    }
-
-    pub fn run_succeeded_with_worklog(
-        &self,
-        run_id: &str,
-        target: Option<MemoryTarget>,
-        worklog: Option<&str>,
-        source: MemorySource,
-    ) -> Result<Vec<MemoryEntry>, FeatureError> {
-        self.service
-            .complete_run_with_worklog(run_id, target, worklog, source)
-    }
-
-    pub fn run_succeeded_with_worklog_events(
-        &self,
-        run_id: &str,
-        target: Option<MemoryTarget>,
-        worklog: Option<&str>,
-        source: MemorySource,
-    ) -> Result<(Vec<MemoryEntry>, Vec<Event>), FeatureError> {
-        self.service
-            .complete_run_with_worklog_events(run_id, target, worklog, source)
-    }
-
-    pub fn run_failed(&self, run_id: &str) -> Result<bool, FeatureError> {
-        self.service.rollback_memory_run(run_id)
-    }
-
     pub fn context(&self, request: &ContextRequest) -> Result<ContextPackage, FeatureError> {
         self.service.context(request)
     }
@@ -274,6 +268,9 @@ pub struct FeatureExecutionSink {
     delegate: Arc<dyn crate::execution::ExecutionSink>,
     runtime: FeatureToolRuntime,
     skill_draft_calls: Arc<Mutex<HashSet<String>>>,
+    memory_calls: Arc<Mutex<HashSet<String>>>,
+    pending_segments: Arc<Mutex<HashMap<String, PendingMemorySegment>>>,
+    run_seen_revisions: Arc<Mutex<HashMap<String, u64>>>,
 }
 
 impl FeatureExecutionSink {
@@ -285,6 +282,9 @@ impl FeatureExecutionSink {
             delegate,
             runtime,
             skill_draft_calls: Arc::new(Mutex::new(HashSet::new())),
+            memory_calls: Arc::new(Mutex::new(HashSet::new())),
+            pending_segments: Arc::new(Mutex::new(HashMap::new())),
+            run_seen_revisions: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -319,6 +319,55 @@ impl FeatureExecutionSink {
         }
     }
 
+    fn memory_failed_event(&self, event: &crate::execution::ExecutionEvent) -> Option<Value> {
+        if event.event != "trace.item" {
+            return None;
+        }
+        let item = event.data.get("item")?;
+        let data = item.get("data")?;
+        let call_id = data.get("call_id")?.as_str()?;
+        match item.get("type").and_then(Value::as_str) {
+            Some("tool.start") if data.get("name").and_then(Value::as_str) == Some("memory") => {
+                self.memory_calls.lock().ok()?.insert(call_id.to_owned());
+                None
+            }
+            Some("tool.end") => {
+                let was_memory = self.memory_calls.lock().ok()?.remove(call_id);
+                if !was_memory || data.get("is_error").and_then(Value::as_bool) != Some(true) {
+                    return None;
+                }
+                Some(json!({
+                    "run_id": self.runtime.run.run_id,
+                    "bot_id": self.runtime.run.bot_id,
+                    "call_id": call_id,
+                    "result": data.get("details").cloned().unwrap_or(Value::Null),
+                }))
+            }
+            _ => None,
+        }
+    }
+
+    fn persisted_memory_events(&self, event: &crate::execution::ExecutionEvent) -> Vec<Event> {
+        if event.event != "trace.item"
+            || event.data.pointer("/item/type").and_then(Value::as_str) != Some("tool.end")
+            || event
+                .data
+                .pointer("/item/data/name")
+                .and_then(Value::as_str)
+                != Some("memory")
+        {
+            return Vec::new();
+        }
+        event
+            .data
+            .pointer("/item/data/details/_persisted_events")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(|value| serde_json::from_value(value.clone()).ok())
+            .collect()
+    }
+
     fn context_request(&self, request: &crate::execution::ExecutionRequest) -> ContextRequest {
         let kind = if request.private {
             macbot_memory::ConversationKind::Private
@@ -332,6 +381,17 @@ impl FeatureExecutionSink {
             targets.push(MemoryTarget::user(user_id.clone()));
         }
         targets.push(MemoryTarget::bot(request.bot_id.clone()));
+        if request.private {
+            if let Some(project_id) = self
+                .runtime
+                .selected_project_id
+                .lock()
+                .ok()
+                .and_then(|selected| selected.clone())
+            {
+                targets.push(MemoryTarget::project(project_id));
+            }
+        }
         if let Some(project_id) = &request.project_id {
             if self.runtime.run.actor.is_main()
                 || self
@@ -348,14 +408,12 @@ impl FeatureExecutionSink {
         let recent_messages: Vec<String> = request
             .messages
             .iter()
+            .filter(|message| matches!(message["role"].as_str(), Some("user" | "tool")))
             .filter_map(|message| message.get("content").and_then(Value::as_str))
             .map(str::to_string)
             .collect();
-        let recent_context = if self.runtime.run.recent_context.is_empty() {
-            recent_messages.clone()
-        } else {
-            self.runtime.run.recent_context.clone()
-        };
+        let mut recent_context = self.runtime.run.recent_context.clone();
+        recent_context.extend(recent_messages.iter().cloned());
         ContextRequest {
             kind,
             memory_targets: targets,
@@ -385,27 +443,21 @@ impl FeatureExecutionSink {
 impl crate::execution::ExecutionSink for FeatureExecutionSink {
     async fn emit(&self, event: crate::execution::ExecutionEvent) {
         let skill_updated = self.skill_updated_event(&event);
-        let run_end = if event.event == "run.end" {
-            Some(&event.data)
-        } else if event.event == "trace.item"
-            && event.data.pointer("/item/type").and_then(Value::as_str) == Some("run.end")
-        {
-            event.data.pointer("/item/data")
-        } else {
-            None
-        };
-        if let Some(run_end) = run_end {
-            if run_end.get("status").and_then(Value::as_str) != Some("done") {
-                let _ = self.runtime.run_failed(
-                    run_end
-                        .get("run_id")
-                        .and_then(Value::as_str)
-                        .or(self.runtime.run.run_id.as_deref())
-                        .unwrap_or_default(),
-                );
-            }
-        }
+        let memory_failed = self.memory_failed_event(&event);
+        let memory_events = self.persisted_memory_events(&event);
         self.delegate.emit(event).await;
+        for persisted in memory_events {
+            self.delegate.publish_persisted(persisted).await;
+        }
+        if let Some(data) = memory_failed {
+            self.delegate
+                .emit(crate::execution::ExecutionEvent {
+                    event: "memory.failed".into(),
+                    data,
+                    persistent: true,
+                })
+                .await;
+        }
         if let Some(data) = skill_updated {
             // The tool mutation has already been persisted by the shared
             // SkillRegistry. Route the live update through the same sink as
@@ -448,78 +500,292 @@ impl crate::execution::ExecutionSink for FeatureExecutionSink {
         &self,
         request: &crate::execution::ExecutionRequest,
     ) -> Result<Option<Value>, String> {
+        let thread_id = format!("{}::{}", request.bot_id, request.chat_id);
+        let current_revision = self
+            .runtime
+            .service
+            .shared_memory
+            .revision()
+            .map_err(|error| error.to_string())?;
+        let existing_segment = self
+            .runtime
+            .service
+            .shared_memory
+            .current_segment_id(&thread_id)
+            .map_err(|error| error.to_string())?;
+        let had_segment = existing_segment.is_some();
+        let mut segment_id = match existing_segment {
+            Some(id) => id,
+            None => self
+                .runtime
+                .service
+                .shared_memory
+                .open_segment(&thread_id, current_revision)
+                .map_err(|error| error.to_string())?,
+        };
+        let mut cache_key = format!("{thread_id}:{segment_id}");
         let mut context_request = self.context_request(request);
+        context_request.previous_snapshot = self
+            .runtime
+            .service
+            .shared_memory
+            .snapshot_cache_get(&cache_key)
+            .map_err(|error| error.to_string())?;
+        let cache_missing = context_request.previous_snapshot.is_none();
         let mut package = self
             .runtime
             .context(&context_request)
             .map_err(|error| error.to_string())?;
-        // The first assembly intentionally creates a fresh snapshot. Reuse
-        // that snapshot for the same request so a large task can then be
-        // classified by the 80% boundary instead of being hidden behind the
-        // one-time `memory_snapshot_stale` segment marker.
-        if package.segment_reason.as_deref() == Some("memory_snapshot_stale") {
-            context_request.previous_snapshot = Some(package.snapshot.clone());
-            package = self
-                .runtime
-                .context(&context_request)
-                .map_err(|error| error.to_string())?;
-        }
-        if package.segment_reason.as_deref() == Some("context_80_percent") {
-            let summary = self
-                .runtime
-                .compact_context(&context_request)
-                .await
-                .map_err(|error| format!("context compaction failed: {error}"))?
-                .ok_or_else(|| "context compaction produced no summary".to_owned())?;
-            // Replace the oversized L3 segment before sending it to the
-            // model. Stage the summary with the current run so a failed
-            // run cannot leave an orphaned Bot worklog entry.
-            if let Some(layer) = package.layers.iter_mut().find(|layer| layer.level == 3) {
-                layer.content = format!("Compacted segment:\n{summary}");
-            }
+        self.runtime
+            .service
+            .shared_memory
+            .snapshot_cache_put(cache_key.clone(), package.snapshot.clone())
+            .map_err(|error| error.to_string())?;
+
+        let segment_highwater = self
+            .runtime
+            .service
+            .shared_memory
+            .segment_seen_revision(&segment_id)
+            .map_err(|error| error.to_string())?
+            .unwrap_or(package.snapshot.revision);
+        let baseline_revision = context_request
+            .previous_snapshot
+            .as_ref()
+            .map_or(package.snapshot.revision, |snapshot| snapshot.revision);
+        let run_cursor = self
+            .run_seen_revisions
+            .lock()
+            .map_err(|_| "run memory revision lock poisoned".to_owned())?
+            .get(&request.run_id)
+            .copied()
+            .unwrap_or(baseline_revision);
+        let changes = self.runtime.service.shared_memory.changes_since(run_cursor);
+        let changelog_gap = matches!(
+            &changes,
+            Err(macbot_memory::MemoryError::ChangeLogGap { .. })
+        );
+        let changes = match changes {
+            Ok(changes) => changes,
+            Err(macbot_memory::MemoryError::ChangeLogGap { .. }) => Vec::new(),
+            Err(error) => return Err(error.to_string()),
+        };
+        let update = render_memory_updates(
+            changes.clone(),
+            &context_request.memory_targets,
+            &request.bot_id,
+            &request.run_id,
+        );
+        let newly_observed = changes
+            .into_iter()
+            .filter(|change| change.revision > segment_highwater)
+            .collect();
+        let new_delta_chars = render_memory_updates(
+            newly_observed,
+            &context_request.memory_targets,
+            &request.bot_id,
+            &request.run_id,
+        )
+        .map_or(0, |text| text.chars().count());
+        let already_delta_chars = self
+            .runtime
+            .service
+            .shared_memory
+            .segment_delta_chars(&segment_id)
+            .map_err(|error| error.to_string())?;
+        let over_delta_limit = already_delta_chars.saturating_add(new_delta_chars) > 1_000;
+        let context_window = package.segment_reason.as_deref() == Some("context_80_percent");
+        let project_loaded = request.private
+            && context_request
+                .previous_snapshot
+                .as_ref()
+                .is_some_and(|snapshot| {
+                    context_request.memory_targets.iter().any(|target| {
+                        target.scope == MemoryScope::Project && !snapshot.targets.contains(target)
+                    })
+                });
+        let restart_rebuild = had_segment && cache_missing;
+        let needs_new_segment = context_window
+            || over_delta_limit
+            || project_loaded
+            || changelog_gap
+            || restart_rebuild;
+        let mut compaction_summary = None;
+        if needs_new_segment {
+            let extraction_transcript = maintenance_transcript(request, false);
             let source = MemorySource {
                 bot_id: Some(request.bot_id.clone()),
                 run_id: Some(request.run_id.clone()),
                 session_id: Some(request.chat_id.clone()),
             };
-            if let Err(error) = self.runtime.service.stage_context_summary(
-                &self.runtime.run.actor,
-                &self.runtime.run.access,
-                &request.run_id,
-                MemoryTarget::bot(request.bot_id.clone()),
-                &summary,
-                source,
-            ) {
-                tracing::warn!(run_id = %request.run_id, %error, "failed to stage compacted context");
+            if had_segment || context_window {
+                let targets = context_request
+                    .memory_targets
+                    .iter()
+                    .filter(|target| {
+                        matches!(target.scope, MemoryScope::Bot | MemoryScope::Project)
+                    })
+                    .cloned()
+                    .collect::<Vec<_>>();
+                let (_, events) = self
+                    .runtime
+                    .service
+                    .maintenance_extract_for_segment(
+                        &format!("{}:{}", request.run_id, segment_id),
+                        &targets,
+                        &extraction_transcript,
+                        source.clone(),
+                    )
+                    .await
+                    .map_err(|error| format!("memory extraction failed: {error}"))?;
+                for event in events {
+                    self.delegate.publish_persisted(event).await;
+                }
+            }
+            let transcript = maintenance_transcript(request, true);
+            let summary = self
+                .runtime
+                .service
+                .summarize_segment(&transcript)
+                .await
+                .map_err(|error| format!("context summarization failed: {error}"))?;
+            let events = self
+                .runtime
+                .service
+                .persist_context_summary_immediate(
+                    &self.runtime.run.actor,
+                    &self.runtime.run.access,
+                    &request.run_id,
+                    MemoryTarget::bot(request.bot_id.clone()),
+                    &summary,
+                    source,
+                )
+                .map_err(|error| format!("context summary persistence failed: {error}"))?;
+            for event in events {
+                self.delegate.publish_persisted(event).await;
+            }
+            segment_id = self
+                .runtime
+                .service
+                .shared_memory
+                .open_segment(
+                    &thread_id,
+                    self.runtime
+                        .service
+                        .shared_memory
+                        .revision()
+                        .map_err(|error| error.to_string())?,
+                )
+                .map_err(|error| error.to_string())?;
+            cache_key = format!("{thread_id}:{segment_id}");
+            context_request.previous_snapshot = None;
+            context_request.segment_summary = summary.clone();
+            package = self
+                .runtime
+                .context(&context_request)
+                .map_err(|error| error.to_string())?;
+            self.runtime
+                .service
+                .shared_memory
+                .snapshot_cache_put(cache_key, package.snapshot.clone())
+                .map_err(|error| error.to_string())?;
+            compaction_summary = Some(summary);
+        }
+        let (system_a, system_b) = prompt_blocks(
+            &package,
+            chrono::Utc::now(),
+            self.runtime.run.host_timezone.as_deref(),
+        );
+        let output_update = if needs_new_segment { None } else { update };
+        let pending = (
+            segment_id,
+            current_revision.max(package.snapshot.revision),
+            if needs_new_segment {
+                0
+            } else {
+                new_delta_chars
+            },
+        );
+        self.pending_segments
+            .lock()
+            .map_err(|_| "pending memory segment lock poisoned".to_owned())?
+            .insert(request.run_id.clone(), pending);
+        Ok(Some(json!({
+            "system_blocks":[
+                {"level":2,"content":system_a,"cache_control":{"type":"ephemeral"}},
+                {"level":3,"content":system_b}
+            ],
+            "memory_update":output_update,
+            "compaction_summary":compaction_summary
+        })))
+    }
+
+    async fn model_context_checkpointed(&self, request: &crate::execution::ExecutionRequest) {
+        let pending = self
+            .pending_segments
+            .lock()
+            .ok()
+            .and_then(|mut state| state.remove(&request.run_id));
+        if let Some((segment_id, revision, delta_chars)) = pending {
+            let memory = &self.runtime.service.shared_memory;
+            if delta_chars > 0 {
+                if let Err(error) = memory.add_segment_delta_chars(&segment_id, delta_chars) {
+                    tracing::error!(run_id = %request.run_id, %error, "failed to persist memory delta size");
+                    self.delegate.emit(crate::execution::ExecutionEvent {
+                        event: "memory.failed".into(),
+                        data: json!({"run_id":request.run_id,"bot_id":request.bot_id,"code":"segment_checkpoint","message":error.to_string()}),
+                        persistent: true,
+                    }).await;
+                    return;
+                }
+            }
+            if let Err(error) = memory.record_segment_seen(&segment_id, revision) {
+                tracing::error!(run_id = %request.run_id, %error, "failed to advance memory segment revision");
+                self.delegate.emit(crate::execution::ExecutionEvent {
+                    event: "memory.failed".into(),
+                    data: json!({"run_id":request.run_id,"bot_id":request.bot_id,"code":"segment_checkpoint","message":error.to_string()}),
+                    persistent: true,
+                }).await;
+                return;
+            }
+            if let Err(error) = memory.record_segment_seen(&request.run_id, revision) {
+                tracing::error!(run_id = %request.run_id, %error, "failed to persist run memory revision");
+                self.delegate.emit(crate::execution::ExecutionEvent {
+                    event: "memory.failed".into(),
+                    data: json!({"run_id":request.run_id,"bot_id":request.bot_id,"code":"run_segment_checkpoint","message":error.to_string()}),
+                    persistent: true,
+                }).await;
+                return;
+            }
+            if let Ok(mut cursors) = self.run_seen_revisions.lock() {
+                cursors.insert(request.run_id.clone(), revision);
             }
         }
-        let text = package
-            .layers
-            .iter()
-            .map(|layer| format!("L{}:\n{}", layer.level, layer.content))
-            .collect::<Vec<_>>()
-            .join("\n\n");
-        Ok(Some(Value::String(text)))
     }
 
     async fn commit_succeeded(&self, request: &crate::execution::ExecutionRequest, data: Value) {
         if request.subagent {
-            // RuntimeExecution opens a staging slot for every run. Subagents
-            // are read-only, so successful completion must discard the slot.
-            let _ = self.runtime.run_failed(&request.run_id);
             return;
         }
         let text = data.get("text").and_then(Value::as_str).unwrap_or_default();
-        let target = (!text.trim().is_empty()).then(|| MemoryTarget::bot(request.bot_id.clone()));
+        if text.trim().is_empty() {
+            return;
+        }
+        let summary = self
+            .runtime
+            .service
+            .summarize_worklog(&request.instruction, text)
+            .await
+            .unwrap_or_else(|_| compact_worklog_summary(&request.instruction, text));
         let source = MemorySource {
             bot_id: Some(request.bot_id.clone()),
             run_id: Some(request.run_id.clone()),
             session_id: Some(request.chat_id.clone()),
         };
-        match self.runtime.run_succeeded_with_worklog_events(
+        match self.runtime.service.append_worklog_immediate_events(
             &request.run_id,
-            target,
-            (!text.trim().is_empty()).then_some(text),
+            MemoryTarget::bot(request.bot_id.clone()),
+            &summary,
             source,
         ) {
             Ok((_, events)) => {
@@ -529,9 +795,24 @@ impl crate::execution::ExecutionSink for FeatureExecutionSink {
             }
             Err(error) => {
                 tracing::error!(run_id = %request.run_id, %error, "failed to commit run memory");
+                self.delegate
+                    .emit(crate::execution::ExecutionEvent {
+                        event: "memory.failed".into(),
+                        data: json!({"run_id":request.run_id,"bot_id":request.bot_id,"code":"worklog_write","message":error.to_string()}),
+                        persistent: true,
+                    })
+                    .await;
             }
         }
     }
+}
+
+fn compact_worklog_summary(instruction: &str, outcome: &str) -> String {
+    let action = instruction.split_whitespace().collect::<Vec<_>>().join(" ");
+    let result = outcome.split_whitespace().collect::<Vec<_>>().join(" ");
+    let action = action.chars().take(180).collect::<String>();
+    let result = result.chars().take(180).collect::<String>();
+    format!("做了什么：{action}\n结果如何：{result}")
 }
 
 struct SkillTool {
@@ -687,6 +968,7 @@ impl Tool for SetUserProfileTool {
                 "name":{"type":"string","maxLength":20},
                 "language":{"type":"string","maxLength":35},
                 "identity":{"type":"string","maxLength":100},
+                "complete":{"type":"boolean","description":"Set true once the user has finished providing profile fields."},
                 "skip":{"type":"boolean","description":"Set true when the user explicitly skips onboarding; this marks the profile onboarded without changing its fields."}
             },
             "additionalProperties":false
@@ -711,7 +993,7 @@ impl Tool for SetUserProfileTool {
             if object.keys().any(|key| {
                 !matches!(
                     key.as_str(),
-                    "expected_version" | "name" | "language" | "identity" | "skip"
+                    "expected_version" | "name" | "language" | "identity" | "complete" | "skip"
                 )
             }) {
                 return Err(FeatureError::Invalid(
@@ -724,6 +1006,10 @@ impl Tool for SetUserProfileTool {
                 .filter(|version| *version > 0)
                 .ok_or_else(|| FeatureError::Invalid("expected_version is required".into()))?;
             let skip = object.get("skip").and_then(Value::as_bool).unwrap_or(false);
+            let complete = object
+                .get("complete")
+                .and_then(Value::as_bool)
+                .unwrap_or(false);
             let field = |key: &str| -> Result<Option<String>, FeatureError> {
                 match object.get(key) {
                     None | Some(Value::Null) => Ok(None),
@@ -752,6 +1038,7 @@ impl Tool for SetUserProfileTool {
                         name: field("name")?,
                         language: field("language")?,
                         identity: field("identity")?,
+                        complete,
                         skip,
                     })?;
             Ok(response.result)
@@ -777,14 +1064,14 @@ impl Tool for MemoryTool {
             "required":["scope"],
             "properties":{
                 "scope":{"enum":["bot","project"]},"action":{"enum":["add","replace","remove"],"description":"Defaults to add when omitted."},
-                "content":{"type":"string"},"id":{"type":"string","minLength":1},"expected_version":{"type":"integer","minimum":1},"version":{"type":"integer","minimum":1,"description":"Legacy alias for expected_version."},"user_id":{"type":"string","minLength":1},
+                "content":{"type":"string"},"id":{"type":"string","minLength":1},"expected_version":{"type":"integer","minimum":1},"user_id":{"type":"string","minLength":1},
                 "bot_id":{"type":"string","minLength":1},"project_id":{"type":"string","minLength":1},"kind":{"type":"string","enum":["user_preference","bot_experience","bot_worklog","project"]}
             },
             "allOf":[
                 {"if":{"required":["scope"],"properties":{"scope":{"const":"bot"}}},"then":{"required":["bot_id"]}},
                 {"if":{"required":["scope"],"properties":{"scope":{"const":"project"}}},"then":{"required":["project_id"]}},
                 {"if":{"required":["action"],"properties":{"action":{"enum":["add","replace"]}}},"then":{"required":["content"]}},
-                {"if":{"required":["action"],"properties":{"action":{"enum":["replace","remove"]}}},"then":{"required":["id"],"anyOf":[{"required":["expected_version"]},{"required":["version"]}]}}
+                {"if":{"required":["action"],"properties":{"action":{"enum":["replace","remove"]}}},"then":{"required":["id","expected_version"]}}
             ]
         })
     }
@@ -800,11 +1087,20 @@ impl Tool for MemoryTool {
         if let Err(error) = validate_memory_tool_args(&args) {
             return ToolResult::error(error);
         }
-        into_memory_result(self.runtime.service.memory_rpc_with_access(
+        let mutation = self.runtime.service.memory_mutation_with_access(
             &self.runtime.run.actor,
             &self.runtime.run.access,
             with_run_id(args, &ctx.run_id),
-        ))
+        );
+        match mutation {
+            Ok((payload, events)) => {
+                let mut result = into_memory_result(Ok(payload));
+                result.details["_persisted_events"] =
+                    serde_json::to_value(events).unwrap_or_else(|_| json!([]));
+                result
+            }
+            Err(error) => into_memory_result(Err(error)),
+        }
     }
 }
 
@@ -922,7 +1218,7 @@ impl Tool for ProjectFindTool {
         "Find projects relevant to the current task."
     }
     fn schema(&self) -> Value {
-        json!({"type":"object","required":["query"],"properties":{"query":{"type":"string"}}})
+        json!({"type":"object","required":["query"],"properties":{"query":{"type":"string"},"project_id":{"type":"string","description":"Optional id from a returned project result to load its memory into the current private chat."}}})
     }
     fn risk(&self, _: &Value) -> Risk {
         Risk::Read
@@ -938,7 +1234,16 @@ impl Tool for ProjectFindTool {
                 &self.runtime.run.access,
                 required(&object, "query")?,
             )?;
-            Ok(json!({"projects":projects}))
+            let selected = object.get("project_id").and_then(Value::as_str);
+            if let Some(project_id) = selected {
+                if !projects.iter().any(|project| project.id == project_id) {
+                    return Err(FeatureError::NotAllowed(
+                        "project id must be selected from authorized project_find results".into(),
+                    ));
+                }
+                self.runtime.select_project_id(project_id.to_owned())?;
+            }
+            Ok(json!({"projects":projects,"selected_project_id":selected}))
         })();
         into_result(result)
     }
@@ -1021,8 +1326,162 @@ pub fn validate_skill_draft_tool_args(args: &Value) -> Result<(), String> {
 fn with_run_id(mut args: Value, run_id: &str) -> Value {
     if let Some(object) = args.as_object_mut() {
         object.insert("run_id".into(), Value::String(run_id.to_string()));
+        object
+            .entry("operation_id")
+            .or_insert_with(|| json!(format!("{run_id}:{}", uuid::Uuid::now_v7())));
     }
     args
+}
+
+fn render_memory_updates(
+    changes: Vec<MemoryChange>,
+    visible_targets: &[MemoryTarget],
+    bot_id: &str,
+    run_id: &str,
+) -> Option<String> {
+    let mut final_changes = std::collections::BTreeMap::<String, MemoryChange>::new();
+    for change in changes {
+        if visible_targets.contains(&change.target) {
+            let replace = final_changes
+                .get(&change.entry_id)
+                .is_none_or(|current| current.revision < change.revision);
+            if replace {
+                final_changes.insert(change.entry_id.clone(), change);
+            }
+        }
+    }
+    let mut lines = Vec::new();
+    let mut revision = 0;
+    for change in final_changes.into_values() {
+        revision = revision.max(change.revision);
+        if change.actor.kind == MemoryChangeActorKind::Bot
+            && change.actor.bot_id.as_deref() == Some(bot_id)
+            && change.actor.run_id.as_deref() == Some(run_id)
+        {
+            continue;
+        }
+        if change.op == MemoryOperation::Remove {
+            lines.push(format!("- remove {}", change.entry_id));
+            continue;
+        }
+        let operation = match change.op {
+            MemoryOperation::Add => "add",
+            MemoryOperation::Replace => "replace",
+            MemoryOperation::Remove => unreachable!(),
+        };
+        let kind = match change.kind {
+            MemoryChangeKind::UserPreference => "user_preference",
+            MemoryChangeKind::UserProfile => "user_profile",
+            MemoryChangeKind::BotExperience => "bot_experience",
+            MemoryChangeKind::ProjectKnowledge => "project_knowledge",
+            MemoryChangeKind::Worklog => "worklog",
+        };
+        let content = if matches!(
+            change.kind,
+            MemoryChangeKind::Worklog | MemoryChangeKind::ProjectKnowledge
+        ) {
+            let topic = change
+                .content
+                .lines()
+                .find(|line| !line.trim().is_empty())
+                .unwrap_or("(no topic)")
+                .chars()
+                .take(80)
+                .collect::<String>();
+            format!("{operation} {} [{kind}] topic: {topic}", change.entry_id)
+        } else {
+            format!(
+                "{operation} {} [{kind}]: {}",
+                change.entry_id, change.content
+            )
+        };
+        lines.push(format!("- {content}"));
+    }
+    (!lines.is_empty()).then(|| {
+        format!(
+            "<memory_update revision=\"{revision}\">\n{}\n</memory_update>",
+            lines.join("\n")
+        )
+    })
+}
+
+fn prompt_blocks(
+    package: &ContextPackage,
+    now: chrono::DateTime<chrono::Utc>,
+    host_timezone: Option<&str>,
+) -> (String, String) {
+    let mut l2_lines = package
+        .layers
+        .iter()
+        .find(|layer| layer.level == 2)
+        .map(|layer| layer.content.lines().map(str::to_owned).collect::<Vec<_>>())
+        .unwrap_or_default();
+    let snapshot_timezone = l2_lines
+        .iter()
+        .find_map(|line| line.strip_prefix("Host 时区：").map(str::to_owned))
+        .unwrap_or_else(|| "UTC".to_owned());
+    let timezone = host_timezone.unwrap_or(&snapshot_timezone);
+    l2_lines.retain(|line| !line.starts_with("Host 时区："));
+    let mut system_a = package
+        .layers
+        .iter()
+        .filter(|layer| layer.level < 2)
+        .map(|layer| format!("L{}:\n{}", layer.level, layer.content))
+        .collect::<Vec<_>>();
+    let memory_text = l2_lines.join("\n");
+    if !memory_text.is_empty() {
+        system_a.push(format!("L2:\n{memory_text}"));
+    }
+    if !package.large_entries.is_empty() {
+        let catalog = package
+            .large_entries
+            .iter()
+            .map(|entry| format!("- {}: {}", entry.entry_id, entry.topic))
+            .collect::<Vec<_>>()
+            .join("\n");
+        system_a.push(format!(
+            "大块记忆目录（正文按需 memory_search）：\n{catalog}"
+        ));
+    }
+    let mut system_b = vec![format!(
+        "当前时间：{}\nHost 时区：{timezone}",
+        now.to_rfc3339()
+    )];
+    system_b.extend(
+        package
+            .layers
+            .iter()
+            .filter(|layer| layer.level >= 3)
+            .map(|layer| format!("L{}:\n{}", layer.level, layer.content)),
+    );
+    (system_a.join("\n\n"), system_b.join("\n\n"))
+}
+
+fn maintenance_transcript(
+    request: &crate::execution::ExecutionRequest,
+    trim_old_tools: bool,
+) -> String {
+    let messages = request
+        .messages
+        .iter()
+        .filter(|message| message["role"] != "system")
+        .collect::<Vec<_>>();
+    let keep_from = messages.len().saturating_sub(4);
+    messages
+        .iter()
+        .enumerate()
+        .filter_map(|(index, message)| {
+            let role = message["role"].as_str().unwrap_or("user");
+            let content = message["content"].as_str()?;
+            let content = if trim_old_tools && role == "tool" && index < keep_from {
+                content.chars().take(240).collect::<String>()
+            } else {
+                content.to_owned()
+            };
+            Some(format!("{role}: {content}"))
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 fn target_from_object(object: &Map<String, Value>) -> Result<Option<MemoryTarget>, FeatureError> {
@@ -1042,7 +1501,7 @@ fn target_from_object(object: &Map<String, Value>) -> Result<Option<MemoryTarget
         _ => {
             return Err(FeatureError::Invalid(format!(
                 "unknown memory scope: {scope}"
-            )))
+            )));
         }
     };
     Ok(Some(target))
@@ -1087,10 +1546,7 @@ pub fn validate_memory_tool_args(args: &Value) -> Result<(), String> {
     }
     if matches!(action, "replace" | "remove") {
         required(object, "id").map_err(|error| error.to_string())?;
-        let version = object
-            .get("expected_version")
-            .or_else(|| object.get("version"))
-            .and_then(Value::as_u64);
+        let version = object.get("expected_version").and_then(Value::as_u64);
         if version.is_none() {
             return Err("replace/remove require a non-negative expected_version".into());
         }
@@ -1196,6 +1652,9 @@ fn into_memory_result(result: Result<Value, FeatureError>) -> ToolResult {
             FeatureError::Memory(macbot_memory::MemoryError::NotFound(id)) => json!({
                 "ok":false,"code":"not_found","message":format!("memory entry not found: {id}"),
             }),
+            FeatureError::NotAllowed(message) => json!({
+                "ok":false,"code":"not_allowed","message":message,
+            }),
             other => json!({"ok":false,"code":"invalid","message":other.to_string()}),
         },
     };
@@ -1216,6 +1675,61 @@ mod tests {
     use macbot_memory::{ConversationKind, MemoryScope};
     use std::sync::Mutex as StdMutex;
     use tempfile::tempdir;
+
+    fn memory_change(value: Value) -> MemoryChange {
+        serde_json::from_value(value).unwrap()
+    }
+
+    #[test]
+    fn memory_tool_preserves_not_allowed_error_code() {
+        let result = into_memory_result(Err(FeatureError::NotAllowed("scope is forbidden".into())));
+        assert_eq!(result.details["code"], "not_allowed");
+        assert!(result.is_error);
+    }
+
+    #[test]
+    fn incremental_messages_keep_final_entry_state_filter_self_and_catalog_large_items() {
+        let changes = vec![
+            memory_change(json!({
+                "operation_id":"a1","revision":1,"op":"add","entry_id":"u1",
+                "target":{"scope":"user","owner_id":"local-user"},"kind":"user_preference","content":"old",
+                "actor":{"kind":"user"},"source":{},"at":"2026-10-12T00:00:00Z"
+            })),
+            memory_change(json!({
+                "operation_id":"a2","revision":2,"op":"replace","entry_id":"u1",
+                "target":{"scope":"user","owner_id":"local-user"},"kind":"user_preference","content":"final preference",
+                "actor":{"kind":"user"},"source":{},"at":"2026-10-12T00:00:01Z"
+            })),
+            memory_change(json!({
+                "operation_id":"a3","revision":3,"op":"add","entry_id":"b1",
+                "target":{"scope":"bot","owner_id":"bot-a"},"kind":"bot_experience","content":"current bot own write",
+                "actor":{"kind":"bot","bot_id":"bot-a","run_id":"run-current"},"source":{},"at":"2026-10-12T00:00:02Z"
+            })),
+            memory_change(json!({
+                "operation_id":"a4","revision":4,"op":"add","entry_id":"p1",
+                "target":{"scope":"project","owner_id":"project-a"},"kind":"project_knowledge","content":"Decision: ship in two phases\nFurther detail",
+                "actor":{"kind":"bot","bot_id":"bot-b","run_id":"run-other"},"source":{},"at":"2026-10-12T00:00:03Z"
+            })),
+        ];
+        let update = render_memory_updates(
+            changes,
+            &[
+                MemoryTarget::user("local-user"),
+                MemoryTarget::bot("bot-a"),
+                MemoryTarget::project("project-a"),
+            ],
+            "bot-a",
+            "run-current",
+        )
+        .unwrap();
+        assert!(update.contains("revision=\"4\""));
+        assert_eq!(update.matches("u1").count(), 1);
+        assert!(update.contains("final preference"));
+        assert!(!update.contains("old"));
+        assert!(!update.contains("current bot own write"));
+        assert!(update.contains("p1 [project_knowledge] topic: Decision: ship in two phases"));
+        assert!(!update.contains("Further detail"));
+    }
 
     fn runtime() -> FeatureToolRuntime {
         let home = tempdir().unwrap().keep();
@@ -1297,7 +1811,7 @@ mod tests {
             "version": 1,
             "content": "legacy alias"
         }))
-        .is_ok());
+        .is_err());
         assert!(validate_memory_tool_args(&json!({
             "scope": "bot",
             "bot_id": "bot-a",
@@ -1464,7 +1978,6 @@ mod tests {
             .find(|tool| tool.name() == "memory")
             .unwrap();
         let context = ToolContext::new("/tmp", "run-1", "/tmp/runs");
-        runtime.run_started("run-1").unwrap();
         let result = memory
             .call(
                 &context,
@@ -1482,7 +1995,6 @@ mod tests {
             .iter()
             .any(|event| event.event == "memory.updated"));
         assert_eq!(runtime.service.shared_memory.entries().unwrap().len(), 1);
-        runtime.run_failed("run-1").unwrap();
         assert_eq!(runtime.service.shared_memory.entries().unwrap().len(), 1);
 
         let current = runtime.service.shared_memory.entries().unwrap().remove(0);
@@ -1549,38 +2061,24 @@ mod tests {
     #[tokio::test]
     async fn memory_search_tool_does_not_leak_other_users_or_bots() {
         let runtime = runtime();
-        runtime.service.begin_memory_run("seed").unwrap();
-        runtime
-            .service
-            .stage_memory(
-                &MemoryActor::System,
-                "seed",
-                macbot_memory::MemoryRequest {
-                    target: MemoryTarget::user("user-other"),
+        for target in [MemoryTarget::user("user-other"), MemoryTarget::bot("bot-b")] {
+            runtime
+                .service
+                .shared_memory
+                .add(macbot_memory::MemoryRequest {
+                    target: target.clone(),
                     action: macbot_memory::MemoryAction::Add,
-                    content: "secret other user".into(),
+                    content: format!("secret {}", target.owner_id),
                     id: None,
-                    kind: Some(macbot_memory::MemoryKind::UserPreference),
+                    kind: Some(if target.scope == MemoryScope::User {
+                        macbot_memory::MemoryKind::UserPreference
+                    } else {
+                        macbot_memory::MemoryKind::BotExperience
+                    }),
                     source: MemorySource::default(),
-                },
-            )
-            .unwrap();
-        runtime
-            .service
-            .stage_memory(
-                &MemoryActor::System,
-                "seed",
-                macbot_memory::MemoryRequest {
-                    target: MemoryTarget::bot("bot-b"),
-                    action: macbot_memory::MemoryAction::Add,
-                    content: "secret other bot".into(),
-                    id: None,
-                    kind: Some(macbot_memory::MemoryKind::BotExperience),
-                    source: MemorySource::default(),
-                },
-            )
-            .unwrap();
-        runtime.service.commit_memory_run("seed").unwrap();
+                })
+                .unwrap();
+        }
         let search = runtime
             .tools()
             .into_iter()
@@ -1613,7 +2111,6 @@ mod tests {
             .find(|tool| tool.name() == "memory")
             .unwrap();
         let context = ToolContext::new("/tmp", "run-a", "/tmp/runs");
-        first.run_started("run-a").unwrap();
         assert!(!memory
             .call(
                 &context,
@@ -1621,7 +2118,6 @@ mod tests {
             )
             .await
             .is_error);
-        first.run_failed("run-a").unwrap();
 
         let search = second
             .tools()
@@ -1637,7 +2133,6 @@ mod tests {
         assert!(!hidden.is_error);
         assert_eq!(hidden.details["entries"].as_array().unwrap().len(), 0);
 
-        first.run_started("run-failed").unwrap();
         assert!(!memory
             .call(
                 &ToolContext::new("/tmp", "run-failed", "/tmp/runs"),
@@ -1645,7 +2140,6 @@ mod tests {
             )
             .await
             .is_error);
-        first.run_failed("run-failed").unwrap();
         assert!(
             service
                 .memory_search("must persist", Some(&MemoryTarget::bot("bot-a")))
@@ -1789,6 +2283,396 @@ mod tests {
         }
 
         async fn approval_required(&self, _: Value) {}
+    }
+
+    struct OrderedMaintenance {
+        calls: Arc<StdMutex<Vec<String>>>,
+        summarized: Arc<StdMutex<String>>,
+    }
+
+    #[async_trait]
+    impl macbot_memory::AsyncMaintenanceProvider for OrderedMaintenance {
+        async fn summarize(&self, text: &str) -> Result<String, macbot_memory::MemoryError> {
+            self.calls.lock().unwrap().push("summarize".into());
+            *self.summarized.lock().unwrap() = text.to_owned();
+            Ok("compact durable conversation".into())
+        }
+
+        async fn extract(
+            &self,
+            _text: &str,
+        ) -> Result<Vec<macbot_memory::MemoryDraft>, macbot_memory::MemoryError> {
+            self.calls.lock().unwrap().push("extract".into());
+            Ok(Vec::new())
+        }
+    }
+
+    #[tokio::test]
+    async fn context_window_segment_extracts_trims_summarizes_then_rebuilds_l2() {
+        let home = tempdir().unwrap().keep();
+        let service = Arc::new(FeatureService::open(home, Vec::new()).unwrap());
+        let calls = Arc::new(StdMutex::new(Vec::new()));
+        let summarized = Arc::new(StdMutex::new(String::new()));
+        service
+            .set_maintenance_provider(Some(Arc::new(OrderedMaintenance {
+                calls: calls.clone(),
+                summarized: summarized.clone(),
+            })))
+            .unwrap();
+        let mut warm_run = FeatureRunContext::bot("bot-a", "user-a");
+        warm_run.model_context_window = 100_000;
+        warm_run.run_id = Some("warm-run".into());
+        warm_run.chat_id = Some("chat-segment".into());
+        warm_run.session_id = Some("chat-segment".into());
+        let delegate = Arc::new(EventRecordingSink::default());
+        let sink = FeatureExecutionSink::new(
+            delegate.clone(),
+            FeatureToolRuntime::new(service.clone(), warm_run),
+        );
+        let request = crate::execution::ExecutionRequest {
+            run_id: "warm-run".into(),
+            assignment_id: None,
+            source_message_id: None,
+            chat_id: "chat-segment".into(),
+            bot_id: "bot-a".into(),
+            model: "mock/model".into(),
+            provider_id: "mock".into(),
+            project_id: None,
+            instruction: "finish the setup".into(),
+            messages: vec![json!({"role":"user","content":"starting"})],
+            max_turns: 1,
+            private: true,
+            allow_unsafe: false,
+            cwd: None,
+            routine: false,
+            price: None,
+            resume_approved: false,
+            subagent: false,
+            tools: None,
+            phase: None,
+            parent_run_id: None,
+            subagent_task: None,
+            save_full_requests: false,
+            resume_message: None,
+            client_locale: None,
+        };
+        sink.prepare_model_context(&request).await.unwrap().unwrap();
+        sink.model_context_checkpointed(&request).await;
+
+        let mut compact_run = FeatureRunContext::bot("bot-a", "user-a");
+        compact_run.model_context_window = 2;
+        compact_run.run_id = Some("compact-run".into());
+        compact_run.chat_id = Some("chat-segment".into());
+        compact_run.session_id = Some("chat-segment".into());
+        let sink =
+            FeatureExecutionSink::new(delegate, FeatureToolRuntime::new(service, compact_run));
+        let mut compact_request = request;
+        compact_request.run_id = "compact-run".into();
+        compact_request.messages = vec![
+            json!({"role":"tool","content":"z".repeat(500)}),
+            json!({"role":"user","content":"u1"}),
+            json!({"role":"assistant","content":"a1"}),
+            json!({"role":"tool","content":"recent tool output"}),
+            json!({"role":"user","content":"current question"}),
+        ];
+        let context = sink
+            .prepare_model_context(&compact_request)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(*calls.lock().unwrap(), vec!["extract", "summarize"]);
+        assert!(summarized.lock().unwrap().contains(&"z".repeat(240)));
+        assert!(!summarized.lock().unwrap().contains(&"z".repeat(241)));
+        assert!(context["compaction_summary"].as_str().is_some());
+        assert_eq!(context["system_blocks"].as_array().unwrap().len(), 2);
+    }
+
+    #[tokio::test]
+    async fn oversized_first_context_extracts_before_summarizing() {
+        let home = tempdir().unwrap().keep();
+        let service = Arc::new(FeatureService::open(home, Vec::new()).unwrap());
+        let calls = Arc::new(StdMutex::new(Vec::new()));
+        let summarized = Arc::new(StdMutex::new(String::new()));
+        service
+            .set_maintenance_provider(Some(Arc::new(OrderedMaintenance {
+                calls: calls.clone(),
+                summarized: summarized.clone(),
+            })))
+            .unwrap();
+        let mut run = FeatureRunContext::bot("bot-a", "user-a");
+        run.model_context_window = 2;
+        run.run_id = Some("first-oversized-run".into());
+        run.chat_id = Some("first-oversized-chat".into());
+        run.session_id = Some("first-oversized-chat".into());
+        let sink = FeatureExecutionSink::new(
+            Arc::new(EventRecordingSink::default()),
+            FeatureToolRuntime::new(service, run),
+        );
+        let request = crate::execution::ExecutionRequest {
+            run_id: "first-oversized-run".into(),
+            assignment_id: None,
+            source_message_id: None,
+            chat_id: "first-oversized-chat".into(),
+            bot_id: "bot-a".into(),
+            model: "mock/model".into(),
+            provider_id: "mock".into(),
+            project_id: None,
+            instruction: "summarize current work".into(),
+            messages: vec![json!({"role":"user","content":"x".repeat(500)})],
+            max_turns: 1,
+            private: true,
+            allow_unsafe: false,
+            cwd: None,
+            routine: false,
+            price: None,
+            resume_approved: false,
+            subagent: false,
+            tools: None,
+            phase: None,
+            parent_run_id: None,
+            subagent_task: None,
+            save_full_requests: false,
+            resume_message: None,
+            client_locale: None,
+        };
+        let context = sink.prepare_model_context(&request).await.unwrap().unwrap();
+        assert_eq!(*calls.lock().unwrap(), vec!["extract", "summarize"]);
+        assert!(summarized.lock().unwrap().contains(&"x".repeat(240)));
+        assert_eq!(context["system_blocks"].as_array().unwrap().len(), 2);
+        assert!(context["compaction_summary"].as_str().is_some());
+    }
+
+    #[tokio::test]
+    async fn private_project_find_selection_opens_segment_and_loads_project_catalog() {
+        let home = tempdir().unwrap().keep();
+        let service = Arc::new(FeatureService::open(home, Vec::new()).unwrap());
+        let calls = Arc::new(StdMutex::new(Vec::new()));
+        let summarized = Arc::new(StdMutex::new(String::new()));
+        service
+            .set_maintenance_provider(Some(Arc::new(OrderedMaintenance {
+                calls: calls.clone(),
+                summarized: summarized.clone(),
+            })))
+            .unwrap();
+        service
+            .add_project_record(macbot_memory::ProjectRecord {
+                id: "project-atlas".into(),
+                name: "Atlas project".into(),
+                goal: "Build the Atlas service".into(),
+                content: "Atlas service architecture".into(),
+            })
+            .unwrap();
+        service
+            .memory_rpc(
+                &MemoryActor::main("main-bot"),
+                json!({
+                    "operation_id":"project-memory-seed",
+                    "run_id":"project-seed-run",
+                    "scope":"project",
+                    "project_id":"project-atlas",
+                    "action":"add",
+                    "kind":"project",
+                    "content":"Atlas architecture: event-driven gateway"
+                }),
+            )
+            .unwrap();
+
+        let mut run = FeatureRunContext::main("main-bot", "local-user");
+        run.private = true;
+        run.run_id = Some("private-project-run".into());
+        run.chat_id = Some("private-project-chat".into());
+        run.session_id = Some("private-project-chat".into());
+        let runtime = FeatureToolRuntime::new(service, run);
+        let sink = runtime.execution_sink(Arc::new(EventRecordingSink::default()));
+        let request = crate::execution::ExecutionRequest {
+            run_id: "private-project-run".into(),
+            assignment_id: None,
+            source_message_id: None,
+            chat_id: "private-project-chat".into(),
+            bot_id: "main-bot".into(),
+            model: "mock/model".into(),
+            provider_id: "mock".into(),
+            project_id: None,
+            instruction: "work on Atlas".into(),
+            messages: vec![json!({"role":"user","content":"work on Atlas"})],
+            max_turns: 1,
+            private: true,
+            allow_unsafe: false,
+            cwd: None,
+            routine: false,
+            price: None,
+            resume_approved: false,
+            subagent: false,
+            tools: None,
+            phase: None,
+            parent_run_id: None,
+            subagent_task: None,
+            save_full_requests: false,
+            resume_message: None,
+            client_locale: None,
+        };
+        sink.prepare_model_context(&request).await.unwrap();
+        sink.model_context_checkpointed(&request).await;
+
+        let project_find = runtime
+            .tools()
+            .into_iter()
+            .find(|tool| tool.name() == "project_find")
+            .unwrap();
+        let context = ToolContext::new("/tmp", "private-project-run", "/tmp/runs");
+        let found = project_find.call(&context, json!({"query":"Atlas"})).await;
+        assert!(!found.is_error);
+        assert_eq!(found.details["projects"][0]["id"], "project-atlas");
+        let selected = project_find
+            .call(
+                &context,
+                json!({"query":"Atlas","project_id":"project-atlas"}),
+            )
+            .await;
+        assert!(!selected.is_error);
+        assert_eq!(selected.details["selected_project_id"], "project-atlas");
+
+        let next_context = sink.prepare_model_context(&request).await.unwrap().unwrap();
+        assert_eq!(*calls.lock().unwrap(), vec!["extract", "summarize"]);
+        assert!(next_context["system_blocks"][0]["content"]
+            .as_str()
+            .unwrap()
+            .contains("Atlas architecture"));
+    }
+
+    #[tokio::test]
+    async fn memory_delta_is_visible_again_in_a_later_run_of_the_same_segment() {
+        let home = tempdir().unwrap().keep();
+        let run_checkpoint_path = home.join("data/memory/segments/run-one.json");
+        let service = Arc::new(FeatureService::open(home.clone(), Vec::new()).unwrap());
+        let bot_entry = service
+            .memory_rpc(
+                &MemoryActor::bot("bot-a"),
+                json!({
+                    "operation_id":"seed-entry",
+                    "run_id":"seed-run",
+                    "scope":"bot",
+                    "bot_id":"bot-a",
+                    "action":"add",
+                    "kind":"bot_experience",
+                    "content":"old durable guidance"
+                }),
+            )
+            .unwrap();
+        let delegate = Arc::new(EventRecordingSink::default());
+        let mut run_context = FeatureRunContext::bot("bot-a", "local-user");
+        run_context.run_id = Some("run-one".into());
+        run_context.chat_id = Some("same-chat".into());
+        run_context.session_id = Some("same-chat".into());
+        run_context.host_timezone = Some("America/Los_Angeles".into());
+        let sink = FeatureExecutionSink::new(
+            delegate.clone(),
+            FeatureToolRuntime::new(service.clone(), run_context),
+        );
+        let mut request = crate::execution::ExecutionRequest {
+            run_id: "run-one".into(),
+            assignment_id: None,
+            source_message_id: None,
+            chat_id: "same-chat".into(),
+            bot_id: "bot-a".into(),
+            model: "mock/model".into(),
+            provider_id: "mock".into(),
+            project_id: None,
+            instruction: "help me".into(),
+            messages: vec![json!({"role":"user","content":"hello"})],
+            max_turns: 1,
+            private: true,
+            allow_unsafe: false,
+            cwd: None,
+            routine: false,
+            price: None,
+            resume_approved: false,
+            subagent: false,
+            tools: None,
+            phase: None,
+            parent_run_id: None,
+            subagent_task: None,
+            save_full_requests: false,
+            resume_message: None,
+            client_locale: None,
+        };
+        let initial_context = sink.prepare_model_context(&request).await.unwrap().unwrap();
+        assert!(initial_context["system_blocks"][1]["content"]
+            .as_str()
+            .unwrap()
+            .contains("America/Los_Angeles"));
+        sink.model_context_checkpointed(&request).await;
+        assert!(run_checkpoint_path.exists());
+        let run_checkpoint: Value =
+            serde_json::from_slice(&std::fs::read(&run_checkpoint_path).unwrap()).unwrap();
+        assert_eq!(
+            run_checkpoint["seen_revision"],
+            service.shared_memory.revision().unwrap()
+        );
+        service
+            .user_memory_rpc(
+                "memory.user.create",
+                json!({"content":"prefers concise replies"}),
+                "UTC",
+            )
+            .unwrap();
+        service
+            .memory_rpc(
+                &MemoryActor::bot("bot-a"),
+                json!({
+                    "operation_id":"replace-entry",
+                    "run_id":"update-run",
+                    "scope":"bot",
+                    "bot_id":"bot-a",
+                    "action":"replace",
+                    "kind":"bot_experience",
+                    "id":bot_entry["entry_id"],
+                    "expected_version":bot_entry["version"],
+                    "content":"new durable guidance"
+                }),
+            )
+            .unwrap();
+        let first_update = sink.prepare_model_context(&request).await.unwrap().unwrap();
+        assert!(first_update["memory_update"]
+            .as_str()
+            .unwrap()
+            .contains("prefers concise replies"));
+        sink.model_context_checkpointed(&request).await;
+
+        request.run_id = "run-two".into();
+        request.messages = vec![json!({"role":"user","content":"another question"})];
+        let mut second_context = FeatureRunContext::bot("bot-a", "local-user");
+        second_context.run_id = Some("run-two".into());
+        second_context.chat_id = Some("same-chat".into());
+        second_context.session_id = Some("same-chat".into());
+        second_context.host_timezone = Some("Asia/Tokyo".into());
+        let second_sink =
+            FeatureExecutionSink::new(delegate, FeatureToolRuntime::new(service, second_context));
+        let second_update = second_sink
+            .prepare_model_context(&request)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            initial_context["system_blocks"][0]["content"],
+            second_update["system_blocks"][0]["content"]
+        );
+        assert!(second_update["memory_update"]
+            .as_str()
+            .unwrap()
+            .contains("prefers concise replies"));
+        assert!(second_update["system_blocks"][0]["content"]
+            .as_str()
+            .unwrap()
+            .contains("old durable guidance"));
+        assert!(second_update["system_blocks"][1]["content"]
+            .as_str()
+            .unwrap()
+            .contains("Asia/Tokyo"));
+        assert!(!second_update["system_blocks"][0]["content"]
+            .as_str()
+            .unwrap()
+            .contains("new durable guidance"));
     }
 
     #[tokio::test]
