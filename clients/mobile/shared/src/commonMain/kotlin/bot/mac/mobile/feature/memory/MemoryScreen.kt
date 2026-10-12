@@ -1,22 +1,31 @@
 package bot.mac.mobile.feature.memory
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import bot.mac.mobile.core.design.BotAvatar
 import bot.mac.mobile.core.design.FontScaleToolbar
 import bot.mac.mobile.core.design.LocalMobilePalette
 import bot.mac.mobile.core.network.NetworkError
@@ -24,11 +33,18 @@ import bot.mac.mobile.core.protocol.*
 import bot.mac.mobile.core.state.MobileRepository
 import bot.mac.mobile.resources.*
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.async
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
+import kotlinx.datetime.Instant
+import kotlinx.datetime.TimeZone
+import kotlinx.datetime.toLocalDateTime
 import org.jetbrains.compose.resources.stringResource
 import kotlin.math.roundToInt
 
@@ -46,7 +62,6 @@ fun MemoryScreen(
     val scope = rememberCoroutineScope()
     var query by rememberSaveable { mutableStateOf("") }
     var error by remember { mutableStateOf<String?>(null) }
-    var confirmDelete by remember { mutableStateOf<JsonObject?>(null) }
     var deleteConflict by remember { mutableStateOf<Pair<JsonObject, JsonObject>?>(null) }
     var loaded by remember { mutableStateOf(false) }
     val snackbar = remember { SnackbarHostState() }
@@ -69,7 +84,7 @@ fun MemoryScreen(
         }
     }
 
-    val entries = state.memoryEntries.filter { it.str("content").contains(query, ignoreCase = true) }
+    val entries = sortMemoryEntries(state.memoryEntries.filter { it.str("content").contains(query, ignoreCase = true) })
     fun deleteEntry(entry: JsonObject, expectedVersion: Long = entry.long("version")) {
         scope.launch {
             runCatching {
@@ -78,7 +93,10 @@ fun MemoryScreen(
                     put("expected_version", expectedVersion)
                 })
             }.onSuccess {
-                val result = snackbar.showSnackbar(deletedText, undoText, withDismissAction = true)
+                val snackbarResult = scope.async { snackbar.showSnackbar(deletedText, undoText, withDismissAction = true, duration = SnackbarDuration.Indefinite) }
+                delay(5_000)
+                snackbar.currentSnackbarData?.dismiss()
+                val result = snackbarResult.await()
                 if (result == SnackbarResult.ActionPerformed) {
                     runCatching { repository.callOnHost(hostId, "memory.user.create", buildJsonObject { put("content", entry.str("content")) }) }
                         .onFailure { error = if ((it as? NetworkError)?.code == "quota_full") quotaError else loadingError }
@@ -136,11 +154,13 @@ fun MemoryScreen(
                     items(entries, key = { it.str("id") }) { entry ->
                         MemoryEntryRow(
                             entry = entry,
+                            query = query,
+                            repository = repository,
                             chats = state.chats,
                             bots = state.bots,
                             onClick = { onOpenEntry(entry.str("id")) },
                             onOpenSource = onOpenSource,
-                            onSwipeDelete = { confirmDelete = entry },
+                            onSwipeDelete = { deleteEntry(entry) },
                         )
                     }
                 }
@@ -150,20 +170,6 @@ fun MemoryScreen(
         SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter))
     }
 
-    confirmDelete?.let { entry ->
-        AlertDialog(
-            onDismissRequest = { confirmDelete = null },
-            title = { Text(stringResource(Res.string.memory_delete_entry)) },
-            text = { Text(entry.str("content")) },
-            confirmButton = {
-                TextButton(onClick = {
-                    confirmDelete = null
-                    deleteEntry(entry)
-                }) { Text(stringResource(Res.string.common_delete), color = MaterialTheme.colorScheme.error) }
-            },
-            dismissButton = { TextButton(onClick = { confirmDelete = null }) { Text(stringResource(Res.string.common_cancel)) } },
-        )
-    }
     deleteConflict?.let { (entry, current) ->
         AlertDialog(
             onDismissRequest = { deleteConflict = null },
@@ -223,13 +229,18 @@ private fun QuotaCard(quota: JsonObject) {
     val limit = quota.long("limit_chars").coerceAtLeast(1L)
     val fraction = (used.toFloat() / limit.toFloat()).coerceIn(0f, 1f)
     val palette = LocalMobilePalette.current
+    val barColor = when (memoryQuotaLevel(used, limit)) {
+        MemoryQuotaLevel.FULL -> MaterialTheme.colorScheme.error
+        MemoryQuotaLevel.WARNING -> palette.warning
+        MemoryQuotaLevel.NORMAL -> palette.accent
+    }
     Column(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surface, RoundedCornerShape(14.dp)).padding(14.dp)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text(stringResource(Res.string.memory_usage), Modifier.weight(1f), style = MaterialTheme.typography.titleSmall)
             Text(stringResource(Res.string.memory_usage_value, used, limit), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         Box(Modifier.fillMaxWidth().padding(top = 10.dp).height(6.dp).background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(3.dp))) {
-            Box(Modifier.fillMaxWidth(fraction).fillMaxHeight().background(palette.accent, RoundedCornerShape(3.dp)))
+            Box(Modifier.fillMaxWidth(fraction).fillMaxHeight().background(barColor, RoundedCornerShape(3.dp)))
         }
         Text(stringResource(Res.string.memory_usage_hint), Modifier.padding(top = 8.dp), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
@@ -238,6 +249,8 @@ private fun QuotaCard(quota: JsonObject) {
 @Composable
 private fun MemoryEntryRow(
     entry: JsonObject,
+    query: String,
+    repository: MobileRepository,
     chats: List<JsonObject>,
     bots: List<JsonObject>,
     onClick: () -> Unit,
@@ -269,15 +282,18 @@ private fun MemoryEntryRow(
             .offset { IntOffset(offsetX.roundToInt(), 0) }
             .pointerInput(entry.str("id")) {
                 var total = 0f
+                val swipeThreshold = 64.dp.toPx()
+                val maxOffset = 140.dp.toPx()
                 detectHorizontalDragGestures(
                     onDragStart = { total = 0f },
                     onHorizontalDrag = { change, amount ->
                         change.consume()
                         total += amount
-                        offsetX = (offsetX + amount).coerceIn(-140f, 0f)
+                        offsetX = (offsetX + amount).coerceIn(-maxOffset, 0f)
                     },
                     onDragEnd = {
-                        if (total < -64f) onSwipeDelete() else offsetX = 0f
+                        if (total < -swipeThreshold) onSwipeDelete()
+                        offsetX = 0f
                     },
                     onDragCancel = { offsetX = 0f },
                 )
@@ -287,7 +303,7 @@ private fun MemoryEntryRow(
             .padding(horizontal = 14.dp, vertical = 12.dp),
     ) {
         Column(Modifier.weight(1f)) {
-            Text(entry.str("content"), style = MaterialTheme.typography.bodyLarge, lineHeight = MaterialTheme.typography.bodyLarge.lineHeight)
+            Text(highlightMemoryText(entry.str("content"), query, MaterialTheme.colorScheme.primary), style = MaterialTheme.typography.bodyLarge, lineHeight = 23.sp)
             Row(Modifier.fillMaxWidth().padding(top = 7.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text(sourceLabel, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 if (detail.isNotBlank()) {
@@ -313,19 +329,24 @@ fun MemoryEntryEditorScreen(repository: MobileRepository, entryId: String, onBac
     val state by repository.state.collectAsState()
     val hostId = repository.activeHost.collectAsState().value?.id.orEmpty()
     val scope = rememberCoroutineScope()
+    val snackbar = remember { SnackbarHostState() }
     val existing = state.memoryEntries.firstOrNull { it.str("id") == entryId }
     var content by rememberSaveable(hostId, entryId) { mutableStateOf("") }
+    var baseContent by rememberSaveable(hostId, entryId) { mutableStateOf("") }
     var baseVersion by rememberSaveable(hostId, entryId) { mutableStateOf(0L) }
     var entryLoaded by rememberSaveable(hostId, entryId) { mutableStateOf(entryId.isBlank()) }
     var error by remember { mutableStateOf<String?>(null) }
     var conflict by remember { mutableStateOf<JsonObject?>(null) }
     var deleteConflict by remember { mutableStateOf<JsonObject?>(null) }
     var deleting by remember { mutableStateOf(false) }
+    var saving by remember { mutableStateOf(false) }
     val loadingError = stringResource(Res.string.feature_loading_error)
     val quotaError = stringResource(Res.string.memory_quota_full)
     val conflictError = stringResource(Res.string.memory_conflict_simple)
     val conflictDeleteMine = stringResource(Res.string.memory_conflict_delete_mine)
     val conflictKeepLatest = stringResource(Res.string.memory_conflict_keep_latest)
+    val deletedText = stringResource(Res.string.memory_deleted)
+    val undoText = stringResource(Res.string.memory_undo)
     LaunchedEffect(hostId, entryId) {
         if (entryId.isNotBlank()) {
             runCatching {
@@ -333,15 +354,27 @@ fun MemoryEntryEditorScreen(repository: MobileRepository, entryId: String, onBac
                 val current = result.objects("entries").firstOrNull { it.str("id") == entryId }
                 if (current != null) {
                     content = current.str("content")
+                    baseContent = current.str("content")
                     baseVersion = current.long("version")
                     entryLoaded = true
                 } else error = loadingError
             }.onFailure { error = loadingError }
         }
     }
+    LaunchedEffect(existing?.long("version"), saving, entryLoaded) {
+        if (entryLoaded && !saving && existing != null && existing.long("version") > baseVersion) {
+            if (content == baseContent) {
+                content = existing.str("content")
+                baseContent = existing.str("content")
+                baseVersion = existing.long("version")
+            } else conflict = existing
+        }
+    }
     val isNew = entryId.isBlank()
     fun save(expectedVersion: Long = baseVersion) {
         scope.launch {
+            if (saving) return@launch
+            saving = true
             runCatching {
                 if (isNew) repository.callOnHost(hostId, "memory.user.create", buildJsonObject { put("content", content.trim()) })
                 else repository.callOnHost(hostId, "memory.user.update", buildJsonObject {
@@ -357,26 +390,28 @@ fun MemoryEntryEditorScreen(repository: MobileRepository, entryId: String, onBac
                     else -> error = loadingError
                 }
             }
+            saving = false
         }
     }
-    Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).imePadding()) {
+    Box(Modifier.fillMaxSize()) {
+      Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).imePadding()) {
         FontScaleToolbar {
             Row(Modifier.fillMaxWidth().heightIn(min = 64.dp).padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                 TextButton(onClick = onBack) { Text(stringResource(Res.string.common_back)) }
                 Text(stringResource(if (isNew) Res.string.memory_add_title else Res.string.memory_edit_title), Modifier.weight(1f), style = MaterialTheme.typography.titleLarge)
-                TextButton(onClick = { save() }, enabled = entryLoaded && content.isNotBlank() && content.length <= 500) { Text("✓", style = MaterialTheme.typography.titleLarge) }
+            TextButton(onClick = { save() }, enabled = !saving && entryLoaded && content.isNotBlank() && content.unicodeScalarCount() <= 500) { Text("✓", style = MaterialTheme.typography.titleLarge) }
             }
         }
         Column(Modifier.weight(1f).fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
             OutlinedTextField(
                 value = content,
-                onValueChange = { if (it.length <= 500) content = it },
+                onValueChange = { if (it.unicodeScalarCount() <= 500) content = it },
                 modifier = Modifier.fillMaxWidth().weight(1f),
                 minLines = 6,
                 maxLines = 18,
                 keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
             )
-            Text(stringResource(Res.string.memory_edit_count, content.length), Modifier.fillMaxWidth().padding(vertical = 8.dp), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(stringResource(Res.string.memory_edit_count, content.unicodeScalarCount()), Modifier.fillMaxWidth().padding(vertical = 8.dp), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             if (existing != null) {
                 Text(
                     memoryEntrySourceText(existing, state.chats, state.bots),
@@ -389,12 +424,14 @@ fun MemoryEntryEditorScreen(repository: MobileRepository, entryId: String, onBac
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.primary,
                 )
-                Button(onClick = { deleting = true }, modifier = Modifier.fillMaxWidth().padding(top = 18.dp), colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.errorContainer, contentColor = MaterialTheme.colorScheme.onErrorContainer)) {
+                Button(onClick = { deleting = true }, enabled = !deleting, modifier = Modifier.fillMaxWidth().padding(top = 18.dp), colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.errorContainer, contentColor = MaterialTheme.colorScheme.onErrorContainer)) {
                     Text(stringResource(Res.string.memory_delete_entry))
                 }
             }
             error?.let { Text(it, Modifier.padding(top = 8.dp), color = MaterialTheme.colorScheme.error) }
         }
+      }
+      SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter))
     }
     deleting.takeIf { it }?.let {
         AlertDialog(
@@ -406,7 +443,16 @@ fun MemoryEntryEditorScreen(repository: MobileRepository, entryId: String, onBac
                     deleting = false
                     scope.launch {
                         runCatching { repository.callOnHost(hostId, "memory.user.delete", buildJsonObject { put("entry_id", entryId); put("expected_version", baseVersion) }) }
-                            .onSuccess { onBack() }
+                            .onSuccess {
+                                val result = scope.async { snackbar.showSnackbar(deletedText, undoText, withDismissAction = true, duration = SnackbarDuration.Indefinite) }
+                                delay(5_000)
+                                snackbar.currentSnackbarData?.dismiss()
+                                if (result.await() == SnackbarResult.ActionPerformed) {
+                                    runCatching { repository.callOnHost(hostId, "memory.user.create", buildJsonObject { put("content", content) }) }
+                                        .onFailure { error = if ((it as? NetworkError)?.code == "quota_full") quotaError else loadingError }
+                                }
+                                onBack()
+                            }
                             .onFailure { failure ->
                                 val remote = (failure as? NetworkError)?.details?.obj("details")?.obj("current")
                                 if ((failure as? NetworkError)?.code == "conflict" && remote != null) deleteConflict = remote
@@ -422,7 +468,10 @@ fun MemoryEntryEditorScreen(repository: MobileRepository, entryId: String, onBac
         val updatedByKind = remote.obj("updated_by").str("kind")
         val updatedBy = when (updatedByKind) {
             "user" -> stringResource(Res.string.memory_source_user)
-            "bot" -> stringResource(Res.string.memory_source_bot, remote.obj("updated_by").str("bot_id"))
+            "bot" -> {
+                val botId = remote.obj("updated_by").str("bot_id")
+                stringResource(Res.string.memory_source_bot, state.bots.firstOrNull { it.str("id") == botId }?.str("name") ?: botId)
+            }
             else -> stringResource(Res.string.memory_source_curator)
         }
         val conflictText = stringResource(Res.string.memory_conflict, updatedBy, remote.long("version"))
@@ -431,7 +480,7 @@ fun MemoryEntryEditorScreen(repository: MobileRepository, entryId: String, onBac
             title = { Text(stringResource(Res.string.memory_conflict_title)) },
             text = { Column(verticalArrangement = Arrangement.spacedBy(8.dp)) { Text(conflictText); Text(remote.str("content"), style = MaterialTheme.typography.bodyMedium) } },
             confirmButton = { TextButton(onClick = { val version = remote.long("version"); conflict = null; save(version) }) { Text(stringResource(Res.string.memory_conflict_mine)) } },
-            dismissButton = { TextButton(onClick = { content = remote.str("content"); baseVersion = remote.long("version"); conflict = null }) { Text(stringResource(Res.string.memory_conflict_theirs)) } },
+            dismissButton = { TextButton(onClick = { content = remote.str("content"); baseContent = remote.str("content"); baseVersion = remote.long("version"); conflict = null }) { Text(stringResource(Res.string.memory_conflict_theirs)) } },
         )
     }
     deleteConflict?.let { remote ->
