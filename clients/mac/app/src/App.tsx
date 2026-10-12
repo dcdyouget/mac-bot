@@ -236,6 +236,7 @@ function App() {
   const [memoryLoading, setMemoryLoading] = useState(false)
   const [memoryError, setMemoryError] = useState<string | null>(null)
   const [memoryDataScope, setMemoryDataScope] = useState<string | null>(null)
+  const memoryLoadGenerationRef = useRef(0)
   const [memorySourceTarget, setMemorySourceTarget] = useState<{ scope: string; chatId: string; messageId: string } | null>(null)
   const [themeMode, setThemeMode] = useState<ThemeMode>(() => {
     const saved = localStorage.getItem(THEME_STORAGE_KEY)
@@ -1932,6 +1933,7 @@ function App() {
   const loadMemory = useCallback(async () => {
     const scope = hostScope
     if (hostScopeRef.current !== scope) return
+    const requestGeneration = ++memoryLoadGenerationRef.current
     if (memoryDataScopeRef.current !== scope) {
       setMemoryProfile(null)
       setMemoryEntries([])
@@ -1955,7 +1957,7 @@ function App() {
       invoke<{ profile: UserProfile }>('protocol_request', { method: 'memory.profile.get', params: {} }),
       invoke<{ entries: UserMemoryEntry[]; quota: UserMemoryQuota }>('protocol_request', { method: 'memory.user.list', params: {} }),
     ])
-    if (hostScopeRef.current === scope) {
+    if (hostScopeRef.current === scope && memoryLoadGenerationRef.current === requestGeneration) {
       if (profileResult.status === 'fulfilled') setMemoryProfile(profileResult.value.profile)
       else setMemoryProfile(null)
       if (listResult.status === 'fulfilled') {
@@ -1985,19 +1987,46 @@ function App() {
     void reloadActivePage()
     let unlisten: (() => void) | undefined
     let refreshTimer: number | null = null
-    void listen<BridgeState>('bridge-state', () => {
+    let maxRefreshTimer: number | null = null
+    let active = true
+    const refresh = () => {
+      if (!active) return
       if (refreshTimer !== null) window.clearTimeout(refreshTimer)
-      refreshTimer = window.setTimeout(() => { void reloadActivePage() }, 450)
-    }).then((dispose) => { unlisten = dispose }).catch((error: unknown) => {
+      if (maxRefreshTimer === null) {
+        maxRefreshTimer = window.setTimeout(() => {
+          if (refreshTimer !== null) window.clearTimeout(refreshTimer)
+          refreshTimer = null
+          maxRefreshTimer = null
+          void reloadActivePage()
+        }, 1200)
+      }
+      refreshTimer = window.setTimeout(() => {
+        if (maxRefreshTimer !== null) window.clearTimeout(maxRefreshTimer)
+        refreshTimer = null
+        maxRefreshTimer = null
+        void reloadActivePage()
+      }, 350)
+    }
+    const subscribe = activePage === 'memory'
+      ? listen<{ host_scope: string; event: string }>('memory-protocol-event', (event) => {
+        if (event.payload.host_scope === hostScope) refresh()
+      })
+      : listen<BridgeState>('bridge-state', () => refresh())
+    void subscribe.then((dispose) => {
+      if (active) unlisten = dispose
+      else dispose()
+    }).catch((error: unknown) => {
       if (activePage === 'routines') setRoutinesError(String(error))
       else if (activePage === 'skills') setSkillsError(String(error))
       else setMemoryError(String(error))
     })
     return () => {
+      active = false
       if (refreshTimer !== null) window.clearTimeout(refreshTimer)
+      if (maxRefreshTimer !== null) window.clearTimeout(maxRefreshTimer)
       unlisten?.()
     }
-  }, [activePage, reloadActivePage])
+  }, [activePage, hostScope, reloadActivePage])
 
   const loadRoutineRuns = useCallback(async (routineId: string) => {
     const scope = hostScope

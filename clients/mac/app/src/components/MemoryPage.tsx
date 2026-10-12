@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { AlertCircle, Check, ChevronLeft, ChevronRight, Clock3, Pencil, Plus, Search, Sparkles, Trash2, Undo2, UserRound } from 'lucide-react'
 import { t, type CopyKey } from '../i18n'
+import { reconcileUserProfileConflict, type UserProfileConflict } from './userProfileConflict'
 import './MemoryPage.css'
 
 export type MemorySender = { kind: 'user' | 'system' } | { kind: 'bot'; bot_id: string }
@@ -82,7 +83,7 @@ export function MemoryPage(props: MemoryPageProps) {
   const [profileForm, setProfileForm] = useState<ProfileForm>({ name: profile?.name ?? null, language: profile?.language ?? null, identity: profile?.identity ?? null })
   const [profileSaved, setProfileSaved] = useState<EditableProfileField | null>(null)
   const [profileSaving, setProfileSaving] = useState<EditableProfileField | null>(null)
-  const [profileConflict, setProfileConflict] = useState<{ current: UserProfile; mine: UserProfilePatch; open: boolean } | null>(null)
+  const [profileConflict, setProfileConflict] = useState<UserProfileConflict | null>(null)
   const [profileError, setProfileError] = useState<string | null>(null)
   const [query, setQuery] = useState('')
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -97,6 +98,7 @@ export function MemoryPage(props: MemoryPageProps) {
   const [localQuota, setLocalQuota] = useState(quota)
   const undoTimer = useRef<number | null>(null)
   const profileVersion = useRef(profile?.version ?? 0)
+  const profileSnapshot = useRef(profile)
   const entryOverrides = useRef<Record<string, UserMemoryEntry>>({})
   const hiddenEntries = useRef<Set<string>>(new Set())
   const [localEntries, setLocalEntries] = useState<UserMemoryEntry[]>(entries)
@@ -116,13 +118,19 @@ export function MemoryPage(props: MemoryPageProps) {
 
   useEffect(() => {
     if (!profile) return
+    const previous = profileSnapshot.current
+    profileSnapshot.current = profile
     profileVersion.current = profile.version
+    setProfileConflict((current) => reconcileUserProfileConflict(previous, profile, profileForm, current))
     setProfileForm((current) => {
-      const isDirty = (Object.keys(current) as EditableProfileField[]).some((key) => current[key] !== profile[key])
-      return isDirty ? current : { name: profile.name, language: profile.language, identity: profile.identity }
+      const fields = Object.keys(current) as EditableProfileField[]
+      const next = Object.fromEntries(fields.map((key) => [
+        key,
+        previous && current[key] !== previous[key] ? current[key] : profile[key],
+      ])) as ProfileForm
+      return fields.every((key) => current[key] === next[key]) ? current : next
     })
-    if (profileConflict && profile.version > profileConflict.current.version) setProfileConflict(null)
-  }, [profile, profileConflict])
+  }, [profile, profileForm])
 
   useEffect(() => () => { if (undoTimer.current !== null) window.clearTimeout(undoTimer.current) }, [])
   useEffect(() => { setLocalQuota(quota) }, [quota])
@@ -153,7 +161,7 @@ export function MemoryPage(props: MemoryPageProps) {
   }
 
   async function saveProfile(field: EditableProfileField, nextValue?: string | null) {
-    if (!profile || profileSaving !== null) return
+    if (!profile || profileSaving !== null || (profileConflict && field in profileConflict.mine)) return
     const value = nextValue === undefined ? profileForm[field] : nextValue
     if (value === profile[field]) return
     setProfileSaving(field)
@@ -309,7 +317,7 @@ export function MemoryPage(props: MemoryPageProps) {
           {!profile && <div className="memory-loading">{loading ? '正在读取用户档案…' : '暂无用户档案'}</div>}
           {profile && <>
             {profileConflict && <div className="memory-conflict-banner"><AlertCircle size={15} /><span>{copy('memory.conflict', '{who} 刚刚也修改了这条记忆（版本 {n}）。查看对方的版本后再决定保存哪一份').replace('{who}', senderName(profileConflict.current.updated_by, bots)).replace('{n}', String(profileConflict.current.version))}</span><button type="button" onClick={() => setProfileConflict((current) => current ? { ...current, open: !current.open } : current)}>查看对方的版本</button></div>}
-            {profileConflict?.open && <div className="memory-conflict-compare"><div><small>我的版本</small><span>{(profileConflict.mine.name !== undefined ? profileConflict.mine.name : profile.name) ?? '—'} · {(profileConflict.mine.language !== undefined ? profileConflict.mine.language : profile.language) ?? '—'} · {(profileConflict.mine.identity !== undefined ? profileConflict.mine.identity : profile.identity) ?? '—'}</span></div><div><small>对方的版本</small><span>{profileConflict.current.name ?? '—'} · {profileConflict.current.language ?? '—'} · {profileConflict.current.identity ?? '—'}</span></div><div><button type="button" onClick={() => { setProfileForm({ name: profileConflict.current.name, language: profileConflict.current.language, identity: profileConflict.current.identity }); profileVersion.current = profileConflict.current.version; setProfileConflict(null) }}>{copy('memory.conflict.theirs', '用对方的')}</button><button type="button" onClick={() => void retryProfileMine()}>{copy('memory.conflict.mine', '用我的')}</button></div></div>}
+            {profileConflict?.open && <div className="memory-conflict-compare"><div><small>我的版本</small><span>{(profileConflict.mine.name !== undefined ? profileConflict.mine.name : profile.name) ?? '—'} · {(profileConflict.mine.language !== undefined ? profileConflict.mine.language : profile.language) ?? '—'} · {(profileConflict.mine.identity !== undefined ? profileConflict.mine.identity : profile.identity) ?? '—'}</span></div><div><small>对方的版本</small><span>{profileConflict.current.name ?? '—'} · {profileConflict.current.language ?? '—'} · {profileConflict.current.identity ?? '—'}</span></div><div><button type="button" onClick={() => { setProfileForm((current) => ({ ...current, ...Object.fromEntries(Object.keys(profileConflict.mine).map((key) => [key, profileConflict.current[key as EditableProfileField]])) })); profileVersion.current = profileConflict.current.version; setProfileConflict(null) }}>{copy('memory.conflict.theirs', '用对方的')}</button><button type="button" onClick={() => void retryProfileMine()}>{copy('memory.conflict.mine', '用我的')}</button></div></div>}
             {profileError && <div className="memory-inline-error">{profileError}</div>}
             <div className="memory-profile-fields">
               <label><span>{copy('memory.profile.name', '称呼')}</span><input disabled={profileSaving !== null} maxLength={20} placeholder={copy('memory.profile.name_hint', 'Bot 怎么叫你')} value={profileForm.name ?? ''} onChange={(event) => setProfileForm((current) => ({ ...current, name: event.target.value || null }))} onBlur={() => void saveProfile('name')} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); void saveProfile('name') } }} />{profileSaved === 'name' && <Check className="memory-saved" size={14} />}</label>

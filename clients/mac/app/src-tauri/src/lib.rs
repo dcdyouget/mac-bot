@@ -717,6 +717,20 @@ fn emit_snapshot(app: &AppHandle, bridge: &SharedBridge) {
     }
 }
 
+fn memory_protocol_event_payload(
+    event: &str,
+    data: &Value,
+    host_scope: Option<&str>,
+) -> Option<Value> {
+    if !matches!(
+        event,
+        "memory.user.updated" | "memory.user.deleted" | "memory.profile.updated"
+    ) {
+        return None;
+    }
+    Some(json!({ "host_scope": host_scope?, "event": event, "data": data }))
+}
+
 fn connection_is_current(data: &BridgeData, generation: u64) -> bool {
     data.connection_generation == generation
 }
@@ -1359,6 +1373,24 @@ async fn connect_to_host(
                         let old_seq = data.state.last_seq;
                         let event_name = protocol_event.event.clone();
                         let event_data = protocol_event.data.clone();
+                        let host_scope = data
+                            .active_host
+                            .as_ref()
+                            .map(|host| host.id.as_str())
+                            .or_else(|| {
+                                data.state
+                                    .hello
+                                    .as_ref()
+                                    .and_then(|hello| hello.get("node_id"))
+                                    .and_then(Value::as_str)
+                            });
+                        if let Some(payload) = memory_protocol_event_payload(
+                            &event_name,
+                            &event_data,
+                            host_scope,
+                        ) {
+                            let _ = app_handle.emit("memory-protocol-event", payload);
+                        }
                         data.state.apply_event(protocol_event);
                         if let Some(routed) = route_trace_event(&mut data, &event_name, event_data)
                         {
@@ -3498,7 +3530,8 @@ mod tests {
         artifact_http_context_is_current, authorized_project_home, chat_attachment_payload,
         clear_negotiated_versions, close_window_action, connection_is_current, diagnostics_text,
         drain_pending_deep_links, encode_screen_frame, enqueue_message_deep_link, expand_home_path,
-        fetch_artifact_http, finish_trace_unsubscribe, inject_client_locale, negotiated_versions,
+        fetch_artifact_http, finish_trace_unsubscribe, inject_client_locale,
+        memory_protocol_event_payload, negotiated_versions,
         normalize_bcp47_locale, parse_message_deep_link, pending_message, redact_endpoint,
         resolve_home_attachment_path, resolve_project_artifact_path, retain_trace_cleanup,
         route_trace_event, screen_connection_payload, screen_generation_matches,
@@ -3521,6 +3554,23 @@ mod tests {
     use std::path::PathBuf;
     use std::thread;
     use uuid::Uuid;
+
+    #[test]
+    fn memory_protocol_events_are_forwarded_with_host_scope_only() {
+        let data = json!({ "entry_id": "memory-1", "quota": { "used_chars": 12, "limit_chars": 1500 } });
+        for event in [
+            "memory.user.updated",
+            "memory.user.deleted",
+            "memory.profile.updated",
+        ] {
+            let payload = memory_protocol_event_payload(event, &data, Some("host-a")).unwrap();
+            assert_eq!(payload["host_scope"], "host-a");
+            assert_eq!(payload["event"], event);
+            assert_eq!(payload["data"], data);
+        }
+        assert!(memory_protocol_event_payload("message.created", &data, Some("host-a")).is_none());
+        assert!(memory_protocol_event_payload("memory.user.updated", &data, None).is_none());
+    }
 
     struct TempDir(PathBuf);
 
