@@ -15,6 +15,8 @@
 - [2026-10-12] `data/memory/changelog.jsonl` 启动裁剪：先按 operation receipt 补齐未完成写入，再清掉无法确认提交的尾部，最后按 seen_revision + 7 天保留历史增量。`macbot-memory::MemoryStore::prune_memory_changes` 负责这一步。
 - [2026-10-12] `memory.user.create/update/delete` 与 `memory.profile.update` 的错误响应统一为 `{ code, message, error.details.current? }`，`quota_full` 时 `details.current.entries` 带该范围的条目目录；`memory.user.list/create/update` 成功时返回 `{ entry, quota }`，方便客户端原地更新。
 - [2026-10-12] 旧 Bot 写的 `MemoryEntry.source.by = { kind: "bot" }` 仍按「Bot 名 记下」在设置 → 记忆里显示以保留可追溯性；新数据不会再产生（所有 Bot 工具被禁止 `scope = user`）。
+- [2026-10-12] 上下文组装末尾的快照缓存写失败不再提前终止 run（fix v1.0 #1）：`MemoryError` 包成 `role: tool, is_error: true` 的 tool_result 注入下一次模型请求，同时持久化 `memory.failed` 事件，调用 ID 与原工具错误一致。执行路径为 `macbot-gateway/src/execution.rs` 的 `prepare_model_context` 与 `macbot-gateway/src/memory_tools.rs` 的 IO 错误包装。
+- [2026-10-12] Android 档案字段点击进入 `MemoryProfileEditScreen`（fix v1.0 #2），不是列表内原页编辑（参者 `design/04-mobile.md` 记忆段「只读行进入单项编辑页」）。
 - [2026-10-11] 用户档案在「设置 → 记忆」可编辑（`memory.profile.*`）；整理线程写的记忆 `source.by = system`，界面同时显示「记忆整理」和触发它的会话。
 - [2026-10-11] 用户偏好只由独立的用户记忆整理线程（curator，maintenance 模型，只看用户本人消息）和用户本人写；所有 Bot（含主 Bot）不写。curator 可更新用户手动改过的条目，但只依据更晚的用户消息（PLAN 5.5.9）。
 - [2026-10-11] 新增用户档案（称呼、语言、身份可选；时区取 Host），首次连接时主 Bot 在私聊里对话式初始化，之后变化记为偏好（PLAN 5.5.8）。

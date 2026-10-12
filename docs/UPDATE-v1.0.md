@@ -1,6 +1,6 @@
 # v1.0 更新说明
 
-> 记录 v1.0 相对之前设计的改动。每条写清楚改了什么、为什么、影响哪些文档和模块。实现状态：**已实现**（服务端 5 commit、桌面端 18 commit、Android 19 commit；339 个 server 测试 + 140 个共享 / 37 个 Android 测试全过，clippy `-D warnings` 通过，桌面端 tsc/vite build 通过；截图待 Mac mini 解锁后补）。
+> 记录 v1.0 相对之前设计的改动。每条写清楚改了什么、为什么、影响哪些文档和模块。实现状态：**已实现**。首批 5 + 18 + 19 = 42 个 commit，服务端 324 + 17 = 341 项测试 + 177 项 Android 测试全过，clippy/tsc/gradle/vite build 全过。独立集成验收已合入 2 个 fix（持续写盘错误送达模型、Android 档案进入单项编辑页）。最终验证重跑后两项 FAIL 均已转 PASS；最新状态见 `server/progress/memory-v1-integrated/FINAL-REPORT-a595a19.md` 的续作与 `clients/mobile/progress/memory/FIX-ANDROID-VERIFICATION.md`。
 
 ## 2026-10-11 记忆与上下文改造
 
@@ -44,3 +44,5 @@
 - **changelog 启动裁剪**与 PLAN 5.5.7 字面略不同：实施发现按「`revision < state.revision` 一律裁」会丢失 `state.json` 写完但 `revision` 还没回写时的恢复机会，改为「先按 operation receipt 补齐未完成写入，再清掉无法确认提交的尾部，最后按 seen_revision + 7 天保留历史增量」。
 - **`memory.user.create/update/delete` 协议字段**：mock / 客户端都按 `{ entry, quota }` 形式返回，错误时携带 `code: quota_full | conflict | not_found` 和 `error.details.current`（更新 / 删除冲突时是当前条目，quota_full 时是该范围的目录）。
 - **旧 Bot 写的数据保留**：`MemoryEntry.source.by = { kind: "bot" }` 视为 v1.0 之前的旧数据，**界面仍然显示「Bot 名 记下」**以保留可追溯性，但 Bot 工具现已禁止 `scope = user`，新数据不会再产生这种来源。
+- **持续写盘错误的错误送达（fix v1.0 #1）**：`prepare_model_context` 末尾的快照缓存写失败不再终止 run；改为把 `MemoryError` 包成 `role: tool, is_error: true` 的 tool_result 注入下一次模型请求，同时持久化 `memory.failed` 事件，与原始工具错误使用同一个 `call_id` 关联。`server/progress/memory-v1-io-fix/e2e_memory_io_failure.py` 是端到端复现脚本。回归测试 `persistent_snapshot_write_failure_is_returned_and_persisted` 和 `context_write_failure_adds_a_matched_error_tool_result`。
+- **Android 档案编辑进入单项页（fix v1.0 #2）**：`MemoryScreen` 顶部档案卡片改为只读行 + chevron；点击进入新增的 `MemoryProfileEditScreen`（参者 `MemoryEntryEditorScreen` 的结构），按 `name | language | identity` 调 `memory.profile.update`。`App.kt` 注册 `profile_edit` 路由。`02-profile-edit.png` 重拍；旧内联截图保留为 `02-profile-edit-inline.png` 以供追溯。验收报告 `clients/mobile/progress/memory/FIX-ANDROID-VERIFICATION.md`。
