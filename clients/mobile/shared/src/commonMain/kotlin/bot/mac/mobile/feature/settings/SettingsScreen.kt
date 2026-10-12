@@ -169,6 +169,10 @@ fun SettingsScreen(repository: MobileRepository, onBack: () -> Unit = {}) {
             }
             item {
                 HorizontalDivider(Modifier.padding(vertical = 8.dp))
+                ApprovalRulesSettings(repository)
+            }
+            item {
+                HorizontalDivider(Modifier.padding(vertical = 8.dp))
                 Text(stringResource(Res.string.feature_host), style = MaterialTheme.typography.titleMedium)
                 Text("${state.settings.str("host_name")} · ${state.settings.str("timezone")}")
                 Text(stringResource(Res.string.feature_currency, state.settings.str("currency")), style = MaterialTheme.typography.bodySmall)
