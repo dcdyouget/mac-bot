@@ -98,6 +98,7 @@ export function RoutinesPage(props: Props) {
   const [testRuns, setTestRuns] = useState<RoutineRun[]>([])
   const [loadedRuns, setLoadedRuns] = useState<Record<string, RoutineRun[]>>({})
   const appliedSelectionRequest = useRef<number | undefined>(undefined)
+  const formRoutineId = useRef<string | null>(null)
 
   const active = props.routines.find((routine) => routine.id === selectedId) ?? (props.selectedRoutineId ? null : props.routines[0] ?? null)
   const activeId = active?.id
@@ -126,8 +127,14 @@ export function RoutinesPage(props: Props) {
   }, [props.selectedRoutineId, props.selectionRequest, props.routines])
 
   useEffect(() => {
-    if (creating) return
-    if (active) setForm(formFrom(active))
+    if (creating) {
+      formRoutineId.current = null
+      return
+    }
+    if (active && formRoutineId.current !== active.id) {
+      formRoutineId.current = active.id
+      setForm(formFrom(active))
+    }
   }, [active, creating])
 
   useEffect(() => {
@@ -261,7 +268,7 @@ export function RoutinesPage(props: Props) {
             </select></label>
             <label className="routines-field"><span>{props.t('routines.field.instruction')}</span><textarea className="routines-input routines-instructions" required value={form.instructions} onChange={(event) => updateForm({ instructions: event.target.value })} /></label>
             <section className="routines-field"><span>{props.t('routines.field.when')}</span><div className="routines-schedules">
-              {form.schedules.map((schedule, index) => <div className="routines-schedule-row" key={`${index}-${schedule.cron}`}>
+              {form.schedules.map((schedule, index) => <div className="routines-schedule-row" key={index}>
                 <Clock3 size={14} />
                 <input aria-label={props.t('routines.field.when')} className="routines-input schedule-label" value={schedule.label} onChange={(event) => updateSchedule(index, { label: event.target.value })} />
                 <input aria-label={props.t('routines.field.cron')} className="routines-input schedule-cron" value={schedule.cron} onChange={(event) => updateSchedule(index, { cron: event.target.value })} />

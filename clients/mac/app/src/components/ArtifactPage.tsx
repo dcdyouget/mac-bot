@@ -228,6 +228,7 @@ export function ArtifactPage({ hostScope, projectId, projectName, artifacts, bot
       setContentLoading(false)
       return
     }
+    setLoadError(null)
     setContentLoading(true)
     void requestContent(artifact.id, version)
       .then((result) => {
