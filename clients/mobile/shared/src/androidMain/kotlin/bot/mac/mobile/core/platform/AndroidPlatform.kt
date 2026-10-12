@@ -110,15 +110,26 @@ actual fun platformBackdropBlurSupported(): Boolean = false
 @Composable
 actual fun platformAnimationsEnabled(): Boolean {
     val context = LocalContext.current
-    var enabled by remember(context) { mutableStateOf(ValueAnimator.areAnimatorsEnabled()) }
+    fun readEnabled(): Boolean {
+        val resolver = context.contentResolver
+        val animatorEnabled = ValueAnimator.areAnimatorsEnabled()
+        val transitionEnabled = runCatching { Settings.Global.getFloat(resolver, Settings.Global.TRANSITION_ANIMATION_SCALE, 1f) > 0f }.getOrDefault(true)
+        val windowEnabled = runCatching { Settings.Global.getFloat(resolver, Settings.Global.WINDOW_ANIMATION_SCALE, 1f) > 0f }.getOrDefault(true)
+        return animatorEnabled && transitionEnabled && windowEnabled
+    }
+    var enabled by remember(context) { mutableStateOf(readEnabled()) }
     DisposableEffect(context) {
         val resolver = context.contentResolver
         val observer = object : ContentObserver(Handler(Looper.getMainLooper())) {
             override fun onChange(selfChange: Boolean) {
-                enabled = ValueAnimator.areAnimatorsEnabled()
+                enabled = readEnabled()
             }
         }
-        resolver.registerContentObserver(Settings.Global.getUriFor(Settings.Global.ANIMATOR_DURATION_SCALE), false, observer)
+        listOf(
+            Settings.Global.ANIMATOR_DURATION_SCALE,
+            Settings.Global.TRANSITION_ANIMATION_SCALE,
+            Settings.Global.WINDOW_ANIMATION_SCALE,
+        ).forEach { resolver.registerContentObserver(Settings.Global.getUriFor(it), false, observer) }
         onDispose { resolver.unregisterContentObserver(observer) }
     }
     return enabled
