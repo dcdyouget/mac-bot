@@ -924,7 +924,7 @@ private fun ChatDayCapsule(timestamp: String) {
     val today = Clock.System.now().toLocalDateTime(zone)
     val dayDifference = today.date.toEpochDays() - local.date.toEpochDays()
     val label = when {
-        dayDifference == 0L -> stringResource(Res.string.chat_time_today, padChatTimePart(local.hour), padChatTimePart(local.minute))
+        dayDifference == 0L -> stringResource(Res.string.chat_day_today)
         dayDifference == 1L -> stringResource(Res.string.chat_time_yesterday)
         dayDifference in 2L..7L -> {
             val weekday = when (local.dayOfWeek.ordinal + 1) {
@@ -1334,12 +1334,12 @@ internal fun ChatMessageRow(
                     Text(stringResource(Res.string.feature_trace_running), Modifier.padding(top = 8.dp), color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelLarge)
                     Button(onClick = { onOpenTrace(assignmentId, null) }) { Text(stringResource(Res.string.feature_detail)) }
                 }
-                if (lastOwnMessage) DeliveryView(message.arr("delivery"), state)
             }
         }
         }
         }
         }
+        if (lastOwnMessage) DeliveryView(message.arr("delivery"), state)
         if (showMessageActions) androidx.compose.material3.ModalBottomSheet(onDismissRequest = {
             dismissMessageActions()
         }) {
