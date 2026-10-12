@@ -213,20 +213,30 @@
 
 .settings-panel-expanded {
   display: flex;
-  width: min(960px, 96vw);
+  width: 100%;
   flex-direction: column;
   overflow: hidden;
   padding: 0;
 }
-.settings-panel-expanded > .settings-page-header {
-  min-height: 72px;
+.settings-panel-expanded > .settings-page-layout { min-width: 0; }
+.settings-page-main { display: flex; min-width: 0; min-height: 0; flex: 1; flex-direction: column; }
+.settings-panel-expanded .settings-page-header {
+  display: flex;
+  min-height: 52px;
+  height: 52px;
   flex: none;
   align-items: center;
+  justify-content: space-between;
   margin: 0;
-  padding: 14px 22px;
+  padding: 0 12px 0 16px;
   border-bottom: 1px solid var(--border-subtle);
+  background: color-mix(in srgb, var(--bg-window) 90%, transparent);
+  backdrop-filter: blur(var(--blur-toolbar));
 }
-.settings-page-header h2 { font-size: 17px !important; }
+.settings-page-header > strong { font-size: 15px; font-weight: 600; }
+.settings-page-header-actions { display: flex; align-items: center; gap: 8px; }
+.settings-page-header .settings-detail-button { min-height: 28px; }
+.settings-page-header .icon-button { -webkit-app-region: no-drag; }
 .settings-page-layout { display: flex; min-height: 0; flex: 1; }
 .settings-page-nav {
   display: flex;
@@ -237,7 +247,7 @@
   overflow-y: auto;
   padding: 60px 10px 16px;
   border-right: 1px solid var(--border-subtle);
-  background: color-mix(in srgb, var(--bg-sidebar) 72%, transparent);
+  background: var(--bg-panel);
 }
 .settings-page-nav button {
   min-height: 33px;
@@ -253,8 +263,14 @@
 }
 .settings-page-nav button:hover { background: var(--bg-hover); color: var(--text-primary); }
 .settings-page-nav button.selected { background: var(--bg-active); color: var(--text-primary); font-weight: 600; }
-.settings-page-content { min-width: 0; min-height: 0; flex: 1; overflow: auto; }
-.settings-page-content > .settings-detail { width: min(100%, 640px); margin: 0 auto; }
+.settings-page-content { min-width: 0; min-height: 0; flex: 1; overflow: auto; padding: 24px 32px; }
+.settings-page-content > .settings-detail { width: min(100%, 640px); margin: 0 auto; padding: 0; }
+.settings-page-content > .settings-detail > .settings-detail-heading > h2 { display: none; }
+.settings-page-content:has(.settings-memory-view) { display: flex; overflow: hidden; padding: 0; }
+.settings-memory-view { display: flex; min-width: 0; min-height: 0; flex: 1; }
+.settings-memory-view > .memory-page { height: 100%; }
+.settings-memory-view .memory-page-toolbar { display: none; }
+.settings-memory-view .memory-content { max-width: 704px; align-self: center; }
 .settings-page-error { margin: 12px 24px; }
 .settings-host-list { padding: 2px 14px; }
 .settings-host-row { display: flex; min-height: 54px; align-items: center; gap: 10px; border-bottom: 1px solid var(--border-subtle); }
@@ -266,14 +282,21 @@
 .settings-general-card { padding: 2px 14px; }
 
 @media (max-width: 760px) {
-  .settings-panel-expanded { width: 100vw; }
   .settings-page-nav { width: 220px; }
-  .settings-page-content > .settings-detail { padding-right: 16px; padding-left: 16px; }
+  .settings-page-content { padding-right: 16px; padding-left: 16px; }
   .settings-host-row { flex-wrap: wrap; padding: 8px 0; }
 }
 
+@media (max-width: 1200px) {
+  .settings-page-nav { width: 220px; }
+}
+
+[data-material='opaque'] .settings-page-header {
+  background: var(--bg-window);
+  backdrop-filter: none;
+}
+
 @media (max-width: 560px) {
-  .settings-panel-expanded > .settings-page-header { padding-right: 16px; padding-left: 16px; }
   .settings-page-layout { flex-direction: column; }
   .settings-page-nav {
     width: auto;

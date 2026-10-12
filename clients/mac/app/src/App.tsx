@@ -2000,8 +2000,11 @@ function App() {
   }, [activePage, loadRoutines, loadSkills, loadMemory])
 
   useEffect(() => {
-    if (!['routines', 'skills', 'memory'].includes(activePage)) return
-    void reloadActivePage()
+    const settingsMemoryActive = showSettings && settingsSection === 'memory'
+    const memoryPageActive = activePage === 'memory' || settingsMemoryActive
+    if (!['routines', 'skills', 'memory'].includes(activePage) && !settingsMemoryActive) return
+    const reload = memoryPageActive ? loadMemory : reloadActivePage
+    void reload()
     let unlisten: (() => void) | undefined
     let refreshTimer: number | null = null
     let maxRefreshTimer: number | null = null
@@ -2014,17 +2017,17 @@ function App() {
           if (refreshTimer !== null) window.clearTimeout(refreshTimer)
           refreshTimer = null
           maxRefreshTimer = null
-          void reloadActivePage()
+          void reload()
         }, 1200)
       }
       refreshTimer = window.setTimeout(() => {
         if (maxRefreshTimer !== null) window.clearTimeout(maxRefreshTimer)
         refreshTimer = null
         maxRefreshTimer = null
-        void reloadActivePage()
+        void reload()
       }, 350)
     }
-    const subscribe = activePage === 'memory'
+    const subscribe = memoryPageActive
       ? listen<{ host_scope: string; event: string }>('memory-protocol-event', (event) => {
         if (event.payload.host_scope === hostScope) refresh()
       })
@@ -2035,7 +2038,7 @@ function App() {
     }).catch((error: unknown) => {
       if (activePage === 'routines') setRoutinesError(String(error))
       else if (activePage === 'skills') setSkillsError(String(error))
-      else setMemoryError(String(error))
+      else if (memoryPageActive) setMemoryError(String(error))
     })
     return () => {
       active = false
@@ -2043,7 +2046,7 @@ function App() {
       if (maxRefreshTimer !== null) window.clearTimeout(maxRefreshTimer)
       unlisten?.()
     }
-  }, [activePage, hostScope, reloadActivePage])
+  }, [activePage, hostScope, reloadActivePage, loadMemory, showSettings, settingsSection])
 
   const loadRoutineRuns = useCallback(async (routineId: string) => {
     const scope = hostScope
@@ -2617,7 +2620,7 @@ function App() {
     || (activeSearchSideTarget?.kind === 'bot' && Object.values(state.chats).some((chat) => chat.bot_id === activeSearchSideTarget.id))
     || Boolean(activeSearchSideTarget?.chat_id)
 
-  return <main className="app-shell">
+  return <main className={`app-shell${showSettings ? ' settings-open' : ''}`}>
     {deepLinkNotice && <div className="deep-link-notice" role="alert"><span>{deepLinkNotice}</span><button type="button" aria-label={t('common.close')} onClick={() => setDeepLinkNotice(null)}><X size={14} /></button></div>}
     <aside className="sidebar glass-sidebar">
       <div className="sidebar-head drag-region">
@@ -3059,7 +3062,6 @@ function App() {
       activeHostId={state.active_host?.id ?? null}
       connection={state.connection}
       onSelect={(section) => {
-        if (section === 'memory') { setShowSettings(false); setActivePage('memory'); return }
         if (section === 'skills') { setShowSettings(false); setActivePage('skills'); return }
         setSettingsSection(section)
       }}
@@ -3068,7 +3070,21 @@ function App() {
       onRemoveHost={(host) => void removeSavedHost(host)}
       onAddHost={() => { setHostError(null); setHostDialogOpen(true) }}
     >
-      {isSettingsDetailSection(settingsSection) ? <SettingsDetail
+      {settingsSection === 'memory' ? <div className="settings-memory-view"><MemoryPage key={hostScope}
+        profile={memoryDataScope === hostScope ? memoryProfile : null}
+        entries={memoryDataScope === hostScope ? memoryEntries : []}
+        quota={memoryDataScope === hostScope ? memoryQuota : null}
+        chats={Object.fromEntries(Object.values(state.chats).map((chat) => [chat.id, chatTitle(chat)]))}
+        bots={Object.fromEntries(Object.values(state.bots).map((bot) => [bot.id, bot.name ?? bot.id]))}
+        loading={memoryLoading || memoryDataScope !== hostScope}
+        loadError={memoryDataScope === hostScope ? memoryError : null}
+        onReload={loadMemory}
+        onUpdateProfile={updateUserProfile}
+        onCreate={createMemoryEntry}
+        onUpdate={updateMemoryEntry}
+        onDelete={deleteMemoryEntry}
+        onOpenSource={openMemorySource}
+      /></div> : isSettingsDetailSection(settingsSection) ? <SettingsDetail
         key={`${hostScope}:${settingsSection}`}
         section={settingsSection}
         hostKey={hostScope}
@@ -3252,15 +3268,15 @@ function SettingsPanel(props: { selected: SettingsNavigationSection; error: stri
     { id: 'about', label: t('settings.section.about') },
   ]
   const title = sections.find((item) => item.id === props.selected)?.label ?? t('nav.settings')
-  return <div className="settings-scrim" onMouseDown={props.onClose}><section className="settings-panel settings-panel-expanded" onMouseDown={(event) => event.stopPropagation()}>
-    <header className="settings-page-header"><div><div className="eyebrow">{t('nav.settings')}</div><h2>{title}</h2></div><button className="icon-button" onClick={props.onClose} aria-label={t('common.close')}>×</button></header>
+  return <div className="settings-scrim"><section className="settings-panel settings-panel-expanded">
     <div className="settings-page-layout">
       <nav className="settings-page-nav" aria-label={t('nav.settings')}>
         {sections.map((section) => <button type="button" key={section.id} className={props.selected === section.id ? 'selected' : ''} onClick={() => props.onSelect(section.id)}>{section.label}</button>)}
       </nav>
-      <div className="settings-page-content">
-        {props.selected === 'hosts' ? <section className="settings-detail">
-          <header className="settings-detail-heading"><div><h2>{t('settings.section.hosts')}</h2></div><button type="button" className="settings-detail-button primary" onClick={props.onAddHost}><Plus size={14} />{t('host.add')}</button></header>
+      <div className="settings-page-main">
+        <header className="settings-page-header drag-region"><strong>{title}</strong><div className="settings-page-header-actions">{props.selected === 'hosts' && <button type="button" className="settings-detail-button primary" onClick={props.onAddHost}><Plus size={14} />{t('host.add')}</button>}<button className="icon-button" onClick={props.onClose} aria-label={t('common.close')} title={t('common.close')}>×</button></div></header>
+        <div className="settings-page-content">
+          {props.selected === 'hosts' ? <section className="settings-detail">
           {!props.hosts.length ? <div className="settings-detail-empty">{t('settings.hosts.empty')}</div> : <div className="settings-detail-card settings-host-list">{props.hosts.map((host) => <div className="settings-host-row" key={host.id}>
             <span className={`status-dot ${host.id === props.activeHostId ? props.connection : 'disconnected'}`} />
             <span className="settings-host-copy"><strong>{host.name}</strong><small>{host.addresses[0] ?? ''}</small></span>
@@ -3269,7 +3285,8 @@ function SettingsPanel(props: { selected: SettingsNavigationSection; error: stri
             <button type="button" className="settings-detail-icon danger" disabled={host.id === props.activeHostId} aria-label={t('common.delete')} onClick={() => props.onRemoveHost(host)}><Trash2 size={14} /></button>
           </div>)}</div>}
         </section> : props.children}
-        {props.error && props.selected !== 'hosts' && <div className="connect-error settings-page-error" role="alert">{props.error}</div>}
+          {props.error && props.selected !== 'hosts' && <div className="connect-error settings-page-error" role="alert">{props.error}</div>}
+        </div>
       </div>
     </div>
   </section></div>
