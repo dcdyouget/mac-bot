@@ -1022,6 +1022,7 @@ fn ensure_mock_defaults(state: &mut MockState, home: &std::path::Path) {
     seed_mock_artifact_files(state, home);
     ensure_mock_artifact_history(state, home);
     ensure_mock_routines(state);
+    ensure_login_question_operation_scenarios(state);
 }
 
 /// Give the active web-redesign assignment a useful, deterministic trace for
@@ -2110,6 +2111,111 @@ fn ensure_login_question_history_fixture(state: &mut MockState) {
         .or_default()
         .push(message.clone());
     state.emit("message.created", json!({"message":message}));
+}
+
+/// Provide an independent, answerable three-question deck and single-question
+/// history cards for prototype acceptance. Keep the older mixed-state fixture
+/// above intact so pending, answered, and expired history remains available.
+fn ensure_login_question_operation_scenarios(state: &mut MockState) {
+    const CHAT_ID: &str = "chat_login";
+    const FLOW_ASSIGNMENT_ID: &str = "asg_mock_waiting";
+
+    let assignment_bot = |assignment_id: &str| {
+        state
+            .assignments
+            .iter()
+            .find(|assignment| assignment.get("id").and_then(Value::as_str) == Some(assignment_id))
+            .and_then(|assignment| assignment.get("bot_id"))
+            .cloned()
+    };
+    let Some(flow_bot_id) = assignment_bot(FLOW_ASSIGNMENT_ID) else {
+        return;
+    };
+    let Some(test_bot_id) = assignment_bot("asg_test") else {
+        return;
+    };
+    let Some(product_bot_id) = assignment_bot("asg_product") else {
+        return;
+    };
+    if !state
+        .chats
+        .iter()
+        .any(|chat| chat.get("id").and_then(Value::as_str) == Some(CHAT_ID))
+    {
+        return;
+    }
+
+    let mut questions = extra_get(state, "questions");
+    for question in [
+        json!({
+            "id":"q_mock_login_flow_1","bot_id":flow_bot_id,"assignment_id":FLOW_ASSIGNMENT_ID,"chat_id":CHAT_ID,
+            "text":"登录失败 5 次后要锁账号吗？","options":["锁定 15 分钟","不锁，只加验证码","永久锁定，需要邮件解锁"],"multi":false,
+            "allow_free_text":true,"state":"pending","answer":null
+        }),
+        json!({
+            "id":"q_mock_login_flow_2","bot_id":flow_bot_id,"assignment_id":FLOW_ASSIGNMENT_ID,"chat_id":CHAT_ID,
+            "text":"验证邮件用哪个发件地址？","options":["noreply@app.com","support@app.com"],"multi":false,
+            "allow_free_text":true,"state":"pending","answer":null
+        }),
+        json!({
+            "id":"q_mock_login_flow_3","bot_id":flow_bot_id,"assignment_id":FLOW_ASSIGNMENT_ID,"chat_id":CHAT_ID,
+            "text":"本期要做哪些登录方式？","options":["邮箱 + 密码","邮箱验证码","Apple 登录"],"multi":true,
+            "allow_free_text":false,"state":"pending","answer":null
+        }),
+        json!({
+            "id":"q_mock_login_single_browsers","bot_id":test_bot_id,"assignment_id":"asg_test","chat_id":CHAT_ID,
+            "text":"回归测试覆盖哪些浏览器？","options":["Chrome","Safari","Firefox"],"multi":true,
+            "allow_free_text":false,"state":"answered",
+            "answer":{"option_index":null,"option_indexes":[0,1],"text":null,"at":"2026-10-10T10:50:00Z"}
+        }),
+        json!({
+            "id":"q_mock_login_single_remember","bot_id":product_bot_id,"assignment_id":"asg_product","chat_id":CHAT_ID,
+            "text":"登录页要不要放「记住我」？","options":["要","不要"],"multi":false,
+            "allow_free_text":true,"state":"answered",
+            "answer":{"option_index":null,"option_indexes":[],"text":"先不要，下期再说","at":"2026-10-10T10:52:00Z"}
+        }),
+    ] {
+        if !questions
+            .iter()
+            .any(|existing| existing.get("id") == question.get("id"))
+        {
+            questions.push(question);
+        }
+    }
+    extra_set(state, "questions", questions);
+
+    upsert_mock_message(
+        state,
+        CHAT_ID,
+        "msg_mock_login_question_flow",
+        json!({"kind":"bot","bot_id":flow_bot_id}),
+        json!([
+            {"type":"text","markdown":"实现前有 3 个问题需要你定一下："},
+            {"type":"question","question_id":"q_mock_login_flow_1"},
+            {"type":"question","question_id":"q_mock_login_flow_2"},
+            {"type":"question","question_id":"q_mock_login_flow_3"}
+        ]),
+        "实现前有 3 个问题需要你定一下：登录失败策略、验证邮件发件地址和本期登录方式。".into(),
+        Some(FLOW_ASSIGNMENT_ID),
+    );
+    upsert_mock_message(
+        state,
+        CHAT_ID,
+        "msg_mock_login_single_browsers",
+        json!({"kind":"bot","bot_id":test_bot_id}),
+        json!([{"type":"question","question_id":"q_mock_login_single_browsers"}]),
+        "回归测试覆盖哪些浏览器？已回答：Chrome、Safari。".into(),
+        Some("asg_test"),
+    );
+    upsert_mock_message(
+        state,
+        CHAT_ID,
+        "msg_mock_login_single_remember",
+        json!({"kind":"bot","bot_id":product_bot_id}),
+        json!([{"type":"question","question_id":"q_mock_login_single_remember"}]),
+        "登录页要不要放「记住我」？已回答：先不要，下期再说。".into(),
+        Some("asg_product"),
+    );
 }
 
 fn ensure_code_dm_history_fixture(state: &mut MockState) {
@@ -7047,7 +7153,7 @@ mod contract_tests {
 
         let listed = call(&gateway, "question.list", json!({"chat_id":"chat_login"})).await;
         let questions = listed["questions"].as_array().unwrap();
-        assert_eq!(questions.len(), 3);
+        assert_eq!(questions.len(), 8);
         for (id, expected_state) in [
             ("q_mock_login_pending", "pending"),
             ("q_mock_login_answered", "answered"),
@@ -7090,7 +7196,7 @@ mod contract_tests {
             json!({"chat_id":"chat_login","state":["answered"]}),
         )
         .await;
-        assert_eq!(answered_list["questions"].as_array().unwrap().len(), 2);
+        assert_eq!(answered_list["questions"].as_array().unwrap().len(), 4);
 
         let projects = call(&gateway, "project.list", json!({})).await;
         assert!(projects["projects"]
@@ -7098,6 +7204,163 @@ mod contract_tests {
             .unwrap()
             .iter()
             .any(|project| project["id"] == "prj_login" && project["status"] == "done"));
+    }
+
+    #[tokio::test]
+    async fn mock_login_question_flow_answers_independently_and_preserves_other_state() {
+        let gateway = gateway().await;
+        let flow_ids = [
+            "q_mock_login_flow_1",
+            "q_mock_login_flow_2",
+            "q_mock_login_flow_3",
+        ];
+        let history = call(
+            &gateway,
+            "chat.history",
+            json!({"chat_id":"chat_login","limit":100}),
+        )
+        .await;
+        let messages = history["messages"].as_array().unwrap();
+        let flow = messages
+            .iter()
+            .find(|message| message["id"] == "msg_mock_login_question_flow")
+            .expect("login group includes an independent three-question operation card");
+        let ids = flow["blocks"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|block| block.get("question_id").and_then(Value::as_str))
+            .collect::<Vec<_>>();
+        assert_eq!(ids, flow_ids);
+        for (message_id, question_id) in [
+            (
+                "msg_mock_login_single_browsers",
+                "q_mock_login_single_browsers",
+            ),
+            (
+                "msg_mock_login_single_remember",
+                "q_mock_login_single_remember",
+            ),
+        ] {
+            let message = messages
+                .iter()
+                .find(|message| message["id"] == message_id)
+                .expect("prototype single-question history card is present");
+            assert_eq!(message["blocks"].as_array().unwrap().len(), 1);
+            assert_eq!(message["blocks"][0]["question_id"], question_id);
+        }
+
+        let initial = call(
+            &gateway,
+            "question.list",
+            json!({"chat_id":"chat_login","assignment_id":"asg_mock_waiting"}),
+        )
+        .await;
+        let questions = initial["questions"].as_array().unwrap();
+        for id in flow_ids {
+            assert_eq!(
+                questions
+                    .iter()
+                    .find(|question| question["id"] == id)
+                    .expect("flow question is available through question.list")["state"],
+                "pending"
+            );
+        }
+
+        let before_assignment = call(
+            &gateway,
+            "assignment.get",
+            json!({"assignment_id":"asg_mock_waiting"}),
+        )
+        .await;
+        let before_project = call(&gateway, "project.get", json!({"project_id":"prj_login"})).await;
+        let before_approvals = call(&gateway, "approval.list", json!({})).await;
+
+        let first = call(
+            &gateway,
+            "question.answer",
+            json!({"question_id":flow_ids[0],"option_index":1}),
+        )
+        .await;
+        assert_eq!(first["question"]["state"], "answered");
+        let partial = call(
+            &gateway,
+            "question.list",
+            json!({"chat_id":"chat_login","assignment_id":"asg_mock_waiting"}),
+        )
+        .await;
+        let partial = partial["questions"].as_array().unwrap();
+        assert_eq!(
+            partial
+                .iter()
+                .filter(|question| flow_ids.contains(&question["id"].as_str().unwrap_or("")))
+                .filter(|question| question["state"] == "answered")
+                .count(),
+            1
+        );
+        assert!(flow_ids[1..].iter().all(|id| partial
+            .iter()
+            .any(|question| question["id"] == *id && question["state"] == "pending")));
+
+        call(
+            &gateway,
+            "question.answer",
+            json!({"question_id":flow_ids[1],"text":"用 hi@app.com，已经配好 SPF"}),
+        )
+        .await;
+        call(
+            &gateway,
+            "question.answer",
+            json!({"question_id":flow_ids[2],"option_indexes":[0,1]}),
+        )
+        .await;
+        let completed = call(
+            &gateway,
+            "question.list",
+            json!({"chat_id":"chat_login","assignment_id":"asg_mock_waiting"}),
+        )
+        .await;
+        let completed = completed["questions"].as_array().unwrap();
+        for id in flow_ids {
+            assert!(completed
+                .iter()
+                .any(|question| question["id"] == id && question["state"] == "answered"));
+        }
+        let history_after = call(&gateway, "question.list", json!({"chat_id":"chat_login"})).await;
+        for (id, state) in [
+            ("q_mock_login_pending", "pending"),
+            ("q_mock_login_answered", "answered"),
+            ("q_mock_login_expired", "expired"),
+            ("q_mock_login_single_browsers", "answered"),
+            ("q_mock_login_single_remember", "answered"),
+        ] {
+            assert!(history_after["questions"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|question| question["id"] == id && question["state"] == state));
+        }
+
+        assert_eq!(
+            call(
+                &gateway,
+                "assignment.get",
+                json!({"assignment_id":"asg_mock_waiting"}),
+            )
+            .await,
+            before_assignment,
+            "answering the independent deck leaves existing queue assignment state untouched"
+        );
+        assert_eq!(
+            call(&gateway, "project.get", json!({"project_id":"prj_login"}),).await,
+            before_project,
+            "question answers do not change project state"
+        );
+        assert_eq!(
+            call(&gateway, "approval.list", json!({})).await,
+            before_approvals,
+            "question answers do not change approval state"
+        );
     }
 
     #[tokio::test]
