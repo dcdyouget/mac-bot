@@ -924,6 +924,7 @@ fn mock_lexically_normalize(path: &std::path::Path) -> std::path::PathBuf {
 }
 
 fn ensure_mock_defaults(state: &mut MockState, home: &std::path::Path) {
+    seed_mock_artifact_files(state, home);
     if !state.settings.get("tools").is_some_and(Value::is_object) {
         state.settings["tools"] = json!({});
     }
@@ -1018,6 +1019,50 @@ fn ensure_mock_defaults(state: &mut MockState, home: &std::path::Path) {
     ensure_mock_user_memory(state);
     ensure_message_block_scenarios(state);
     ensure_mock_artifact_history(state);
+}
+
+fn seed_mock_artifact_files(state: &MockState, home: &std::path::Path) {
+    let slug = state
+        .projects
+        .iter()
+        .find(|project| project.get("id").and_then(Value::as_str) == Some("prj_login"))
+        .and_then(|project| project.get("slug"))
+        .and_then(Value::as_str)
+        .filter(|slug| {
+            let mut components = std::path::Path::new(slug).components();
+            matches!(components.next(), Some(std::path::Component::Normal(_)))
+                && components.next().is_none()
+        })
+        .unwrap_or("login");
+    let product_dir = home.join("projects").join(slug).join("product");
+    let files = [
+        (
+            product_dir.join("prd.md"),
+            "# 登录功能 PRD\n\n版本 2：仅做邮箱登录，不做手机号；密码至少 8 位并包含字母和数字。\n",
+        ),
+        (
+            product_dir.join("prototype/index.html"),
+            "<!doctype html>\n<html lang=\"zh-CN\"><meta charset=\"utf-8\"><title>登录原型</title><body><main><h1>登录</h1><p>邮箱登录原型</p></main></body></html>\n",
+        ),
+    ];
+    for (path, contents) in files {
+        let Some(parent) = path.parent() else {
+            continue;
+        };
+        if std::fs::create_dir_all(parent).is_err() {
+            continue;
+        }
+        // Mock startup may run repeatedly. Only create missing files so an
+        // existing project artifact or user edit is never replaced.
+        let Ok(mut file) = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(path)
+        else {
+            continue;
+        };
+        let _ = std::io::Write::write_all(&mut file, contents.as_bytes());
+    }
 }
 
 fn ensure_mock_user_memory(state: &mut MockState) {

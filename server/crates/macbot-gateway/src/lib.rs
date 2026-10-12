@@ -2706,7 +2706,7 @@ async fn file_handler(
     if let Err(r) = authorize(&gw, &headers, None).await {
         return r;
     }
-    let path = match resolve_file(&gw.state.home, &query) {
+    let path = match resolve_gateway_file(&gw, &query).await {
         Ok(p) => p,
         Err(e) => return e,
     };
@@ -2731,7 +2731,39 @@ struct FileQuery {
     path: String,
 }
 #[allow(clippy::result_large_err)]
+#[cfg(test)]
 fn resolve_file(home: &FsPath, q: &FileQuery) -> Result<PathBuf, Response> {
+    resolve_file_with_mock_slug(home, q, None)
+}
+
+async fn resolve_gateway_file(gw: &Gateway, query: &FileQuery) -> Result<PathBuf, Response> {
+    let mock_slug = if gw.mock && query.root == "project" {
+        let root_id = query.root_id.as_deref();
+        let state = gw.state.inner.read().await;
+        state
+            .projects
+            .iter()
+            .find(|project| project.get("id").and_then(Value::as_str) == root_id)
+            .and_then(|project| project.get("slug"))
+            .and_then(Value::as_str)
+            .filter(|slug| {
+                let mut components = FsPath::new(slug).components();
+                matches!(components.next(), Some(Component::Normal(_)))
+                    && components.next().is_none()
+            })
+            .map(str::to_owned)
+    } else {
+        None
+    };
+    resolve_file_with_mock_slug(&gw.state.home, query, mock_slug.as_deref())
+}
+
+#[allow(clippy::result_large_err)]
+fn resolve_file_with_mock_slug(
+    home: &FsPath,
+    q: &FileQuery,
+    mock_slug: Option<&str>,
+) -> Result<PathBuf, Response> {
     let root_id = q
         .root_id
         .as_deref()
@@ -2744,9 +2776,13 @@ fn resolve_file(home: &FsPath, q: &FileQuery) -> Result<PathBuf, Response> {
         ));
     };
     let root = match q.root.as_str() {
-        "project" => home
-            .join("projects")
-            .join(project_slug(home, root_id).unwrap_or_else(|| root_id.to_owned())),
+        "project" => home.join("projects").join(
+            mock_slug
+                .filter(|slug| is_safe_component(slug))
+                .map(str::to_owned)
+                .or_else(|| project_slug(home, root_id))
+                .unwrap_or_else(|| root_id.to_owned()),
+        ),
         "bot" => home.join("bots").join(root_id),
         "upload" => home.join("uploads").join(root_id),
         _ => {
@@ -2880,7 +2916,7 @@ async fn file_list_handler(
     if let Err(r) = authorize(&gw, &headers, None).await {
         return r;
     }
-    let dir = match resolve_file(&gw.state.home, &query) {
+    let dir = match resolve_gateway_file(&gw, &query).await {
         Ok(p) => p,
         Err(e) => return e,
     };
@@ -2891,10 +2927,18 @@ async fn file_list_handler(
     };
     while let Ok(Some(entry)) = rd.next_entry().await {
         if let Ok(meta) = entry.metadata().await {
-            entries.push(json!({"name":entry.file_name(),"path":entry.path().file_name(),"is_dir":meta.is_dir(),"size":meta.len(),"modified_at":meta.modified().ok().and_then(|t|t.duration_since(UNIX_EPOCH).ok()).map(|d|d.as_secs())}));
+            let file_name = entry.file_name();
+            let Some(name) = file_entry_name(&file_name) else {
+                continue;
+            };
+            entries.push(json!({"name":name,"path":name,"is_dir":meta.is_dir(),"size":meta.len(),"modified_at":meta.modified().ok().and_then(|t|t.duration_since(UNIX_EPOCH).ok()).map(|d|d.as_secs())}));
         }
     }
     Json(json!({"entries":entries})).into_response()
+}
+
+fn file_entry_name(name: &std::ffi::OsStr) -> Option<&str> {
+    name.to_str()
 }
 
 async fn upload_handler(
@@ -4818,6 +4862,104 @@ mod tests {
             .unwrap(),
             payload
         );
+    }
+
+    #[tokio::test]
+    async fn fresh_mock_home_seeds_artifact_files_without_replacing_existing_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let product_dir = dir.path().join("projects/login/product");
+        std::fs::create_dir_all(&product_dir).unwrap();
+        std::fs::write(product_dir.join("prd.md"), "user-edited PRD").unwrap();
+
+        let gw = Gateway::new(GatewayConfig {
+            home: dir.path().into(),
+            password: Some("dev".into()),
+            mock: true,
+            ..Default::default()
+        });
+        gw.rpc("bootstrap", json!({})).await.unwrap();
+        gw.rpc("bootstrap", json!({})).await.unwrap();
+
+        assert_eq!(
+            std::fs::read_to_string(product_dir.join("prd.md")).unwrap(),
+            "user-edited PRD"
+        );
+        assert!(product_dir.join("prototype/index.html").is_file());
+        assert!(!dir.path().join("projects/prj_login").exists());
+    }
+
+    #[tokio::test]
+    async fn file_list_serializes_utf8_names_and_seeds_nested_mock_artifacts() {
+        let dir = tempfile::tempdir().unwrap();
+        let gw = Gateway::new(GatewayConfig {
+            home: dir.path().into(),
+            password: Some("dev".into()),
+            mock: true,
+            ..Default::default()
+        });
+        let orchestrator_dir = dir.path().join("data/orchestrator");
+        std::fs::create_dir_all(&orchestrator_dir).unwrap();
+        std::fs::write(
+            orchestrator_dir.join("state.json"),
+            r#"{"projects":{"prj_login":{"slug":"old-login"}}}"#,
+        )
+        .unwrap();
+        gw.rpc("bootstrap", json!({})).await.unwrap();
+
+        let file_response = gw
+            .router()
+            .clone()
+            .oneshot(
+                http::Request::builder()
+                    .uri("/api/v1/files?root=project&root_id=prj_login&path=product%2Fprd.md")
+                    .header("authorization", "Bearer dev")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(file_response.status(), StatusCode::OK);
+        let file_bytes = axum::body::to_bytes(file_response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        assert!(String::from_utf8(file_bytes.to_vec())
+            .unwrap()
+            .contains("版本 2：仅做邮箱登录"));
+        assert!(!dir.path().join("projects/old-login").exists());
+
+        let response = gw
+            .router()
+            .oneshot(
+                http::Request::builder()
+                    .uri("/api/v1/files/list?root=project&root_id=prj_login&path=product%2Fprototype")
+                    .header("authorization", "Bearer dev")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let result: Value = serde_json::from_slice(&bytes).unwrap();
+        let entries = result["entries"].as_array().unwrap();
+        assert!(entries.iter().any(|entry| {
+            entry["name"] == "index.html"
+                && entry["path"] == "index.html"
+                && entry["is_dir"] == false
+        }));
+        assert!(entries
+            .iter()
+            .all(|entry| { entry["name"].is_string() && entry["path"].is_string() }));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn file_list_entry_name_skips_non_utf8_bytes() {
+        use std::os::unix::ffi::OsStrExt;
+        let name = std::ffi::OsStr::from_bytes(b"invalid-\xff.txt");
+        assert_eq!(file_entry_name(name), None);
     }
 
     #[tokio::test]
