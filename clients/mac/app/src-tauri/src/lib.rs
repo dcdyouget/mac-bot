@@ -35,30 +35,41 @@ use tauri_plugin_dialog::DialogExt;
 use uuid::Uuid;
 
 const MAX_UPLOAD_BYTES: usize = 100 * 1024 * 1024;
+const MAX_ARTIFACT_LIST_BYTES: usize = 4 * 1024 * 1024;
+const MAX_ARTIFACT_PREVIEW_BYTES: usize = 5 * 1024 * 1024;
+const MAX_ARTIFACT_DIRECTORY_ENTRIES: usize = 5_000;
 // IPC is capped at 8 MiB of JPEG data (plus the small wire header). The core
 // parser has already allocated the incoming JPEG before this native limit runs.
 const MAX_SCREEN_JPEG_BYTES: usize = 8 * 1024 * 1024;
 
-fn resolve_project_artifact_path(home_path: &str, relative_path: &str) -> Result<PathBuf, String> {
+fn resolve_project_artifact_path(home_path: &str, artifact_path: &str) -> Result<PathBuf, String> {
     if !Path::new(home_path).is_absolute() {
         return Err("项目 Home 必须是绝对路径".into());
     }
-    let relative = Path::new(relative_path);
-    if relative_path.trim().is_empty() || relative.is_absolute() {
-        return Err("产物路径必须是项目 Home 下的相对路径".into());
+    if artifact_path.trim().is_empty() {
+        return Err("产物路径不能为空".into());
     }
-    let mut has_normal_component = false;
-    for component in relative.components() {
-        match component {
-            Component::Normal(_) => has_normal_component = true,
-            Component::CurDir => {}
-            Component::ParentDir | Component::RootDir | Component::Prefix(_) => {
-                return Err("产物路径不能离开项目 Home".into());
+
+    let artifact = Path::new(artifact_path);
+    if !artifact.is_absolute() {
+        let mut has_normal_component = false;
+        for component in artifact.components() {
+            match component {
+                Component::Normal(_) => has_normal_component = true,
+                Component::CurDir => {}
+                Component::ParentDir | Component::RootDir | Component::Prefix(_) => {
+                    return Err("产物路径不能离开项目 Home".into());
+                }
             }
         }
-    }
-    if !has_normal_component {
-        return Err("产物路径不能为空".into());
+        if !has_normal_component {
+            return Err("产物路径不能为空".into());
+        }
+    } else if artifact
+        .components()
+        .any(|component| matches!(component, Component::ParentDir | Component::Prefix(_)))
+    {
+        return Err("产物路径不能离开项目 Home".into());
     }
 
     let home = Path::new(home_path)
@@ -67,14 +78,53 @@ fn resolve_project_artifact_path(home_path: &str, relative_path: &str) -> Result
     if !home.is_dir() {
         return Err("项目 Home 不是目录".into());
     }
-    let target = home
-        .join(relative)
+    let requested = if artifact.is_absolute() {
+        artifact.to_path_buf()
+    } else {
+        home.join(artifact)
+    };
+    let target = requested
         .canonicalize()
         .map_err(|error| format!("无法解析产物路径：{error}"))?;
-    if !target.starts_with(&home) {
-        return Err("产物路径超出项目 Home".into());
+    if target == home || !target.starts_with(&home) {
+        return Err("产物路径必须位于项目 Home 内部".into());
     }
     Ok(target)
+}
+
+fn validate_artifact_file_path(path: &str) -> Result<(), String> {
+    if path.is_empty() || path.len() > 4096 || path.chars().any(char::is_control) {
+        return Err("产物文件路径无效".into());
+    }
+    if Path::new(path)
+        .components()
+        .any(|component| matches!(component, Component::ParentDir | Component::Prefix(_)))
+    {
+        return Err("产物文件路径不能离开项目目录".into());
+    }
+    Ok(())
+}
+
+fn artifact_file_url(
+    endpoint: &str,
+    project_id: &str,
+    path: &str,
+    listing: bool,
+) -> Result<String, String> {
+    let route = if listing {
+        "/api/v1/files/list"
+    } else {
+        "/api/v1/files"
+    };
+    let mut url = url::Url::parse(
+        &macbot_client_core::http_url(endpoint, route).map_err(|error| error.to_string())?,
+    )
+    .map_err(|error| format!("文件地址无效：{error}"))?;
+    url.query_pairs_mut()
+        .append_pair("root", "project")
+        .append_pair("root_id", project_id)
+        .append_pair("path", path);
+    Ok(url.into())
 }
 
 fn resolve_home_attachment_path(home: &Path, selected: &Path) -> Result<PathBuf, String> {
@@ -2831,6 +2881,214 @@ fn attachment_upload_target(bridge: &State<'_, SharedBridge>) -> Result<(String,
     Ok((endpoint, password))
 }
 
+#[derive(Clone)]
+struct ArtifactHttpContext {
+    endpoint: String,
+    password: String,
+    host_id: String,
+    project_id: String,
+    generation: u64,
+}
+
+fn artifact_http_context(
+    bridge: &SharedBridge,
+    project_id: &str,
+) -> Result<ArtifactHttpContext, String> {
+    if !valid_deep_link_id(project_id) {
+        return Err("项目 ID 无效".into());
+    }
+    let (host, generation) = {
+        let data = bridge
+            .0
+            .lock()
+            .map_err(|_| "客户端状态不可用".to_string())?;
+        if data.connection != "connected" {
+            return Err("请先连接 Bot 主机".into());
+        }
+        if !data.state.projects.contains_key(project_id) {
+            return Err("项目不属于当前连接的 Bot 主机".into());
+        }
+        (
+            data.active_host
+                .clone()
+                .ok_or_else(|| "当前连接没有已保存的主机凭证".to_string())?,
+            data.connection_generation,
+        )
+    };
+    let endpoint = host
+        .addresses
+        .first()
+        .cloned()
+        .ok_or_else(|| "当前主机没有可用地址".to_string())?;
+    let password = HostStore::load()
+        .and_then(|store| store.password(&host))
+        .map_err(|error| format!("无法读取主机凭证：{error}"))?;
+    Ok(ArtifactHttpContext {
+        endpoint,
+        password,
+        host_id: host.id,
+        project_id: project_id.to_owned(),
+        generation,
+    })
+}
+
+fn verify_artifact_http_context(
+    bridge: &SharedBridge,
+    context: &ArtifactHttpContext,
+) -> Result<(), String> {
+    let data = bridge
+        .0
+        .lock()
+        .map_err(|_| "客户端状态不可用".to_string())?;
+    if !artifact_http_context_is_current(&data, context) {
+        return Err("Bot 主机已切换，请重新打开产物".into());
+    }
+    Ok(())
+}
+
+fn artifact_http_context_is_current(data: &BridgeData, context: &ArtifactHttpContext) -> bool {
+    data.connection == "connected"
+        && data.connection_generation == context.generation
+        && data.active_host.as_ref().map(|host| host.id.as_str()) == Some(context.host_id.as_str())
+        && data.state.projects.contains_key(&context.project_id)
+}
+
+async fn read_bounded_response(
+    response: reqwest::Response,
+    max_bytes: usize,
+    label: &str,
+) -> Result<(Vec<u8>, String), String> {
+    let status = response.status();
+    if !status.is_success() {
+        return Err(format!("{label}失败（HTTP {}）", status.as_u16()));
+    }
+    if response
+        .content_length()
+        .is_some_and(|length| length > max_bytes as u64)
+    {
+        return Err(format!(
+            "{label}超过预览上限（{} MiB）",
+            max_bytes / (1024 * 1024)
+        ));
+    }
+    let mime = response
+        .headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or("application/octet-stream")
+        .to_owned();
+    let mut body = Vec::new();
+    let mut stream = response.bytes_stream();
+    while let Some(chunk) = futures_util::StreamExt::next(&mut stream).await {
+        let chunk = chunk.map_err(|error| format!("读取{label}失败：{error}"))?;
+        if body.len().saturating_add(chunk.len()) > max_bytes {
+            return Err(format!(
+                "{label}超过预览上限（{} MiB）",
+                max_bytes / (1024 * 1024)
+            ));
+        }
+        body.extend_from_slice(&chunk);
+    }
+    Ok((body, mime))
+}
+
+async fn fetch_artifact_http(
+    context: &ArtifactHttpContext,
+    path: &str,
+    listing: bool,
+    max_bytes: usize,
+    label: &str,
+) -> Result<(Vec<u8>, String), String> {
+    let url = artifact_file_url(&context.endpoint, &context.project_id, path, listing)?;
+    let client = reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .timeout(std::time::Duration::from_secs(30))
+        .build()
+        .map_err(|error| error.to_string())?;
+    let response = client
+        .get(url)
+        .bearer_auth(&context.password)
+        .send()
+        .await
+        .map_err(|error| format!("读取{label}失败：{error}"))?;
+    read_bounded_response(response, max_bytes, label).await
+}
+
+fn artifact_file_preview(body: Vec<u8>, mime: String) -> Value {
+    let size = body.len();
+    let essence = mime
+        .split(';')
+        .next()
+        .unwrap_or_default()
+        .trim()
+        .to_ascii_lowercase();
+    let is_text = essence.starts_with("text/")
+        || matches!(
+            essence.as_str(),
+            "application/json"
+                | "application/javascript"
+                | "application/x-javascript"
+                | "application/xml"
+                | "application/yaml"
+                | "application/x-yaml"
+                | "application/toml"
+        )
+        || essence.ends_with("+json")
+        || essence.ends_with("+xml");
+    if is_text {
+        match String::from_utf8(body) {
+            Ok(content) => {
+                json!({ "content": content, "content_encoding": "utf8", "mime": mime, "size": size })
+            }
+            Err(error) => json!({
+                "content": base64::Engine::encode(&base64::engine::general_purpose::STANDARD, error.as_bytes()),
+                "content_encoding": "base64", "mime": mime, "size": size,
+            }),
+        }
+    } else {
+        json!({
+            "content": base64::Engine::encode(&base64::engine::general_purpose::STANDARD, body.as_slice()),
+            "content_encoding": "base64", "mime": mime, "size": size,
+        })
+    }
+}
+
+#[tauri::command]
+async fn list_artifact_directory(
+    bridge: State<'_, SharedBridge>,
+    project_id: String,
+    path: String,
+) -> Result<Value, String> {
+    validate_artifact_file_path(&path)?;
+    let context = artifact_http_context(&bridge, &project_id)?;
+    let (body, _) =
+        fetch_artifact_http(&context, &path, true, MAX_ARTIFACT_LIST_BYTES, "目录列表").await?;
+    verify_artifact_http_context(&bridge, &context)?;
+    let mut result: Value =
+        serde_json::from_slice(&body).map_err(|error| format!("目录列表格式无效：{error}"))?;
+    let entries = result
+        .get_mut("entries")
+        .and_then(Value::as_array_mut)
+        .ok_or_else(|| "目录列表缺少 entries".to_string())?;
+    let truncated = entries.len() > MAX_ARTIFACT_DIRECTORY_ENTRIES;
+    entries.truncate(MAX_ARTIFACT_DIRECTORY_ENTRIES);
+    Ok(json!({ "entries": entries, "truncated": truncated }))
+}
+
+#[tauri::command]
+async fn read_artifact_file(
+    bridge: State<'_, SharedBridge>,
+    project_id: String,
+    path: String,
+) -> Result<Value, String> {
+    validate_artifact_file_path(&path)?;
+    let context = artifact_http_context(&bridge, &project_id)?;
+    let (body, mime) =
+        fetch_artifact_http(&context, &path, false, MAX_ARTIFACT_PREVIEW_BYTES, "文件").await?;
+    verify_artifact_http_context(&bridge, &context)?;
+    Ok(artifact_file_preview(body, mime))
+}
+
 async fn upload_chat_attachment_bytes(
     app: &AppHandle,
     endpoint: String,
@@ -3193,6 +3451,8 @@ pub fn run() {
             open_releases_page,
             upload_skill_zip,
             upload_chat_attachment,
+            list_artifact_directory,
+            read_artifact_file,
             pick_and_upload_home_attachment,
             capture_and_upload_screenshot,
             trace_subscribe,
@@ -3234,26 +3494,32 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::{
-        activate_trace_subscription, apply_retry_result, authorized_project_home,
-        chat_attachment_payload, clear_negotiated_versions, close_window_action,
-        connection_is_current, diagnostics_text, drain_pending_deep_links, encode_screen_frame,
-        enqueue_message_deep_link, expand_home_path, finish_trace_unsubscribe,
-        inject_client_locale, negotiated_versions, normalize_bcp47_locale, parse_message_deep_link,
-        pending_message, redact_endpoint, resolve_home_attachment_path,
-        resolve_project_artifact_path, retain_trace_cleanup, route_trace_event,
-        screen_connection_payload, screen_generation_matches, should_reopen_main_window,
-        skill_upload_payload, snapshot, system_settings_url, trace_subscription_state,
-        trace_tauri_event, tray_menu_copy, update_check_result, uploaded_chat_attachment,
-        uploaded_skill_id, validate_screen_input, write_diagnostics, BridgeData, CloseWindowAction,
-        DeepLinkDispatch, InvokeBody, MessageDeepLink, PendingTraceCleanup, ScreenFrame,
-        ScreenPoint, SystemPermission, TraceScope, TraceSubscription, TrayMenuCopy, UpdateStatus,
-        MAX_BUFFERED_TRACE_BYTES, MAX_PENDING_DEEP_LINKS, MAX_SCREEN_JPEG_BYTES,
+        activate_trace_subscription, apply_retry_result, artifact_file_preview, artifact_file_url,
+        artifact_http_context_is_current, authorized_project_home, chat_attachment_payload,
+        clear_negotiated_versions, close_window_action, connection_is_current, diagnostics_text,
+        drain_pending_deep_links, encode_screen_frame, enqueue_message_deep_link, expand_home_path,
+        fetch_artifact_http, finish_trace_unsubscribe, inject_client_locale, negotiated_versions,
+        normalize_bcp47_locale, parse_message_deep_link, pending_message, redact_endpoint,
+        resolve_home_attachment_path, resolve_project_artifact_path, retain_trace_cleanup,
+        route_trace_event, screen_connection_payload, screen_generation_matches,
+        should_reopen_main_window, skill_upload_payload, snapshot, system_settings_url,
+        trace_subscription_state, trace_tauri_event, tray_menu_copy, update_check_result,
+        uploaded_chat_attachment, uploaded_skill_id, validate_artifact_file_path,
+        validate_screen_input, write_diagnostics, ArtifactHttpContext, BridgeData,
+        CloseWindowAction, DeepLinkDispatch, HostRecord, InvokeBody, MessageDeepLink,
+        PendingTraceCleanup, ScreenFrame, ScreenPoint, SystemPermission, TraceScope,
+        TraceSubscription, TrayMenuCopy, UpdateStatus, MAX_ARTIFACT_DIRECTORY_ENTRIES,
+        MAX_ARTIFACT_LIST_BYTES, MAX_ARTIFACT_PREVIEW_BYTES, MAX_BUFFERED_TRACE_BYTES,
+        MAX_PENDING_DEEP_LINKS, MAX_SCREEN_JPEG_BYTES,
     };
     use macbot_client_core::ScreenFrameHeader;
     use serde_json::json;
     use std::collections::{BTreeMap, BTreeSet};
     use std::fs;
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
     use std::path::PathBuf;
+    use std::thread;
     use uuid::Uuid;
 
     struct TempDir(PathBuf);
@@ -3431,6 +3697,209 @@ mod tests {
             resolved,
             home.canonicalize().unwrap().join("product/prd.md")
         );
+    }
+
+    #[test]
+    fn artifact_http_paths_reject_traversal_and_control_characters() {
+        assert!(validate_artifact_file_path("code/src/main.rs").is_ok());
+        assert!(validate_artifact_file_path("/srv/project/code/main.rs").is_ok());
+        assert!(validate_artifact_file_path("../outside").is_err());
+        assert!(validate_artifact_file_path("code/../../outside").is_err());
+        assert!(validate_artifact_file_path("code\nfile.rs").is_err());
+        assert!(validate_artifact_file_path(&"x".repeat(4097)).is_err());
+    }
+
+    #[test]
+    fn artifact_http_url_encodes_project_and_nested_path_query_values() {
+        let url = artifact_file_url(
+            "wss://example.test:7788/ws",
+            "project:one",
+            "code/a b.rs",
+            true,
+        )
+        .unwrap();
+        let parsed = url::Url::parse(&url).unwrap();
+        assert_eq!(parsed.scheme(), "https");
+        assert_eq!(parsed.path(), "/api/v1/files/list");
+        let query = parsed
+            .query_pairs()
+            .into_owned()
+            .collect::<BTreeMap<_, _>>();
+        assert_eq!(query.get("root").map(String::as_str), Some("project"));
+        assert_eq!(
+            query.get("root_id").map(String::as_str),
+            Some("project:one")
+        );
+        assert_eq!(query.get("path").map(String::as_str), Some("code/a b.rs"));
+        assert_eq!(MAX_ARTIFACT_PREVIEW_BYTES, 5 * 1024 * 1024);
+        assert_eq!(MAX_ARTIFACT_LIST_BYTES, 4 * 1024 * 1024);
+        assert_eq!(MAX_ARTIFACT_DIRECTORY_ENTRIES, 5_000);
+    }
+
+    fn mock_files_http(body: Vec<u8>, mime: &'static str) -> (String, thread::JoinHandle<String>) {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let endpoint = format!("http://{}", listener.local_addr().unwrap());
+        let handle = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            stream
+                .set_read_timeout(Some(std::time::Duration::from_secs(2)))
+                .unwrap();
+            let mut request = [0; 8192];
+            let read = stream.read(&mut request).unwrap();
+            let request = String::from_utf8_lossy(&request[..read]).into_owned();
+            write!(
+                stream,
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nContent-Type: {}\r\nConnection: close\r\n\r\n",
+                body.len(), mime
+            ).unwrap();
+            stream.write_all(&body).unwrap();
+            request
+        });
+        (endpoint, handle)
+    }
+
+    #[test]
+    fn artifact_http_fetch_sends_bearer_and_nested_project_path() {
+        let (endpoint, server) = mock_files_http(b"source".to_vec(), "text/plain; charset=utf-8");
+        let context = ArtifactHttpContext {
+            endpoint,
+            password: "mock-secret".into(),
+            host_id: "host-1".into(),
+            project_id: "project:one".into(),
+            generation: 7,
+        };
+        let (body, mime) = tauri::async_runtime::block_on(fetch_artifact_http(
+            &context,
+            "code/src/a b.rs",
+            false,
+            1024,
+            "文件",
+        ))
+        .unwrap();
+        assert_eq!(body, b"source");
+        assert!(mime.starts_with("text/plain"));
+        let request = server.join().unwrap();
+        let target = request
+            .lines()
+            .next()
+            .unwrap()
+            .split_whitespace()
+            .nth(1)
+            .unwrap();
+        let parsed = url::Url::parse(&format!("http://localhost{target}")).unwrap();
+        let query = parsed
+            .query_pairs()
+            .into_owned()
+            .collect::<BTreeMap<_, _>>();
+        assert_eq!(query.get("root").map(String::as_str), Some("project"));
+        assert_eq!(
+            query.get("root_id").map(String::as_str),
+            Some("project:one")
+        );
+        assert_eq!(
+            query.get("path").map(String::as_str),
+            Some("code/src/a b.rs")
+        );
+        assert!(request
+            .lines()
+            .any(|line| line.eq_ignore_ascii_case("authorization: Bearer mock-secret")));
+    }
+
+    #[test]
+    fn artifact_directory_listing_uses_authenticated_list_endpoint() {
+        let body = br#"{"entries":[{"name":"main.rs","path":"code/src/main.rs","is_dir":false,"size":128,"modified_at":1}]}"#.to_vec();
+        let (endpoint, server) = mock_files_http(body, "application/json");
+        let context = ArtifactHttpContext {
+            endpoint,
+            password: "mock-secret".into(),
+            host_id: "host-1".into(),
+            project_id: "project-1".into(),
+            generation: 4,
+        };
+        let (body, mime) = tauri::async_runtime::block_on(fetch_artifact_http(
+            &context,
+            "code/src",
+            true,
+            MAX_ARTIFACT_LIST_BYTES,
+            "目录列表",
+        ))
+        .unwrap();
+        assert!(mime.starts_with("application/json"));
+        let response: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(response["entries"][0]["path"], "code/src/main.rs");
+        let request = server.join().unwrap();
+        let target = request
+            .lines()
+            .next()
+            .unwrap()
+            .split_whitespace()
+            .nth(1)
+            .unwrap();
+        assert!(target.starts_with("/api/v1/files/list?"));
+        assert!(request
+            .lines()
+            .any(|line| line.eq_ignore_ascii_case("authorization: Bearer mock-secret")));
+    }
+
+    #[test]
+    fn artifact_http_preview_rejects_oversized_body_and_encodes_binary() {
+        let (endpoint, server) = mock_files_http(vec![b'x'; 16], "application/octet-stream");
+        let context = ArtifactHttpContext {
+            endpoint,
+            password: "mock-secret".into(),
+            host_id: "host-1".into(),
+            project_id: "project-1".into(),
+            generation: 2,
+        };
+        let error = tauri::async_runtime::block_on(fetch_artifact_http(
+            &context,
+            "code/large.bin",
+            false,
+            8,
+            "文件",
+        ))
+        .unwrap_err();
+        assert!(error.contains("预览上限"));
+        let _request = server.join().unwrap();
+        let preview = artifact_file_preview(vec![0, 255], "application/octet-stream".into());
+        assert_eq!(preview["content_encoding"], "base64");
+        assert_eq!(preview["content"], "AP8=");
+        assert_eq!(preview["size"], 2);
+        let binary_text_bytes = artifact_file_preview(
+            b"valid utf8 bytes".to_vec(),
+            "application/octet-stream".into(),
+        );
+        assert_eq!(binary_text_bytes["content_encoding"], "base64");
+    }
+
+    #[test]
+    fn artifact_fetch_scope_rejects_host_switch_generation() {
+        let mut data = BridgeData {
+            connection: "connected",
+            connection_generation: 7,
+            active_host: Some(HostRecord {
+                id: "host-1".into(),
+                name: "Host 1".into(),
+                node_id: None,
+                addresses: vec!["127.0.0.1:7789".into()],
+                last_seq: 0,
+                device_id: "device".into(),
+            }),
+            ..BridgeData::default()
+        };
+        data.state
+            .projects
+            .insert("project-1".into(), json!({"id":"project-1"}));
+        let context = ArtifactHttpContext {
+            endpoint: "http://127.0.0.1:7789".into(),
+            password: "secret".into(),
+            host_id: "host-1".into(),
+            project_id: "project-1".into(),
+            generation: 7,
+        };
+        assert!(artifact_http_context_is_current(&data, &context));
+        data.connection_generation += 1;
+        assert!(!artifact_http_context_is_current(&data, &context));
     }
 
     #[test]
@@ -3639,6 +4108,27 @@ mod tests {
         assert!(resolve_project_artifact_path(home.to_str().unwrap(), "missing.txt").is_err());
     }
 
+    #[test]
+    fn artifact_path_accepts_absolute_targets_only_inside_project_home() {
+        let root = TempDir::new();
+        let home = root.0.join("project");
+        let nested = home.join("code/src/main.rs");
+        let outside = root.0.join("outside.txt");
+        fs::create_dir_all(nested.parent().unwrap()).unwrap();
+        fs::write(&nested, "fn main() {}\n").unwrap();
+        fs::write(&outside, "outside\n").unwrap();
+
+        assert_eq!(
+            resolve_project_artifact_path(home.to_str().unwrap(), nested.to_str().unwrap())
+                .unwrap(),
+            nested.canonicalize().unwrap(),
+        );
+        assert!(
+            resolve_project_artifact_path(home.to_str().unwrap(), outside.to_str().unwrap())
+                .is_err()
+        );
+    }
+
     #[cfg(unix)]
     #[test]
     fn artifact_path_rejects_symlinks_that_escape_project_home() {
@@ -3655,6 +4145,11 @@ mod tests {
         assert!(
             resolve_project_artifact_path(home.to_str().unwrap(), "linked/secret.txt").is_err()
         );
+        assert!(resolve_project_artifact_path(
+            home.to_str().unwrap(),
+            home.join("linked/secret.txt").to_str().unwrap(),
+        )
+        .is_err());
     }
 
     #[test]

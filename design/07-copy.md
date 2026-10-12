@@ -316,6 +316,18 @@
 | artifact.preview.tabs.history | 历史 |
 | artifact.preview.list_title | 本群产物 · {count} |
 | artifact.preview.version | 第 {n} 版 |
+| artifact.directory.loading | 正在读取文件夹… |
+| artifact.directory.load_error | 无法读取文件夹 |
+| artifact.directory.truncated | 文件较多，仅显示前 5000 项 |
+| artifact.directory.up | 上一级 |
+| artifact.directory.empty | 此文件夹为空 |
+| artifact.directory.choose_file | 选择文件以预览 |
+| artifact.directory.file_loading | 正在读取文件… |
+| artifact.directory.file_error | 无法预览文件 |
+| artifact.directory.binary | 此文件类型暂不支持预览 |
+| artifact.directory.preview | 预览 |
+| artifact.directory.source | 源文件 |
+| artifact.directory.size | 大小 {size} |
 
 ## follow · 跟进（右面板 / 跟进页）
 

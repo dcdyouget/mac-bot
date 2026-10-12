@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { invoke } from '@tauri-apps/api/core'
-import { ArrowLeft, Check, Clock3, Copy, ExternalLink, File, FileText, Folder, LoaderCircle, RefreshCw } from 'lucide-react'
+import { useVirtualizer } from '@tanstack/react-virtual'
+import { ArrowLeft, Check, ChevronLeft, Clock3, Copy, ExternalLink, File, FileCode2, FileText, Folder, LoaderCircle, RefreshCw } from 'lucide-react'
+import { formatArtifactSize, joinArtifactPath, normalizeArtifactPath, parentArtifactPath, sortArtifactEntries, type ArtifactDirectoryEntry } from './artifactDirectory.model'
 import './ArtifactPage.css'
 
 export type ArtifactKind = 'file' | 'dir' | 'url'
@@ -48,6 +50,10 @@ export type ArtifactCopyKey =
   | 'artifact.preview.load_error' | 'artifact.preview.no_versions' | 'artifact.preview.no_content'
   | 'artifact.preview.load_more' | 'artifact.preview.loading_more' | 'artifact.preview.version_size'
   | 'artifact.preview.reveal_finder' | 'artifact.preview.open_url' | 'artifact.preview.empty'
+  | 'artifact.directory.loading' | 'artifact.directory.load_error' | 'artifact.directory.truncated'
+  | 'artifact.directory.up' | 'artifact.directory.empty' | 'artifact.directory.choose_file'
+  | 'artifact.directory.file_loading' | 'artifact.directory.file_error' | 'artifact.directory.binary'
+  | 'artifact.directory.preview' | 'artifact.directory.source' | 'artifact.directory.size'
 
 export interface ArtifactPageProps {
   hostScope: string
@@ -320,9 +326,9 @@ export function ArtifactPage({ hostScope, projectId, projectName, artifacts, bot
         <div className="artifact-breadcrumb"><span>{projectName}</span><span aria-hidden="true">›</span><span>{t('group.artifacts')}</span><span aria-hidden="true">›</span><strong>{selectedArtifact?.title ?? ''}</strong></div>
         {selectedArtifact && <div className="artifact-meta"><span className="artifact-author">{t('common.provided_by').replace('{bot}', author)}</span><code>{selectedArtifact.path_or_url}</code><span>{t('common.updated_at').replace('{time}', formatDate(selectedArtifact.updated_at))}</span>{currentVersion && <span>{t('artifact.preview.version').replace('{n}', String(currentVersion.version))}</span>}</div>}
       </div>
-      <nav className="artifact-view-tabs" aria-label={t('group.artifacts')}>
+      {selectedArtifact?.kind === 'file' && <nav className="artifact-view-tabs" aria-label={t('group.artifacts')}>
         {tabs.map((tab) => <button key={tab.id} type="button" className={activeTab === tab.id ? 'active' : ''} aria-pressed={activeTab === tab.id} onClick={() => setActiveTab(tab.id)}>{t(tab.copy)}</button>)}
-      </nav>
+      </nav>}
       <button className="artifact-toolbar-action" type="button" onClick={() => void revealInFinder()} disabled={!selectedArtifact || !onRevealInFinder || selectedArtifact.kind === 'url'}><Folder size={14} />{t('artifact.preview.reveal_finder')}</button>
       <button className="artifact-toolbar-action" type="button" onClick={() => void copyPath()} disabled={!selectedArtifact}><Copy size={14} />{copyState === 'copied' ? t('common.copied') : copyState === 'failed' ? t('common.copy_failed') : t('common.copy_path')}</button>
     </header>
@@ -342,7 +348,14 @@ export function ArtifactPage({ hostScope, projectId, projectName, artifacts, bot
         {actionError && <div className="artifact-error" role="alert"><span>{t('artifact.preview.load_error')}: {actionError}</span></div>}
         {!selectedArtifact ? <div className="artifact-content-state">{t('artifact.preview.empty')}</div>
           : selectedArtifact.kind === 'url' ? <div className="artifact-url-card"><ExternalLink size={22} /><code>{selectedArtifact.path_or_url}</code><a href={selectedArtifact.path_or_url} target="_blank" rel="noreferrer"><ExternalLink size={14} />{t('artifact.preview.open_url')}</a></div>
-            : selectedArtifact.kind === 'dir' ? <div className="artifact-content-state"><Folder size={22} /><span>{selectedArtifact.path_or_url}</span></div>
+            : selectedArtifact.kind === 'dir' ? <DirectoryBrowser
+              key={`${hostScope}:${projectId}:${selectedArtifact.id}`}
+              hostScope={hostScope}
+              projectId={projectId}
+              rootPath={selectedArtifact.path_or_url}
+              onRevealPath={onRevealInFinder ? (path) => onRevealInFinder({ ...selectedArtifact, path_or_url: path }) : undefined}
+              t={t}
+            />
               : <div className="artifact-content-scroll">
                 {activeTab === 'history'
                   ? <section className="artifact-history-card"><header><h1>{t('artifact.preview.tabs.history')}</h1><span>{selectedArtifact.title}</span></header>
@@ -362,5 +375,178 @@ export function ArtifactPage({ hostScope, projectId, projectName, artifacts, bot
               </div>}
       </main>
     </div>
+  </section>
+}
+
+type DirectoryPage = { entries: ArtifactDirectoryEntry[]; truncated: boolean }
+type FilePreview = { content: string; content_encoding: 'utf8' | 'base64'; mime: string; size: number }
+
+function DirectoryBrowser({ hostScope, projectId, rootPath, onRevealPath, t }: {
+  hostScope: string
+  projectId: string
+  rootPath: string
+  onRevealPath?: (path: string) => void | Promise<void>
+  t: ArtifactPageProps['t']
+}) {
+  const root = normalizeArtifactPath(rootPath)
+  const [directoryPath, setDirectoryPath] = useState(root)
+  const [entries, setEntries] = useState<ArtifactDirectoryEntry[]>([])
+  const [truncated, setTruncated] = useState(false)
+  const [loading, setLoading] = useState(false)
+  const [directoryError, setDirectoryError] = useState<string | null>(null)
+  const [selectedPath, setSelectedPath] = useState<string | null>(null)
+  const [filePreview, setFilePreview] = useState<FilePreview | null>(null)
+  const [fileLoading, setFileLoading] = useState(false)
+  const [fileError, setFileError] = useState<string | null>(null)
+  const [fileTab, setFileTab] = useState<'preview' | 'source'>('preview')
+  const [copyState, setCopyState] = useState<'idle' | 'copied' | 'failed'>('idle')
+  const [directoryRetry, setDirectoryRetry] = useState(0)
+  const [fileRetry, setFileRetry] = useState(0)
+  const listRequestRef = useRef(0)
+  const fileRequestRef = useRef(0)
+  const scopeRef = useRef({ hostScope, projectId, directoryPath, selectedPath })
+  scopeRef.current = { hostScope, projectId, directoryPath, selectedPath }
+  const listScrollRef = useRef<HTMLDivElement>(null)
+  const virtualizer = useVirtualizer({ count: entries.length, getScrollElement: () => listScrollRef.current, estimateSize: () => 38, overscan: 8 })
+
+  useEffect(() => {
+    const requestId = ++listRequestRef.current
+    const scope = { hostScope, projectId, directoryPath }
+    setLoading(true)
+    setDirectoryError(null)
+    setEntries([])
+    setTruncated(false)
+    setSelectedPath(null)
+    setFilePreview(null)
+    void invoke<DirectoryPage>('list_artifact_directory', { projectId, path: directoryPath })
+      .then((page) => {
+        const current = scopeRef.current
+        if (listRequestRef.current !== requestId || current.hostScope !== scope.hostScope || current.projectId !== scope.projectId || current.directoryPath !== scope.directoryPath) return
+        setEntries(sortArtifactEntries(page.entries ?? []))
+        setTruncated(Boolean(page.truncated))
+      })
+      .catch((error: unknown) => {
+        const current = scopeRef.current
+        if (listRequestRef.current === requestId && current.hostScope === scope.hostScope && current.projectId === scope.projectId && current.directoryPath === scope.directoryPath) setDirectoryError(String(error))
+      })
+      .finally(() => {
+        if (listRequestRef.current === requestId) setLoading(false)
+      })
+  }, [hostScope, projectId, directoryPath, directoryRetry])
+
+  useEffect(() => {
+    const path = selectedPath
+    const requestId = ++fileRequestRef.current
+    setFilePreview(null)
+    setFileError(null)
+    if (!path) {
+      setFileLoading(false)
+      return
+    }
+    const scope = { hostScope, projectId, directoryPath, path }
+    setFileLoading(true)
+    void invoke<FilePreview>('read_artifact_file', { projectId, path })
+      .then((result) => {
+        const current = scopeRef.current
+        if (fileRequestRef.current !== requestId || current.hostScope !== scope.hostScope || current.projectId !== scope.projectId || current.directoryPath !== scope.directoryPath || current.selectedPath !== scope.path) return
+        setFilePreview(result)
+      })
+      .catch((error: unknown) => {
+        const current = scopeRef.current
+        if (fileRequestRef.current === requestId && current.hostScope === scope.hostScope && current.projectId === scope.projectId && current.directoryPath === scope.directoryPath && current.selectedPath === scope.path) setFileError(String(error))
+      })
+      .finally(() => {
+        if (fileRequestRef.current === requestId) setFileLoading(false)
+      })
+  }, [hostScope, projectId, directoryPath, selectedPath, fileRetry])
+
+  const parentPath = parentArtifactPath(directoryPath, root)
+  const activeEntry = entries.find((entry) => !entry.is_dir && selectedPath === joinArtifactPath(directoryPath, entry.name))
+  const listItems = virtualizer.getVirtualItems()
+
+  async function copySelectedPath() {
+    if (!selectedPath) return
+    try {
+      await navigator.clipboard.writeText(selectedPath)
+      setCopyState('copied')
+    } catch {
+      setCopyState('failed')
+    }
+    window.setTimeout(() => setCopyState('idle'), 1800)
+  }
+
+  async function revealSelectedPath() {
+    if (!selectedPath || !onRevealPath) return
+    try { await onRevealPath(selectedPath) }
+    catch (error) { setFileError(String(error)) }
+  }
+
+  function selectEntry(entry: ArtifactDirectoryEntry) {
+    try {
+      const path = joinArtifactPath(directoryPath, entry.name)
+      if (entry.is_dir) {
+        setDirectoryPath(path)
+        setSelectedPath(null)
+      } else {
+        setSelectedPath(path)
+        setFileTab('preview')
+      }
+    } catch (error) {
+      setDirectoryError(String(error))
+    }
+  }
+
+  const canRenderImage = filePreview?.content_encoding === 'base64' && /^image\/(png|jpeg|gif|webp|avif)$/i.test(filePreview.mime)
+  const isMarkdown = Boolean(activeEntry?.name.toLowerCase().endsWith('.md') || filePreview?.mime.includes('markdown'))
+
+  return <section className="artifact-directory-browser">
+    <aside className="artifact-directory-pane" aria-label={directoryPath}>
+      <header className="artifact-directory-toolbar">
+        <button type="button" className="artifact-directory-up" disabled={!parentPath || loading} aria-label={t('artifact.directory.up')} onClick={() => parentPath && setDirectoryPath(parentPath)}><ChevronLeft size={14} />{t('artifact.directory.up')}</button>
+        <button type="button" className="artifact-icon-action" disabled={loading} aria-label={t('common.retry')} title={t('common.retry')} onClick={() => setDirectoryRetry((retry) => retry + 1)}><RefreshCw size={13} /></button>
+      </header>
+      <div className="artifact-directory-path" title={directoryPath}>{directoryPath}</div>
+      {loading ? <div className="artifact-directory-state"><LoaderCircle className="artifact-spinner" size={17} />{t('artifact.directory.loading')}</div>
+        : directoryError ? <div className="artifact-directory-state is-error"><span>{t('artifact.directory.load_error')}: {directoryError}</span><button type="button" onClick={() => setDirectoryRetry((retry) => retry + 1)}>{t('common.retry')}</button></div>
+          : <div className="artifact-directory-scroll" ref={listScrollRef}>
+            {entries.length ? <div className="artifact-directory-virtual" style={{ height: `${virtualizer.getTotalSize()}px` }}>
+              {listItems.map((item) => {
+                const entry = entries[item.index]
+                const path = joinArtifactPath(directoryPath, entry.name)
+                const selected = path === selectedPath
+                return <button key={`${directoryPath}:${entry.name}`} type="button" className={`artifact-directory-row${selected ? ' selected' : ''}${entry.is_dir ? ' is-directory' : ''}`} style={{ transform: `translateY(${item.start}px)`, height: `${item.size}px` }} onClick={() => selectEntry(entry)}>
+                  {entry.is_dir ? <Folder size={14} /> : <FileCode2 size={14} />}
+                  <span>{entry.name}</span>
+                  {!entry.is_dir && <small>{formatArtifactSize(entry.size)}</small>}
+                </button>
+              })}
+            </div> : <div className="artifact-directory-state">{t('artifact.directory.empty')}</div>}
+          </div>}
+      {truncated && <div className="artifact-directory-truncated">{t('artifact.directory.truncated')}</div>}
+    </aside>
+    <main className="artifact-file-preview">
+      {selectedPath ? <>
+        <header className="artifact-file-toolbar">
+          <div className="artifact-file-title" title={selectedPath}><FileText size={14} /><span>{activeEntry?.name ?? selectedPath.split('/').at(-1)}</span></div>
+          <div className="artifact-view-tabs">
+            <button type="button" className={fileTab === 'preview' ? 'active' : ''} aria-pressed={fileTab === 'preview'} onClick={() => setFileTab('preview')}>{t('artifact.directory.preview')}</button>
+            <button type="button" className={fileTab === 'source' ? 'active' : ''} aria-pressed={fileTab === 'source'} onClick={() => setFileTab('source')}>{t('artifact.directory.source')}</button>
+          </div>
+          <button className="artifact-toolbar-action" type="button" disabled={!onRevealPath} onClick={() => void revealSelectedPath()}><Folder size={13} />{t('artifact.preview.reveal_finder')}</button>
+          <button className="artifact-toolbar-action" type="button" onClick={() => void copySelectedPath()}><Copy size={13} />{copyState === 'copied' ? t('common.copied') : copyState === 'failed' ? t('common.copy_failed') : t('common.copy_path')}</button>
+        </header>
+        <div className="artifact-file-content">
+          {fileLoading ? <div className="artifact-content-state"><LoaderCircle className="artifact-spinner" size={18} />{t('artifact.directory.file_loading')}</div>
+              : fileError ? <div className="artifact-content-state is-error"><span>{t('artifact.directory.file_error')}: {fileError}</span><button type="button" onClick={() => setFileRetry((retry) => retry + 1)}>{t('common.retry')}</button></div>
+              : filePreview?.content_encoding === 'utf8' ? <article className="artifact-document">
+                <header><h1>{activeEntry?.name ?? selectedPath.split('/').at(-1)}</h1><p>{t('artifact.directory.size').replace('{size}', formatArtifactSize(filePreview.size))} · {filePreview.mime}</p></header>
+                {fileTab === 'source' ? <pre className="artifact-source"><code>{filePreview.content}</code></pre> : isMarkdown ? <MarkdownPreview content={filePreview.content} /> : <pre className="artifact-source"><code>{filePreview.content}</code></pre>}
+              </article>
+                : canRenderImage && filePreview ? <div className="artifact-binary-preview"><img src={`data:${filePreview.mime};base64,${filePreview.content}`} alt={activeEntry?.name ?? ''} /><small>{t('artifact.directory.size').replace('{size}', formatArtifactSize(filePreview.size))}</small></div>
+                  : filePreview ? <div className="artifact-content-state"><File size={20} /><span>{t('artifact.directory.binary')} · {t('artifact.directory.size').replace('{size}', formatArtifactSize(filePreview.size))}</span></div>
+                    : <div className="artifact-content-state">{t('artifact.directory.choose_file')}</div>}
+        </div>
+      </> : <div className="artifact-content-state"><Folder size={22} /><span>{t('artifact.directory.choose_file')}</span></div>}
+    </main>
   </section>
 }
