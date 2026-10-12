@@ -2,6 +2,8 @@ package bot.mac.mobile.feature.chat
 
 import kotlinx.serialization.json.JsonObject
 import bot.mac.mobile.core.protocol.Message
+import bot.mac.mobile.core.protocol.str
+import kotlin.time.Instant
 
 private const val PERSISTED_SKILL_DRAFT_MARKER = "macbot-chat-draft-v1\n"
 
@@ -100,3 +102,21 @@ private fun encodeUriComponent(value: String): String = buildString {
 }
 
 private const val HEX = "0123456789ABCDEF"
+/** Recent skills are based only on the server's successful invocation timestamp. */
+internal fun recentSlashSkills(
+    skills: List<JsonObject>,
+    now: Instant,
+    limit: Int = 3,
+): List<JsonObject> = skills.asSequence()
+    .filter { it["enabled"]?.toString() != "false" }
+    .mapNotNull { skill ->
+        val invokedAt = runCatching { Instant.parse(skill.str("last_invoked_at")) }.getOrNull() ?: return@mapNotNull null
+        val age = now.toEpochMilliseconds() - invokedAt.toEpochMilliseconds()
+        if (age !in 0..RECENT_SKILL_WINDOW_MS) null else invokedAt.toEpochMilliseconds() to skill
+    }
+    .sortedByDescending { it.first }
+    .take(limit.coerceAtLeast(0))
+    .map { it.second }
+    .toList()
+
+private const val RECENT_SKILL_WINDOW_MS = 7L * 24 * 60 * 60 * 1000

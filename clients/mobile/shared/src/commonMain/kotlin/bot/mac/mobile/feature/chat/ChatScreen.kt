@@ -130,6 +130,7 @@ fun ChatScreen(
     onOpenGroupInfo: (projectId: String) -> Unit = {},
     onOpenFollowup: (chatId: String) -> Unit = {},
     onQuoteAnnouncement: (String) -> Unit = {},
+    onCreateSkill: (String) -> Unit = {},
     artifactProjectId: String? = null,
     showHeader: Boolean = true,
 ) {
@@ -743,32 +744,42 @@ fun ChatScreen(
                 border = androidx.compose.foundation.BorderStroke(1.dp, LocalMobilePalette.current.borderDefault),
             ) {
                 Column(Modifier.heightIn(max = 340.dp).verticalScroll(rememberScrollState()).padding(6.dp)) {
-                    val matches = filterSlashSkills(slashSkills.ifEmpty { state.skills }, slashQuery)
+                    val availableSkills = filterSlashSkills(slashSkills.ifEmpty { state.skills }, "")
+                    val matches = filterSlashSkills(availableSkills, slashQuery)
+                    if (slashQuery.isBlank()) {
+                        val recent = recentSlashSkills(availableSkills, Clock.System.now())
+                        if (recent.isNotEmpty()) {
+                            Text(stringResource(Res.string.chat_slash_recent), Modifier.padding(horizontal = 10.dp, vertical = 4.dp), style = MaterialTheme.typography.labelMedium, color = LocalMobilePalette.current.textSecondary)
+                            recent.forEach { skill ->
+                                SlashSkillOption(skill, onSelect = { name ->
+                                    selectedSkill = name.takeIf { it.isNotBlank() }
+                                    draft = ""
+                                    error = null
+                                    scope.launch { withFrameNanos { }; runCatching { composerFocusRequester.requestFocus() } }
+                                })
+                            }
+                        }
+                        Text(stringResource(Res.string.chat_slash_all, matches.size), Modifier.padding(horizontal = 10.dp, vertical = 4.dp), style = MaterialTheme.typography.labelMedium, color = LocalMobilePalette.current.textSecondary)
+                    } else {
+                        Text(stringResource(Res.string.chat_slash_matched, slashQuery, matches.size), Modifier.padding(horizontal = 10.dp, vertical = 4.dp), style = MaterialTheme.typography.labelMedium, color = LocalMobilePalette.current.textSecondary)
+                    }
                     matches.forEach { skill ->
-                        val name = skill.str("name")
-                        TextButton(
-                            onClick = {
-                                selectedSkill = name.takeIf { it.isNotBlank() }
-                                draft = ""
-                                error = null
-                                scope.launch { withFrameNanos { }; runCatching { composerFocusRequester.requestFocus() } }
-                            },
-                            modifier = Modifier.fillMaxWidth().heightIn(min = 60.dp),
-                        ) {
-                            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                                Surface(color = LocalMobilePalette.current.accentSoft, shape = RoundedCornerShape(8.dp), modifier = Modifier.size(36.dp)) {
-                                    Box(contentAlignment = Alignment.Center) {
-                                        LucideIcon(LucideIconKind.Zap, Modifier.size(18.dp), tint = LocalMobilePalette.current.accent)
-                                    }
-                                }
-                                Column(Modifier.weight(1f), horizontalAlignment = Alignment.Start, verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                                    Text("/$name", style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                    Text(skill.str("description"), style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                }
+                        SlashSkillOption(skill, onSelect = { name ->
+                            selectedSkill = name.takeIf { it.isNotBlank() }
+                            draft = ""
+                            error = null
+                            scope.launch { withFrameNanos { }; runCatching { composerFocusRequester.requestFocus() } }
+                        })
+                    }
+                    if (matches.isEmpty()) {
+                        Column(Modifier.fillMaxWidth().padding(12.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text(stringResource(Res.string.feature_skill_suggestions_empty), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(stringResource(Res.string.chat_slash_empty_desc), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            TextButton(onClick = { onCreateSkill(slashQuery) }, enabled = slashQuery.isNotBlank()) {
+                                Text(stringResource(Res.string.chat_slash_create, slashQuery))
                             }
                         }
                     }
-                    if (matches.isEmpty()) Text(stringResource(Res.string.feature_skill_suggestions_empty), Modifier.padding(12.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
         }
@@ -1542,6 +1553,27 @@ private val KnownBlockTypes = setOf(
     "text", "image", "file", "task_card", "completion", "progress", "blocked", "question", "project_card", "review_card",
     "delegation", "approval", "approval_ref", "takeover_request", "bot_dm_ref", "system", "loop_paused", "link_preview",
 )
+
+@Composable
+private fun SlashSkillOption(skill: JsonObject, onSelect: (String) -> Unit) {
+    val name = skill.str("name")
+    TextButton(
+        onClick = { onSelect(name) },
+        modifier = Modifier.fillMaxWidth().heightIn(min = 60.dp),
+    ) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Surface(color = LocalMobilePalette.current.accentSoft, shape = RoundedCornerShape(8.dp), modifier = Modifier.size(36.dp)) {
+                Box(contentAlignment = Alignment.Center) {
+                    LucideIcon(LucideIconKind.Zap, Modifier.size(18.dp), tint = LocalMobilePalette.current.accent)
+                }
+            }
+            Column(Modifier.weight(1f), horizontalAlignment = Alignment.Start, verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text("/$name", style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(skill.str("description"), style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+        }
+    }
+}
 
 @Composable
 private fun MessageSkillChip(name: String) {

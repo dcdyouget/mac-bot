@@ -109,13 +109,14 @@ internal suspend fun publishSkillAndRefresh(repository: MobileRepository, name: 
     )
 
 @Composable
-fun SkillsScreen(repository: MobileRepository, onBack: () -> Unit) {
+fun SkillsScreen(repository: MobileRepository, onBack: () -> Unit, initialNewSkillName: String? = null) {
     val backLabel = stringResource(Res.string.common_back)
     val state by repository.state.collectAsState()
     var selectedName by remember { mutableStateOf<String?>(null) }
     var search by remember { mutableStateOf("") }
     var filter by remember { mutableStateOf(SkillFilter.ALL) }
     var showEditor by remember { mutableStateOf(false) }
+    var newSkillName by remember { mutableStateOf("") }
     var showImport by remember { mutableStateOf(false) }
     var actionError by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
@@ -133,6 +134,12 @@ fun SkillsScreen(repository: MobileRepository, onBack: () -> Unit) {
 
     LaunchedEffect(Unit) {
         skillRequest({ actionError = it }) { repository.call("skill.list") }
+    }
+    LaunchedEffect(initialNewSkillName) {
+        initialNewSkillName?.takeIf(String::isNotBlank)?.let {
+            newSkillName = it
+            showEditor = true
+        }
     }
     LaunchedEffect(selectedName) {
         selectedName?.let { name ->
@@ -218,8 +225,9 @@ fun SkillsScreen(repository: MobileRepository, onBack: () -> Unit) {
             }
         }
     }
-    if (showEditor) SkillEditor(detail, onDismiss = { showEditor = false }, onSaved = { refreshed ->
+    if (showEditor) SkillEditor(detail, initialName = newSkillName, onDismiss = { showEditor = false; newSkillName = "" }, onSaved = { refreshed ->
         showEditor = false
+        newSkillName = ""
         if (selectedName != null) detail = refreshed
     }, onError = { actionError = it }, repository = repository)
     if (showImport) SkillImportDialog(onDismiss = { showImport = false; scope.launch { skillRequest({ actionError = it }) { repository.call("skill.list") } } }, onError = { actionError = it }, repository = repository)
@@ -305,8 +313,8 @@ private fun sourceLabel(source: String): String = when (source) {
 }
 
 @Composable
-private fun SkillEditor(skill: JsonObject?, onDismiss: () -> Unit, onSaved: (JsonObject) -> Unit, onError: (String) -> Unit, repository: MobileRepository) {
-    var name by remember(skill) { mutableStateOf(skill?.str("name") ?: "") }
+private fun SkillEditor(skill: JsonObject?, initialName: String = "", onDismiss: () -> Unit, onSaved: (JsonObject) -> Unit, onError: (String) -> Unit, repository: MobileRepository) {
+    var name by remember(skill, initialName) { mutableStateOf(skill?.str("name") ?: initialName) }
     var content by remember(skill) { mutableStateOf(skill?.str("content") ?: "") }
     var description by remember(skill) { mutableStateOf(skill?.str("description") ?: "") }
     val scope = rememberCoroutineScope()

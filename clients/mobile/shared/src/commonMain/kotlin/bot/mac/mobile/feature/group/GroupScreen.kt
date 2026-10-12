@@ -74,6 +74,7 @@ fun GroupScreen(
     onLoopAction: (String, String) -> Unit = { _, _ -> },
     onTakeover: (String) -> Unit = {},
     onOpenGroupInfo: (String) -> Unit = {},
+    onCreateSkill: (String) -> Unit = {},
     editAnnouncementOnOpen: Boolean = false,
 ) {
     val state by repository.state.collectAsState()
@@ -382,6 +383,7 @@ fun GroupScreen(
                             showAnnouncementEditor = true
                         }
                     },
+                    onCreateSkill = onCreateSkill,
                     onLoopAction = onLoopAction,
                     onTakeover = onTakeover,
                     showHeader = false,

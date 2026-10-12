@@ -10,6 +10,7 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import bot.mac.mobile.core.protocol.str
 import kotlinx.serialization.json.JsonObject
+import kotlin.time.Instant
 
 class ChatSkillDraftTest {
     @Test
@@ -48,6 +49,24 @@ class ChatSkillDraftTest {
         ).jsonArray.map { it.jsonObject }
 
         assertEquals(listOf("web-auth-patterns"), filterSlashSkills(skills, "WEB").map { it.str("name") })
+    }
+
+    @Test
+    fun slashRecentSkillsUseOnlySuccessfulInvocationsFromTheLastSevenDays() {
+        val skills = Json.parseToJsonElement(
+            """[
+                {"name":"old","last_invoked_at":"2026-10-04T11:00:00Z"},
+                {"name":"edit-recent","updated_at":"2026-10-12T11:00:00Z"},
+                {"name":"called-first","last_invoked_at":"2026-10-11T11:00:00Z"},
+                {"name":"called-later","last_invoked_at":"2026-10-12T10:00:00Z"},
+                {"name":"disabled","enabled":false,"last_invoked_at":"2026-10-12T11:00:00Z"}
+            ]""",
+        ).jsonArray.map { it.jsonObject }
+
+        assertEquals(
+            listOf("called-later", "called-first"),
+            recentSlashSkills(skills, Instant.parse("2026-10-12T11:00:00Z")).map { it.str("name") },
+        )
     }
 
     @Test
