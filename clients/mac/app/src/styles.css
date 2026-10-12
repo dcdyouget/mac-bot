@@ -614,3 +614,64 @@ kbd { padding: 1px 5px; border-radius: 4px; box-shadow: 0 0 0 1px var(--border-d
   .app-shell > .context-panel.context-panel-closing,
   .app-shell > .context-panel.context-panel-open.context-panel-closing { animation: none; transition: none; }
 }
+
+/* v1.2 §1 — adapt the prototype bubble treatment to the desktop message DOM. */
+.message-group .bubble {
+  position: relative;
+  isolation: isolate;
+  padding: 8px 13px;
+  border-radius: var(--radius-bubble);
+  box-shadow: 0 1px 1.5px rgb(0 0 0 / 5%), 0 0 0 .5px var(--border-subtle);
+}
+.message-group.outgoing .bubble {
+  background: linear-gradient(180deg, var(--bubble-out-top), var(--bubble-out));
+  color: var(--bubble-out-text);
+  box-shadow: 0 1px 2px rgb(30 50 90 / 18%);
+}
+.message-stack { gap: 3px; }
+.message-group.group-end .bubble:not(:has(.question-card, .approval-card, .completion-card, .review-card, .project-card, .task-card, .artifact-rows, .chat-message-quote))::before,
+.message-group.group-end .bubble:not(:has(.question-card, .approval-card, .completion-card, .review-card, .project-card, .task-card, .artifact-rows, .chat-message-quote))::after {
+  position: absolute;
+  bottom: 0;
+  content: '';
+  pointer-events: none;
+}
+.message-group.group-end:not(.outgoing) .bubble:not(:has(.question-card, .approval-card, .completion-card, .review-card, .project-card, .task-card, .artifact-rows, .chat-message-quote))::before {
+  z-index: -1;
+  left: -6px;
+  width: 18px;
+  height: 18px;
+  border-bottom-right-radius: 15px 13px;
+  background: var(--bubble-in);
+}
+.message-group.group-end.outgoing .bubble:not(:has(.question-card, .approval-card, .completion-card, .review-card, .project-card, .task-card, .artifact-rows, .chat-message-quote))::before {
+  z-index: -1;
+  right: -6px;
+  width: 18px;
+  height: 18px;
+  border-bottom-left-radius: 15px 13px;
+  background: linear-gradient(180deg, var(--bubble-out-top), var(--bubble-out));
+}
+.message-group.group-end:not(.outgoing) .bubble:not(:has(.question-card, .approval-card, .completion-card, .review-card, .project-card, .task-card, .artifact-rows, .chat-message-quote))::after {
+  z-index: -1;
+  left: -10px;
+  width: 10px;
+  height: 20px;
+  border-bottom-right-radius: 10px;
+  background: var(--bg-chat);
+}
+.message-group.group-end.outgoing .bubble:not(:has(.question-card, .approval-card, .completion-card, .review-card, .project-card, .task-card, .artifact-rows, .chat-message-quote))::after {
+  z-index: -1;
+  right: -10px;
+  width: 10px;
+  height: 20px;
+  border-bottom-left-radius: 10px;
+  background: var(--bg-chat);
+}
+.message-group.outgoing .bubble .mb-at,
+.message-group.outgoing .bubble a { color: #fff; text-decoration: underline; text-decoration-color: rgb(255 255 255 / 45%); text-underline-offset: 2px; }
+.message-group.outgoing .bubble code { color: #fff; background: rgb(255 255 255 / 18%); }
+.message-group.outgoing .chat-message-quote { background: rgb(255 255 255 / 16%); border-left-color: rgb(255 255 255 / 80%); }
+.message-group.outgoing .chat-message-quote strong,
+.message-group.outgoing .chat-message-quote span { color: rgb(255 255 255 / 92%); }
+.message-group.outgoing .skill-message-chip { background: rgb(255 255 255 / 20%); color: #fff; }
