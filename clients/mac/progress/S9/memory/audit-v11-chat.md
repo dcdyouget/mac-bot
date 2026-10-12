@@ -10,3 +10,9 @@
 
 - 已实现：`app/src/components/MessageBlocks.tsx:61` 的 `TaskCard` 对 `done` 状态直接渲染单行，显示完成图标、Bot、任务名、用时与详情入口；其他状态保留完整卡片。
 - `app/src/components/messageBlocksTaskCard.ts` 映射 queued、waiting、blocked、failed、cancelled、done 等状态，重启恢复通过 `recovered_at` 附加状态提示。
+
+## §3 审批两档、作用范围与内置规则
+
+- 已实现：`app/src/components/SettingsDetail.tsx:280` 只显示「自动允许 / 先问我」两档；缺省 `mode` 选中自动允许。提示文案说明仅命中「先问我」规则的操作仍需审批。
+- 每条规则含 `bot_id`（空值代表所有 Bot）和 `builtin`；Bot 范围与动作可以编辑，自定义规则可删除，内置规则的输入、选择器和删除操作均禁用并显示只读标记。
+- 新建规则初始为 `ask_first`、所有 Bot、自定义可编辑。
