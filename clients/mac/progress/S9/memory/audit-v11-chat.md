@@ -16,3 +16,9 @@
 - 已实现：`app/src/components/SettingsDetail.tsx:280` 只显示「自动允许 / 先问我」两档；缺省 `mode` 选中自动允许。提示文案说明仅命中「先问我」规则的操作仍需审批。
 - 每条规则含 `bot_id`（空值代表所有 Bot）和 `builtin`；Bot 范围与动作可以编辑，自定义规则可删除，内置规则的输入、选择器和删除操作均禁用并显示只读标记。
 - 新建规则初始为 `ask_first`、所有 Bot、自定义可编辑。
+
+## §4 待看消息
+
+- 已有：`app/src/App.tsx:870` 从任务详情读取 `Assignment.pending_messages`，按消息 `delivery.state = queued` 收集完整消息列表；`app/src/components/TracePage.tsx:193` 展示列表、已查看状态及「改为插话」；轨迹 `queue.review` 事件已格式化。
+- 已有：工作台任务标题显示待看数量（`app/src/App.tsx:2911`），任务详情调用 `message.steer`，并保留服务端 assignment/message 更新。
+- 补齐：群聊输入栏在存在工作中 Bot 且草稿没有 @ 提及时显示待看提示；每个 Bot 的快捷按钮设置立即生效提及。消息送达状态现依据各条 `delivery` 展示 queued / delivered / read；群状态 chip 展示 `pending_messages` 数量。

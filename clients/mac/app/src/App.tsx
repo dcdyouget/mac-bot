@@ -1090,6 +1090,10 @@ function App() {
   const activeCurrentAssignments = currentAssignments.filter((assignment) =>
     ['working', 'waiting_user', 'waiting_bot', 'blocked', 'queued'].includes(String(assignment.status)),
   )
+  const queueHintAssignments = currentChat?.kind === 'project' || currentChat?.project_id
+    ? [...new Map(currentAssignments.filter((assignment) => assignment.status === 'working' && typeof assignment.bot_id === 'string').map((assignment) => [String(assignment.bot_id), assignment])).values()]
+    : []
+  const queueHintVisible = queueHintAssignments.length > 0 && !mentionBotId && !quoteTarget?.botId && !/@[\p{L}\p{N}_-]+/u.test(draft)
   const configuredTaskLimit = Number(state.bots[String(currentChat?.bot_id ?? '')]?.max_parallel ?? 3)
   const currentBotTaskLimit = Number.isFinite(configuredTaskLimit) ? Math.max(1, Math.min(8, configuredTaskLimit)) : 3
   const currentApprovals = (Object.values({ ...state.approvals, ...historyApprovals[hostScope] }) as Record<string, Json>[]).filter((approval) => approval.state === 'pending')
@@ -2842,6 +2846,7 @@ function App() {
           {sendError && <div className="chat-entry-error" role="alert">{t('chat.send.failed').replace('{error}', sendError)}</div>}
           {quoteTarget && <div className="chat-composer-quote"><div><strong>{t(quoteTarget.mode === 'reply' ? 'chat.message.replying_to' : 'chat.message.quoting').replace('{sender}', quoteTarget.senderName)}</strong><span>{quoteTarget.excerpt}</span></div><button type="button" aria-label={t('chat.message.cancel_quote')} onClick={() => setQuoteTarget(null)}><X size={14} /></button></div>}
           {mentionBotId && <div className="composer-mention-chip"><AtSign size={13} />{t('chat.queue.at_now').replace('{bot}', state.bots[mentionBotId]?.name ?? t('common.bot'))}<button type="button" aria-label={t('common.close')} onClick={() => setMentionBotId(null)}>×</button></div>}
+          {queueHintVisible && <div className="chat-queue-hint"><Clock3 size={13} /><span>{t('chat.queue.hint').replace('{bots}', queueHintAssignments.map((assignment) => state.bots[String(assignment.bot_id)]?.name ?? t('common.bot')).join('、'))}</span>{queueHintAssignments.map((assignment) => <button type="button" key={String(assignment.id)} onClick={() => setMentionBotId(String(assignment.bot_id))}>{t('chat.queue.at_now').replace('{bot}', state.bots[String(assignment.bot_id)]?.name ?? t('common.bot'))}</button>)}</div>}
           <div className="composer-input-wrap">
             {slashPicker && <ChatSkillPicker skills={skillPickerSkills} query={slashPicker.query} selectedIndex={slashSelectedIndex} targetBotId={skillTargetBotId} targetBotName={skillTargetBotName} loading={skillsLoading || skillsDataScope !== hostScope} error={skillsDataScope === hostScope ? skillsError : null} onSelect={selectComposerSkill} onCreateSkill={createSkillFromSlash} onRetry={() => void loadSkills()} />}
             {composerSkill && <div className="chat-composer-skill-chip"><Zap size={13} /><span>/{composerSkill.name}</span><button type="button" aria-label={t('common.close')} onMouseDown={(event) => event.preventDefault()} onClick={() => setComposerSkill(null)}><X size={12} /></button></div>}
@@ -3250,7 +3255,7 @@ function GroupStatusBar({ chat, announcement, project, bots, assignments, onSele
       const assignment = member.current_assignment_id ? assignments[member.current_assignment_id] : undefined
       const label = member.bot_id === leadBotId ? t('group.statusbar.lead') : statusText(memberStatusKey(member.state))
       return <button type="button" className={`group-status-chip status-${member.state}`} key={member.bot_id} onClick={() => member.current_assignment_id && onSelectAssignment(member.current_assignment_id)} disabled={!member.current_assignment_id}>
-        <BeanAvatar main={bot?.is_main === true} size="32" seed={bot?.name ?? member.bot_id} /><span>{bot?.name ?? t('common.bot')} · {label}{assignment && member.state === 'working' ? ` ${elapsedLabel(assignment.started_at)}` : ''}</span>
+        <BeanAvatar main={bot?.is_main === true} size="32" seed={bot?.name ?? member.bot_id} /><span>{bot?.name ?? t('common.bot')} · {label}{assignment && member.state === 'working' ? ` ${elapsedLabel(assignment.started_at)}` : ''}</span>{Number(assignment?.pending_messages ?? 0) > 0 && <small className="group-status-pending"><Clock3 size={10} />{Number(assignment?.pending_messages)}</small>}
       </button>
     })}
   </div>
@@ -3605,6 +3610,11 @@ function MessageBubble({ message, skillNames, pending = false, senderName, sende
       </div>
       {hasSkillPrefix && <SkillMessageDeliveryStatus deliveries={(message as MessageWithDelivery).delivery ?? []} bots={bots} />}
       {loadedSkills.length > 0 && <SkillMessageLoadedStatus loadedSkills={loadedSkills} bots={bots} />}
+      {!hasSkillPrefix && !deleted && Boolean((message as MessageWithDelivery).delivery?.length) && <div className="message-send-status">{(message as MessageWithDelivery).delivery?.map((delivery, index) => {
+        const botName = bots[delivery.bot_id ?? '']?.name ?? t('common.bot')
+        const label = delivery.state === 'queued' ? t('chat.delivery.queued_for').replace('{bot}', botName) : delivery.state === 'read' ? t('chat.delivery.queue_seen').replace('{bot}', botName) : t('chat.delivery.delivered').replace('{bot}', botName)
+        return <span className={`skill-message-delivery skill-delivery-${delivery.state ?? 'delivered'}`} key={`${delivery.bot_id}-${delivery.assignment_id ?? ''}-${index}`}>{delivery.state === 'read' ? <Check size={11} /> : <Clock3 size={11} />}{label}</span>
+      })}</div>}
       {pending && !hasSkillPrefix && <div className="message-send-status"><Clock3 size={11} />{t('chat.delivery.queued')}</div>}
     </div>
   </article>
