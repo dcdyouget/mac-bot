@@ -1,6 +1,6 @@
 # AGENTS.md：开发约定（单 agent + subagent）
 
-> 本仓库由**一个主 agent** 负责全部代码，按需派 **subagent** 写具体模块。动手之前先读完本文，再读文档。**每类规则只有一个权威来源**（见 PLAN 第 0 章）：协议字段看 PROTOCOL.md，产品行为看 DESIGN.md，界面视觉、像素、文案 key 看 `design/`，服务端实现和开发计划看 PLAN.md。主 agent 的启动 prompt 在 `docs/AGENT_PROMPTS.md`。
+> 本仓库由**一个主 agent** 负责全部代码，按需派 **subagent** 写具体模块。动手之前先读完本文，再读文档。**每类规则只有一个权威来源**（见 PLAN 第 0 章）：协议字段看 PROTOCOL.md，产品行为看 DESIGN.md，界面视觉、像素、文案 key 看 `design/`，服务端实现和开发计划看 PLAN.md。
 
 ## 1. 模块划分（给 subagent 分配任务的单位）
 

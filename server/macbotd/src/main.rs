@@ -301,6 +301,7 @@ fn lock_config_creation(parent: &Path) -> Result<std::fs::File, std::io::Error> 
         .read(true)
         .write(true)
         .create(true)
+        .truncate(false)
         .mode(0o600)
         .open(lock_path)?;
     loop {
@@ -397,6 +398,111 @@ fn write_json_atomic(
     temporary.persist(path).map_err(|error| error.error)?;
     std::fs::File::open(parent)?.sync_all()?;
     Ok(())
+}
+
+async fn run_command(
+    command: Command,
+    home: PathBuf,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    match command {
+        Command::Status => {
+            print!("{}", local_request(&home, "GET", "/__local/status", None)?);
+        }
+        Command::Passwd { password } => {
+            let password = password
+                .or_else(|| std::env::var("MACBOT_PASSWORD").ok())
+                .ok_or("provide --password or MACBOT_PASSWORD")?;
+            local_request(
+                &home,
+                "POST",
+                "/__local/passwd",
+                Some(json!({"password":password})),
+            )?;
+            println!("password updated");
+        }
+        Command::Settings { host_name, port } => {
+            if host_name.is_none() && port.is_none() {
+                return Err("provide --host-name and/or --port".into());
+            }
+            let mut patch = serde_json::Map::new();
+            if let Some(host_name) = host_name {
+                patch.insert("host_name".into(), json!(host_name));
+            }
+            if let Some(port) = port {
+                patch.insert("port".into(), json!(port));
+            }
+            print!(
+                "{}",
+                local_request(&home, "POST", "/__local/settings", Some(json!(patch)))?
+            );
+        }
+        Command::Logs { follow } => {
+            if follow {
+                let path = home.join("data/macbot.log");
+                let _ = std::process::Command::new("tail")
+                    .args(["-f", path.to_string_lossy().as_ref()])
+                    .status();
+            } else {
+                print!("{}", local_request(&home, "GET", "/__local/logs", None)?);
+            }
+        }
+        Command::Restart => {
+            print!(
+                "{}",
+                local_request(&home, "POST", "/__local/restart", None)?
+            );
+        }
+        Command::Update => {
+            print!("{}", local_request(&home, "POST", "/__local/update", None)?);
+        }
+    }
+    Ok(())
+}
+
+#[cfg(unix)]
+fn local_request(
+    home: &Path,
+    method: &str,
+    path: &str,
+    body: Option<serde_json::Value>,
+) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+    use std::os::unix::net::UnixStream;
+    let socket = home.join("data/macbotd.sock");
+    let mut stream = UnixStream::connect(socket)?;
+    let payload = body
+        .map(|value| serde_json::to_vec(&value))
+        .transpose()?
+        .unwrap_or_default();
+    let request = format!(
+        "{method} {path} HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n",
+        payload.len()
+    );
+    stream.write_all(request.as_bytes())?;
+    stream.write_all(&payload)?;
+    stream.flush()?;
+    let mut response = Vec::new();
+    stream.read_to_end(&mut response)?;
+    let marker = b"\r\n\r\n";
+    let offset = response
+        .windows(marker.len())
+        .position(|window| window == marker)
+        .ok_or("invalid local daemon response")?;
+    let body = &response[offset + marker.len()..];
+    let text = String::from_utf8(body.to_vec())?;
+    if !response.starts_with(b"HTTP/1.1 2") {
+        return Err(format!("local daemon request failed: {text}").into());
+    }
+    Ok(text)
+}
+
+#[cfg(not(unix))]
+fn local_request(
+    _home: &Path,
+    _method: &str,
+    _path: &str,
+    _body: Option<serde_json::Value>,
+) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+    Err("local CLI socket is only supported on Unix".into())
 }
 
 #[cfg(test)]
@@ -568,109 +674,4 @@ mod tests {
             );
         }
     }
-}
-
-async fn run_command(
-    command: Command,
-    home: PathBuf,
-) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    match command {
-        Command::Status => {
-            print!("{}", local_request(&home, "GET", "/__local/status", None)?);
-        }
-        Command::Passwd { password } => {
-            let password = password
-                .or_else(|| std::env::var("MACBOT_PASSWORD").ok())
-                .ok_or("provide --password or MACBOT_PASSWORD")?;
-            local_request(
-                &home,
-                "POST",
-                "/__local/passwd",
-                Some(json!({"password":password})),
-            )?;
-            println!("password updated");
-        }
-        Command::Settings { host_name, port } => {
-            if host_name.is_none() && port.is_none() {
-                return Err("provide --host-name and/or --port".into());
-            }
-            let mut patch = serde_json::Map::new();
-            if let Some(host_name) = host_name {
-                patch.insert("host_name".into(), json!(host_name));
-            }
-            if let Some(port) = port {
-                patch.insert("port".into(), json!(port));
-            }
-            print!(
-                "{}",
-                local_request(&home, "POST", "/__local/settings", Some(json!(patch)))?
-            );
-        }
-        Command::Logs { follow } => {
-            if follow {
-                let path = home.join("data/macbot.log");
-                let _ = std::process::Command::new("tail")
-                    .args(["-f", path.to_string_lossy().as_ref()])
-                    .status();
-            } else {
-                print!("{}", local_request(&home, "GET", "/__local/logs", None)?);
-            }
-        }
-        Command::Restart => {
-            print!(
-                "{}",
-                local_request(&home, "POST", "/__local/restart", None)?
-            );
-        }
-        Command::Update => {
-            print!("{}", local_request(&home, "POST", "/__local/update", None)?);
-        }
-    }
-    Ok(())
-}
-
-#[cfg(unix)]
-fn local_request(
-    home: &Path,
-    method: &str,
-    path: &str,
-    body: Option<serde_json::Value>,
-) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
-    use std::os::unix::net::UnixStream;
-    let socket = home.join("data/macbotd.sock");
-    let mut stream = UnixStream::connect(socket)?;
-    let payload = body
-        .map(|value| serde_json::to_vec(&value))
-        .transpose()?
-        .unwrap_or_default();
-    let request = format!(
-        "{method} {path} HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n",
-        payload.len()
-    );
-    stream.write_all(request.as_bytes())?;
-    stream.write_all(&payload)?;
-    stream.flush()?;
-    let mut response = Vec::new();
-    stream.read_to_end(&mut response)?;
-    let marker = b"\r\n\r\n";
-    let offset = response
-        .windows(marker.len())
-        .position(|window| window == marker)
-        .ok_or("invalid local daemon response")?;
-    let body = &response[offset + marker.len()..];
-    let text = String::from_utf8(body.to_vec())?;
-    if !response.starts_with(b"HTTP/1.1 2") {
-        return Err(format!("local daemon request failed: {text}").into());
-    }
-    Ok(text)
-}
-
-#[cfg(not(unix))]
-fn local_request(
-    _home: &Path,
-    _method: &str,
-    _path: &str,
-    _body: Option<serde_json::Value>,
-) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
-    Err("local CLI socket is only supported on Unix".into())
 }

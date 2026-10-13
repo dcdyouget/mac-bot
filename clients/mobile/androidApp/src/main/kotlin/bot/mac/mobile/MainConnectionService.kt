@@ -10,7 +10,6 @@ import bot.mac.mobile.core.platform.initializePlatform
 import bot.mac.mobile.core.network.MainEvent
 import bot.mac.mobile.core.protocol.obj
 import bot.mac.mobile.core.protocol.str
-import bot.mac.mobile.core.protocol.long
 import bot.mac.mobile.core.protocol.boolean
 import bot.mac.mobile.core.protocol.arr
 import bot.mac.mobile.core.state.AppRuntime
@@ -28,14 +27,6 @@ import kotlinx.coroutines.isActive
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
-import java.util.concurrent.atomic.AtomicReference
-
-/** Bridge for AppRuntime; the service owns process lifetime, AppRuntime owns the protocol client. */
-object MainConnectionBridge {
-    private val connector = AtomicReference<(suspend () -> Unit)?>(null)
-    fun setConnector(block: suspend () -> Unit) { connector.set(block) }
-    internal suspend fun runConnector() { connector.get()?.invoke() }
-}
 
 class MainConnectionService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)

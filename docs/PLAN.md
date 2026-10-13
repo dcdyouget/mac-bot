@@ -1,6 +1,6 @@
 # Mac Bot 技术方案 v1.2
 
-> 状态：方案已定稿，进入开发。历史修订见 git log。
+> 状态：已实现并持续维护。历史修订见 git log。
 
 ## 0. 文档地图：每类规则只有一个权威来源
 
@@ -11,7 +11,6 @@
 | **[PROTOCOL.md](PROTOCOL.md)** | 客户端 ↔ 服务端协议：连接、帧、对象、方法、事件的全部字段 | 服务端怎么实现 |
 | **[REFERENCES.md](REFERENCES.md)** | 参考的开源项目和依赖库 | — |
 | **[AGENTS.md](../AGENTS.md)** | 多 agent 协作规则：目录归属、分支、协议变更流程 | 功能需求 |
-| **[AGENT_PROMPTS.md](AGENT_PROMPTS.md)** | 主 agent 的启动 prompt，只引用上面的文档，不重复规则 | — |
 
 文档之间有冲突时：协议字段以 PROTOCOL 为准；界面和交互以 DESIGN 为准；服务端实现和开发计划以 PLAN 为准。
 
@@ -331,7 +330,7 @@ send_msg(
 ### 5.5 记忆与上下文（完全由服务端管理）
 
 > **用户记忆**可以在客户端「设置 → 记忆」（手机「我的 → 记忆」）里查看、编辑、删除和手动添加（PROTOCOL 5.10a）；**Bot 记忆和项目记忆**仍只由服务端管理，客户端不展示。项目里需要所有人看到的结论，由 Bot 用 `update_announcement` 写进公告正文。
-> 参考：hermes-agent（冻结快照、压缩前先存记忆）、OpenClaw（压缩和裁剪）、nightly-labs/openbot（每个 agent × 每个频道一条独立线程、频道上下文包、80% 阈值）。v1.0 起记忆改为立即提交 + 增量通知，见 `docs/UPDATE-v1.0.md`。
+> 参考：hermes-agent（冻结快照、压缩前先存记忆）、OpenClaw（压缩和裁剪）、nightly-labs/openbot（每个 agent × 每个频道一条独立线程、频道上下文包、80% 阈值）。v1.0 起记忆改为立即提交 + 增量通知。
 
 #### 5.5.1 记忆的种类
 
@@ -602,7 +601,7 @@ struct ToolResult { content: Vec<Part /* Text | Image */>, details: Value, is_er
 
 ## 6. 开发计划（唯一的计划）
 
-**目标是一次做完全部功能**：阶段只决定先后顺序和联调时间点，不削减范围。由一个主 agent 按模块派 subagent 推进，约定见 AGENTS.md，启动 prompt 见 AGENT_PROMPTS.md。
+**目标是一次做完全部功能**：阶段只决定先后顺序和联调时间点，不削减范围。由一个主 agent 按模块派 subagent 推进，约定见 AGENTS.md。
 
 **开发机就是目标机**：这台 Mac mini（Apple M4，16 GB，局域网 IP 192.168.31.162）既是开发机，也是最终运行 macbotd 的 Host。**每个阶段的成果都要能在这台机器上直接运行和查看**：服务端以 LaunchAgent 方式常驻，桌面客户端打包成 .app 打开使用，Android 客户端跑在本机的 Android 模拟器里（连接 `10.0.2.2:28789`）。以后换成真机时，手机连接 `192.168.31.162:28789`。
 

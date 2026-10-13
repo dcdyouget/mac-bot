@@ -27,7 +27,6 @@ export type UserProfile = {
   updated_at: string
 }
 export type UserProfilePatch = Partial<Pick<UserProfile, 'name' | 'language' | 'identity'>>
-export type MemoryConflictError = { code: 'conflict'; details?: { current?: UserMemoryEntry | UserProfile } }
 export type MemoryPageProps = {
   profile: UserProfile | null
   entries: UserMemoryEntry[]

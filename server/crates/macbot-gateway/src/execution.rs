@@ -342,21 +342,6 @@ impl ExecutionSink for GatewayStateSink {
     }
 }
 
-#[derive(Default)]
-pub struct NullExecutionSink;
-
-#[async_trait]
-impl ExecutionSink for NullExecutionSink {
-    async fn emit(&self, _: ExecutionEvent) {}
-    async fn validate_send_msg_target(&self, _: &Value) -> Result<(), String> {
-        Ok(())
-    }
-    async fn send_group_message(&self, message: Value) -> Result<Value, String> {
-        Ok(message.get("message").cloned().unwrap_or(message))
-    }
-    async fn approval_required(&self, _: Value) {}
-}
-
 /// Process-wide mutable execution state. Engines are intentionally cheap
 /// per-run views over this state so concurrent runs share durable jobs and
 /// sequence cursors instead of loading stale snapshots.

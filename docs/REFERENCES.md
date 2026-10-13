@@ -163,28 +163,4 @@
 |------|--------|----------|----------|
 | [ag-ui-protocol/ag-ui](https://github.com/ag-ui-protocol/ag-ui) | MIT | agent 与界面之间的事件类型命名（消息流、工具调用、状态变化），供设计 `/ws` 事件时参考 | 借鉴设计 |
 
----
-
-## 18. Rust 依赖库（计划使用）
-
-| 用途 | crate | 版本（crates.io） |
-|------|-------|-------------------|
-| 桌面应用框架 | `tauri` | 2.x |
-| 异步运行时 | `tokio` | 1.x |
-| HTTP / WebSocket 服务 | `axum`、`tokio-tungstenite` | 0.8 / 0.30 |
-| HTTP 客户端（调用模型 API） | `reqwest`、`eventsource-stream`（解析 SSE） | 0.13 / 0.2 |
-| JSON 存储 | `serde_json`；`fs4`（`data/.lock` 文件锁）；`tempfile`（先写临时文件再 rename 原子替换） | 1.x / 1.1 / 3.x |
-| 检索（扫描 JSONL） | `grep-searcher`、`grep-regex`（与 grep 工具共用） | 0.1 |
-| JSON Schema（工具参数） | `schemars`、`serde`、`serde_json` | 1.2 |
-| grep / find / ls | `grep-searcher`、`grep-regex`、`ignore` | 0.1 / 0.4 |
-| 编辑 diff 渲染 | `similar` | 3.x |
-| 网页转 Markdown | `dom_smoothie`（正文提取）、`htmd`（HTML 转 Markdown） | 0.18 / 0.5 |
-| 定时任务 | `croner`、`chrono-tz` | 4.x / 0.10 |
-| 技能目录监听 | `notify` | 8.x 稳定版 |
-| 密码哈希 | `argon2` | 0.6 |
-| 钥匙串（API Key） | `security-framework` | 3.x |
-| 开机自启（LaunchAgent / LoginItem） | `objc2-service-management`（SMAppService） | 0.3 |
-| iOS 推送（APNs） | `a2` | 0.10 |
-| 嵌入 `/admin` 页面 | `rust-embed` | 8.x |
-| ID | `uuid`（v7） | 1.x |
-| 日志 | `tracing` | 0.1 |
+实际依赖及版本以各模块的 `Cargo.toml`、`package.json` 和 Gradle 配置为准。

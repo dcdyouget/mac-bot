@@ -9,12 +9,10 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -47,13 +45,10 @@ import bot.mac.mobile.core.ui.MotionAwareCircularProgressIndicator
 import bot.mac.mobile.core.ui.LucideIcon
 import bot.mac.mobile.core.ui.LucideIconKind
 import bot.mac.mobile.core.state.MobileRepository
-import bot.mac.mobile.core.state.MobileState
 import bot.mac.mobile.resources.Res
 import bot.mac.mobile.resources.common_back
 import bot.mac.mobile.resources.common_details
-import bot.mac.mobile.resources.follow_go_review
 import bot.mac.mobile.resources.follow_groups
-import bot.mac.mobile.resources.follow_handle
 import bot.mac.mobile.resources.follow_jump_group
 import bot.mac.mobile.resources.follow_title
 import bot.mac.mobile.resources.status_blocked
@@ -62,30 +57,15 @@ import bot.mac.mobile.resources.status_queued
 import bot.mac.mobile.resources.status_review
 import bot.mac.mobile.resources.status_waiting_user
 import bot.mac.mobile.resources.status_working
-import bot.mac.mobile.resources.followup_current_pending
-import bot.mac.mobile.resources.followup_details
 import bot.mac.mobile.resources.followup_error
-import bot.mac.mobile.resources.followup_groups
-import bot.mac.mobile.resources.followup_handle
 import bot.mac.mobile.resources.followup_loading
 import bot.mac.mobile.resources.followup_no_groups
-import bot.mac.mobile.resources.followup_no_pending
 import bot.mac.mobile.resources.followup_no_tasks
 import bot.mac.mobile.resources.followup_offline
-import bot.mac.mobile.resources.followup_open_chat
 import bot.mac.mobile.resources.followup_queue_count
-import bot.mac.mobile.resources.followup_review_action
 import bot.mac.mobile.resources.followup_tasks
-import bot.mac.mobile.resources.followup_title
 import bot.mac.mobile.resources.followup_usage_tokens
-import bot.mac.mobile.resources.feature_back
-import bot.mac.mobile.resources.feature_status_blocked
-import bot.mac.mobile.resources.feature_status_done
-import bot.mac.mobile.resources.feature_status_queued
-import bot.mac.mobile.resources.feature_status_review
 import bot.mac.mobile.resources.feature_status_waiting_bot
-import bot.mac.mobile.resources.feature_status_waiting_user
-import bot.mac.mobile.resources.feature_status_working
 import bot.mac.mobile.resources.feature_status_unknown
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
@@ -307,24 +287,6 @@ private fun SectionHeading(title: String, count: Int) {
 }
 
 @Composable
-private fun PendingCard(title: String, detail: String, tint: androidx.compose.ui.graphics.Color, icon: LucideIconKind, action: String, onClick: () -> Unit) {
-    Card(
-        modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp).clickable(onClick = onClick),
-        colors = CardDefaults.cardColors(containerColor = tint),
-        shape = RoundedCornerShape(12.dp),
-    ) {
-        Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-            LucideIcon(icon, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.primary)
-            Column(Modifier.weight(1f)) {
-                Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleSmall)
-                if (detail.isNotBlank()) Text(detail, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-            Text(action, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(start = 8.dp))
-        }
-    }
-}
-
-@Composable
 private fun ProjectRow(repository: MobileRepository, members: List<kotlinx.serialization.json.JsonElement>, bots: List<JsonObject>, title: String, status: String, working: Boolean, onClick: () -> Unit) {
     Card(
         Modifier.fillMaxWidth().height(64.dp).clickable(onClick = onClick),
@@ -405,9 +367,4 @@ private fun statusLabel(status: String): String = when (status) {
     "review" -> stringResource(Res.string.status_review)
     "done" -> stringResource(Res.string.status_done)
     else -> stringResource(Res.string.feature_status_unknown)
-}
-
-private fun projectName(state: MobileState, assignmentId: String, assignments: List<JsonObject>): String {
-    val projectId = assignments.firstOrNull { it.str("id") == assignmentId }?.str("project_id")
-    return state.projects.firstOrNull { it.str("id") == projectId }?.str("name").orEmpty()
 }

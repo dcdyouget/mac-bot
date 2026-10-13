@@ -333,12 +333,6 @@ pub struct CuratorBatch {
     pub daily_fallback: bool,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
-struct CuratorPreparedBatch {
-    batch: CuratorBatch,
-    last_processed_seq: u64,
-}
-
 type CuratorAppliedMutation = (
     &'static str,
     Value,
@@ -3440,16 +3434,6 @@ impl FeatureService {
             .unwrap_or_default();
         let limit = params.get("limit").and_then(Value::as_u64).unwrap_or(20) as usize;
         Ok(json!({"results":self.search(query, &kinds, limit)?}))
-    }
-}
-
-pub trait ContextProvider: Send + Sync {
-    fn context(&self, request: &ContextRequest) -> FeatureResult<ContextPackage>;
-}
-
-impl ContextProvider for FeatureService {
-    fn context(&self, request: &ContextRequest) -> FeatureResult<ContextPackage> {
-        FeatureService::context(self, request)
     }
 }
 

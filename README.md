@@ -18,7 +18,7 @@
 | [docs/DESIGN.md](docs/DESIGN.md) | 产品行为与界面（含线框图） |
 | [docs/PROTOCOL.md](docs/PROTOCOL.md) | 客户端 ↔ 服务端协议（全部字段） |
 | [docs/REFERENCES.md](docs/REFERENCES.md) | 参考的开源项目和依赖库 |
-| [AGENTS.md](AGENTS.md) · [docs/AGENT_PROMPTS.md](docs/AGENT_PROMPTS.md) | 多 agent 并行开发的约定和启动 prompt |
+| [AGENTS.md](AGENTS.md) | 多 agent 开发、验证与提交约定 |
 
 ## License
 

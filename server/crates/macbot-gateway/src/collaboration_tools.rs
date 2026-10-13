@@ -10,7 +10,6 @@ use crate::{adapter::ProductionBackend, backend::RuntimeExecution, GatewayState,
 use async_trait::async_trait;
 use base64::Engine;
 use macbot_browser::{BrowserAction, BrowserError, BrowserMode, SessionConfig};
-use macbot_orchestrator::Orchestrator;
 use macbot_tools::{Risk, Tool, ToolContext, ToolResult};
 use serde_json::{json, Map, Value};
 use std::sync::Arc;
@@ -46,37 +45,6 @@ pub trait CoordinationRpc: Send + Sync {
         )
         .await
         .map(|_| ())
-    }
-}
-
-/// Lightweight bridge for tests and callers that intentionally operate on
-/// the orchestrator directly.  Production should wrap backend RPC instead so
-/// mutations also go through the adapter WAL/event path.
-#[derive(Clone)]
-pub struct OrchestratorRpc {
-    pub orchestrator: Orchestrator,
-}
-
-#[async_trait]
-impl CoordinationRpc for OrchestratorRpc {
-    async fn call(&self, method: &str, params: Value) -> Result<Value, String> {
-        self.orchestrator
-            .rpc(method, params)
-            .await
-            .map_err(|error| error.to_string())
-    }
-
-    async fn start_run_subagent(&self, run_id: &str, task: &str) -> Result<Value, String> {
-        self.orchestrator
-            .start_run_subagent(run_id.to_owned(), task.to_owned())
-            .map(|handle| json!(handle))
-            .map_err(|error| error.to_string())
-    }
-
-    async fn finish_run_subagent(&self, run_id: &str, subagent_id: &str) -> Result<(), String> {
-        self.orchestrator
-            .finish_run_subagent(run_id, subagent_id)
-            .map_err(|error| error.to_string())
     }
 }
 
@@ -509,18 +477,6 @@ pub trait WebCredentialStore: Send + Sync {
     fn get(&self, provider: &str) -> Result<Option<String>, String>;
 }
 
-pub struct ProviderWebCredentials {
-    pub secrets: Arc<dyn macbot_providers::SecretStore>,
-}
-
-impl WebCredentialStore for ProviderWebCredentials {
-    fn get(&self, provider: &str) -> Result<Option<String>, String> {
-        self.secrets
-            .get(provider)
-            .map_err(|error| error.to_string())
-    }
-}
-
 /// Real HTTP bridge for `web_fetch` and configured `web_search`.
 #[derive(Clone)]
 pub struct ReqwestWebBridge {
@@ -543,11 +499,6 @@ impl ReqwestWebBridge {
             credentials: None,
             max_bytes: 2 * 1024 * 1024,
         })
-    }
-
-    pub fn with_max_bytes(mut self, max_bytes: usize) -> Self {
-        self.max_bytes = max_bytes.max(16 * 1024);
-        self
     }
 
     pub fn with_credentials(mut self, credentials: Arc<dyn WebCredentialStore>) -> Self {

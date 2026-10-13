@@ -1,6 +1,6 @@
 # DECISIONS.md：决定记录
 
-> 只记仍然有效的产品和技术决定，一条一行，新的写在最上面。被推翻的决定直接改写或删除，并在提交说明里写明。2026-10-11 之前的多开发线协调记录见 `docs/archive/COORDINATION-2026-10-09_11.md`。
+> 只记仍然有效的产品和技术决定，一条一行，新的写在最上面。被推翻的决定直接改写或删除，并在提交说明里写明。
 
 ## 开发方式
 - [2026-10-12] `--mock` 提供需认证且按请求 ID 幂等的 `mock.trigger_bot_dm` 测试方法，用于客户端真实 `message.created` 通知验收；正式服务端和公共协议不提供此方法。
@@ -61,6 +61,4 @@
 - [2026-10-10] 手机端功能与桌面一致（包括完整编辑定时任务），只是三栏拆成页面栈。
 
 ## 待处理
-- 客户端逐屏迁移与验收仍在进行。
-- 等 Mac mini 解锁后补 `clients/mac/progress/S9/memory/0{1..5}-*.png` 与 Android 模拟器上的 5 张 `clients/mobile/progress/memory/0{1..5}-*.png`（default / profile-edit / conflict / quota-full / onboarded），以及群聊中收到 `<memory_update>` 的运行轨迹截图。
 - 评估 3B 及以下本地模型（Ollama / LM Studio / MLX 的 OpenAI 兼容接口）作为 curator「是否含偏好」预筛与本地 embedding 做记忆去重/语义检索（PLAN 5.5.9 后续优化）。
