@@ -1,3 +1,5 @@
+export const DEFAULT_HOST_ENDPOINT = '127.0.0.1:28789'
+
 export function resolveHostStartup({ initialized, connected, hosts, reconnectAttempted, reconnectInProgress = false }) {
   if (!initialized) return { kind: 'loading' }
   if (connected) return { kind: 'ready' }

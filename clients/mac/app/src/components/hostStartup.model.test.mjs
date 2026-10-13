@@ -1,6 +1,10 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { resolveHostStartup } from './hostStartup.model.mjs'
+import { DEFAULT_HOST_ENDPOINT, resolveHostStartup } from './hostStartup.model.mjs'
+
+test('uses the server-mac default port for a new Host', () => {
+  assert.equal(DEFAULT_HOST_ENDPOINT, '127.0.0.1:28789')
+})
 
 test('waits until bridge state and the saved host list are both ready', () => {
   assert.deepEqual(resolveHostStartup({ initialized: false, connected: false, hosts: [{ id: 'host-1' }], reconnectAttempted: false }), { kind: 'loading' })

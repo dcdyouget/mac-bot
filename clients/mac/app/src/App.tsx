@@ -29,7 +29,7 @@ import { CLOSED_CONTEXT_PANEL_WINDOW, planContextPanelWindow, type ContextPanelW
 import { isLatestLocalPreferenceSave, mergeLocalPreferences, rollbackLocalPreferencePatch } from './components/localPreferences.model'
 import { captureChatScrollPosition, restoreChatScrollTop, type ChatScrollPosition } from './components/chatScrollPosition.model'
 import { taskCardAvatarOwnerBotId } from './components/pendingChatActions.model'
-import { resolveHostStartup } from './components/hostStartup.model.mjs'
+import { DEFAULT_HOST_ENDPOINT, resolveHostStartup } from './components/hostStartup.model.mjs'
 import { isMessageVisibleInChat, mainBotIdForChat } from './components/chatMessageVisibility.model'
 import { pendingDecisionsForContext, type PendingDecision } from './components/pendingApprovalDecisions.model'
 import { CreateGroupDialog, MessageContextMenu, type ChatEntryMessage, type QuoteTarget } from './components/ChatEntry'
@@ -165,7 +165,7 @@ function App() {
   const [welcomeTemplateApplyFailure, setWelcomeTemplateApplyFailure] = useState<{ templateId: string; message: string } | null>(null)
   const [welcomeTemplatesRetry, setWelcomeTemplatesRetry] = useState(0)
   const [welcomeTemplateApplyingId, setWelcomeTemplateApplyingId] = useState<string | null>(null)
-  const [endpoint, setEndpoint] = useState('127.0.0.1:28789')
+  const [endpoint, setEndpoint] = useState(DEFAULT_HOST_ENDPOINT)
   const [password, setPassword] = useState('dev')
   const [hostName, setHostName] = useState('Mac mini（家）')
   const [selectedChat, setSelectedChat] = useState('')

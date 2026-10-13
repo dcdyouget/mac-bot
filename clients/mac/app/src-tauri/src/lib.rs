@@ -999,15 +999,6 @@ fn trace_subscription_state(
     })
 }
 
-fn saved_host_for_endpoint(endpoint: &str) -> Option<HostRecord> {
-    HostStore::load()
-        .ok()?
-        .hosts()
-        .iter()
-        .find(|host| host.addresses.iter().any(|address| address == endpoint))
-        .cloned()
-}
-
 fn restore_host_state(data: &mut BridgeData, host: HostRecord) {
     let cached_state = host
         .node_id
@@ -1456,7 +1447,23 @@ async fn connect_host(
         return Err("请输入 Bot 主机地址".into());
     }
     let endpoint = endpoint.trim().to_owned();
-    let known_host = saved_host_for_endpoint(&endpoint);
+    let host_store = HostStore::load().map_err(|error| error.to_string())?;
+    let known_host = host_store
+        .hosts()
+        .iter()
+        .find(|host| host.addresses.iter().any(|address| address == &endpoint))
+        .cloned();
+    let password = if password.is_empty() {
+        if let Some(host) = known_host.as_ref() {
+            host_store
+                .password(host)
+                .map_err(|error| format!("无法读取已保存的 Host 密码：{error}"))?
+        } else {
+            password
+        }
+    } else {
+        password
+    };
     connect_to_host(app, bridge, endpoint, password, name, known_host).await
 }
 

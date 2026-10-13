@@ -4,6 +4,8 @@ export type HostStartupDecision =
   | { kind: 'choose' }
   | { kind: 'reconnect'; hostId: string }
 
+export const DEFAULT_HOST_ENDPOINT: string
+
 export function resolveHostStartup(options: {
   initialized: boolean
   connected: boolean

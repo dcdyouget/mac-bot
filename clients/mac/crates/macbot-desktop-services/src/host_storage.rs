@@ -56,9 +56,31 @@ pub struct HostStore {
 }
 
 impl HostStore {
-    /// Load the default store. A missing file means a fresh, empty store.
+    /// Load the default store and migrate legacy loopback addresses once.
     pub fn load() -> Result<Self> {
-        Self::load_from_path(default_store_path()?)
+        Self::load_with_local_port_migration(default_store_path()?)
+    }
+
+    fn load_with_local_port_migration(path: impl Into<PathBuf>) -> Result<Self> {
+        let path = path.into();
+        match fs::read(&path) {
+            Ok(_) => {}
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                return Self::load_from_path(path);
+            }
+            Err(error) => {
+                return Err(error).with_context(|| format!("read host store {}", path.display()));
+            }
+        }
+
+        let _lock = lock_host_store(&path)?;
+        let mut store = Self::load_from_path(path)?;
+        if store.migrate_local_legacy_addresses() {
+            // Host IDs are also vault account names. Updating only addresses
+            // keeps the encrypted password, device ID and sync cursor intact.
+            store.save()?;
+        }
+        Ok(store)
     }
 
     /// Load a store from a path. This is useful for tests and does not change
@@ -103,26 +125,10 @@ impl HostStore {
         F: FnOnce(&mut Self) -> Result<T>,
     {
         let path = path.into();
-        let parent = path
-            .parent()
-            .ok_or_else(|| anyhow!("host store has no parent directory"))?;
-        fs::create_dir_all(parent)
-            .with_context(|| format!("create host store directory {}", parent.display()))?;
-        set_mode(parent, 0o700)?;
-        let lock_path = parent.join(LOCK_FILE);
-        let lock = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create(true)
-            .truncate(false)
-            .mode(0o600)
-            .open(&lock_path)
-            .with_context(|| format!("open host store lock {}", lock_path.display()))?;
-        set_mode(&lock_path, 0o600)?;
-        lock.lock()
-            .with_context(|| format!("lock host store {}", lock_path.display()))?;
+        let _lock = lock_host_store(&path)?;
 
         let mut store = Self::load_from_path(path)?;
+        store.migrate_local_legacy_addresses();
         let result = mutation(&mut store)?;
         store.save()?;
         Ok(result)
@@ -198,6 +204,25 @@ impl HostStore {
         node_id: Option<String>,
         last_seq: u64,
     ) -> Result<HostRecord> {
+        self.remember_with_vault(
+            name,
+            addresses,
+            password,
+            node_id,
+            last_seq,
+            &default_vault_path()?,
+        )
+    }
+
+    fn remember_with_vault(
+        &mut self,
+        name: impl Into<String>,
+        addresses: Vec<String>,
+        password: &str,
+        node_id: Option<String>,
+        last_seq: u64,
+        vault_path: &Path,
+    ) -> Result<HostRecord> {
         let name = name.into().trim().to_owned();
         if name.is_empty() {
             return Err(anyhow!("host name cannot be empty"));
@@ -228,9 +253,15 @@ impl HostStore {
             .map(|index| self.hosts[index].id.clone())
             .unwrap_or_else(|| Uuid::new_v4().to_string());
 
-        // The password never enters HostRecord or the metadata JSON buffer.
-        store_password(&id, password.as_bytes())
-            .with_context(|| format!("store encrypted password for host {id}"))?;
+        // A blank password in an edit/reconnect form means "keep the saved
+        // credential". New hosts still store an empty password so passwordless
+        // servers can be reconnected to later.
+        let preserve_password =
+            password.is_empty() && index.is_some() && file_password_exists_at(vault_path, &id)?;
+        if !preserve_password {
+            set_file_password_at(vault_path, &id, password.as_bytes())
+                .with_context(|| format!("store encrypted password for host {id}"))?;
+        }
 
         let record = HostRecord {
             id: id.clone(),
@@ -247,6 +278,19 @@ impl HostStore {
             return Err(error).context("persist host metadata after vault update");
         }
         Ok(record)
+    }
+
+    fn migrate_local_legacy_addresses(&mut self) -> bool {
+        let mut changed = false;
+        for host in &mut self.hosts {
+            for address in &mut host.addresses {
+                if let Some(migrated) = migrate_local_legacy_address(address) {
+                    *address = migrated;
+                    changed = true;
+                }
+            }
+        }
+        changed
     }
 
     /// Read the password for a record from the encrypted local vault.
@@ -269,6 +313,77 @@ impl HostStore {
         }
         Ok(())
     }
+}
+
+fn lock_host_store(path: &Path) -> Result<File> {
+    let parent = path
+        .parent()
+        .ok_or_else(|| anyhow!("host store has no parent directory"))?;
+    fs::create_dir_all(parent)
+        .with_context(|| format!("create host store directory {}", parent.display()))?;
+    set_mode(parent, 0o700)?;
+    let lock_path = parent.join(LOCK_FILE);
+    let lock = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .mode(0o600)
+        .open(&lock_path)
+        .with_context(|| format!("open host store lock {}", lock_path.display()))?;
+    set_mode(&lock_path, 0o600)?;
+    lock.lock()
+        .with_context(|| format!("lock host store {}", lock_path.display()))?;
+    Ok(lock)
+}
+
+/// Convert only the old default-port loopback endpoints. The parser keeps the
+/// original scheme, path and query untouched and requires an explicit 7788
+/// port, so remote hosts and already-migrated addresses remain unchanged.
+fn migrate_local_legacy_address(address: &str) -> Option<String> {
+    let authority_offset = address.find("://").map_or(0, |index| index + 3);
+    let remainder = address.get(authority_offset..)?;
+    let authority_len = remainder.find(['/', '?', '#']).unwrap_or(remainder.len());
+    let authority = &remainder[..authority_len];
+    if authority.is_empty() || authority.contains('@') {
+        return None;
+    }
+
+    let authority_without_port = if let Some(bracketed_host) = authority.strip_prefix('[') {
+        let bracket_end = bracketed_host.find(']')? + 1;
+        let host_end = 1 + bracket_end;
+        let host = &authority[1..host_end - 1];
+        let port = authority.get(host_end + 1..)?;
+        if !authority[host_end..].starts_with(':') || port != "7788" {
+            return None;
+        }
+        if host != "::1" {
+            return None;
+        }
+        &authority[..host_end]
+    } else {
+        let (host, port) = authority.rsplit_once(':')?;
+        if port != "7788" || host.contains(':') && host != "::1" || !is_loopback_host(host) {
+            return None;
+        }
+        host
+    };
+
+    let prefix_end = authority_offset + authority_len;
+    Some(format!(
+        "{}{}:28789{}",
+        &address[..authority_offset],
+        authority_without_port,
+        &address[prefix_end..]
+    ))
+}
+
+fn is_loopback_host(host: &str) -> bool {
+    let unwrapped = host
+        .strip_prefix('[')
+        .and_then(|host| host.strip_suffix(']'))
+        .unwrap_or(host);
+    unwrapped.eq_ignore_ascii_case("localhost") || unwrapped == "127.0.0.1" || unwrapped == "::1"
 }
 
 /// Keep the most recently connected Host first while preserving the relative
@@ -507,8 +622,8 @@ fn delete_file_password_at(path: &Path, account: &str) -> Result<()> {
     })
 }
 
-fn store_password(account: &str, password: &[u8]) -> Result<()> {
-    set_file_password_at(&default_vault_path()?, account, password)
+fn file_password_exists_at(path: &Path, account: &str) -> Result<bool> {
+    with_encrypted_vault_at(path, |vault| Ok(vault.passwords.contains_key(account)))
 }
 
 fn read_password(account: &str) -> Result<Vec<u8>> {
@@ -544,6 +659,118 @@ fn sync_directory(path: &Path) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn migrates_only_local_legacy_default_port_and_preserves_host_identity() {
+        let root = std::env::temp_dir().join(format!("macbot-host-migration-{}", Uuid::new_v4()));
+        let path = root.join(STORE_FILE);
+        let vault_path = root.join(VAULT_FILE);
+        let mut store = HostStore::new_at(&path);
+        let host = HostRecord {
+            id: "stable-host-id".into(),
+            name: "Mac mini".into(),
+            node_id: Some("stable-node-id".into()),
+            addresses: vec![
+                "127.0.0.1:7788".into(),
+                "ws://LOCALHOST:7788/ws".into(),
+                "https://[::1]:7788/api?keep=1".into(),
+                "::1:7788".into(),
+                "192.168.31.162:7788".into(),
+                "wss://remote.example:7788/ws".into(),
+                "localhost:28789".into(),
+            ],
+            last_seq: 92,
+            device_id: store.device_id.clone(),
+        };
+        store.hosts.push(host.clone());
+        store.save().unwrap();
+        set_file_password_at(&vault_path, &host.id, b"saved-secret").unwrap();
+
+        let migrated = HostStore::load_with_local_port_migration(&path).unwrap();
+        let updated = migrated.get(&host.id).unwrap();
+        assert_eq!(updated.id, host.id);
+        assert_eq!(updated.node_id, host.node_id);
+        assert_eq!(updated.last_seq, host.last_seq);
+        assert_eq!(updated.device_id, host.device_id);
+        assert_eq!(
+            file_password_at(&vault_path, &host.id).unwrap(),
+            b"saved-secret"
+        );
+        assert_eq!(
+            updated.addresses,
+            [
+                "127.0.0.1:28789",
+                "ws://LOCALHOST:28789/ws",
+                "https://[::1]:28789/api?keep=1",
+                "::1:28789",
+                "192.168.31.162:7788",
+                "wss://remote.example:7788/ws",
+                "localhost:28789",
+            ]
+        );
+
+        let persisted = fs::read(&path).unwrap();
+        let reloaded = HostStore::load_with_local_port_migration(&path).unwrap();
+        assert_eq!(reloaded.get(&host.id).unwrap(), updated);
+        assert_eq!(
+            fs::read(&path).unwrap(),
+            persisted,
+            "migration is idempotent"
+        );
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn blank_password_keeps_existing_encrypted_credential_but_stores_empty_for_new_host() {
+        let root =
+            std::env::temp_dir().join(format!("macbot-host-blank-password-{}", Uuid::new_v4()));
+        let store_path = root.join(STORE_FILE);
+        let vault_path = root.join(VAULT_FILE);
+        let mut store = HostStore::new_at(&store_path);
+        let existing = HostRecord {
+            id: "existing-host-id".into(),
+            name: "Old name".into(),
+            node_id: Some("node-1".into()),
+            addresses: vec!["localhost:28789".into()],
+            last_seq: 10,
+            device_id: store.device_id.clone(),
+        };
+        store.hosts.push(existing);
+        store.save().unwrap();
+        set_file_password_at(&vault_path, "existing-host-id", b"saved-secret").unwrap();
+
+        let updated = store
+            .remember_with_vault(
+                "Renamed host",
+                vec!["localhost:28789".into()],
+                "",
+                Some("node-1".into()),
+                44,
+                &vault_path,
+            )
+            .unwrap();
+        assert_eq!(updated.id, "existing-host-id");
+        assert_eq!(updated.last_seq, 44);
+        assert_eq!(
+            file_password_at(&vault_path, &updated.id).unwrap(),
+            b"saved-secret"
+        );
+
+        let new_host = store
+            .remember_with_vault(
+                "Passwordless host",
+                vec!["127.0.0.1:28789".into()],
+                "",
+                Some("node-2".into()),
+                0,
+                &vault_path,
+            )
+            .unwrap();
+        assert_eq!(file_password_at(&vault_path, &new_host.id).unwrap(), b"");
+
+        let _ = fs::remove_dir_all(&root);
+    }
 
     #[test]
     fn serialized_records_never_contain_password() {
