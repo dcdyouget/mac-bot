@@ -7,8 +7,7 @@
   <array>
     <string>__MACBOT_BIN__</string>
   </array>
-  <key>EnvironmentVariables</key>
-  <dict><key>MACBOT_HOME</key><string>__MACBOT_HOME__</string></dict>
+  <key>EnvironmentVariables</key><dict/>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>
   <key>ProcessType</key><string>Interactive</string>

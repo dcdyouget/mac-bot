@@ -1,7 +1,8 @@
 #!/bin/sh
 set -eu
 ROOT="$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)"
-HOME_DIR="${MACBOT_HOME:-$HOME/MacBot}"
+MACBOT_HOME_OVERRIDE="${MACBOT_HOME:-}"
+HOME_DIR="${MACBOT_HOME_OVERRIDE:-$HOME/MacBot}"
 BIN="${MACBOT_BIN:-$ROOT/target/release/macbotd}"
 BIN_DIR="${MACBOT_BIN_DIR:-$HOME/.local/bin}"
 BIN_DEST="$BIN_DIR/macbotd"
@@ -20,12 +21,15 @@ rm -f "$BIN_DEST" "$BIN_DIR/macbot"
 ln -sfn "$APP_BIN" "$BIN_DEST"
 ln -sfn macbotd "$BIN_DIR/macbot"
 cp "$ROOT/macbotd/packaging/com.macbot.server.plist" "$APP/Contents/Resources/com.macbot.server.plist"
+cp "$ROOT/macbotd/packaging/render-launchagent.sh" "$APP/Contents/Resources/render-launchagent.sh"
 cp "$ROOT/macbotd/packaging/update-installed.sh" "$APP/Contents/Resources/update-installed.sh"
 cp "$ROOT/macbotd/packaging/update-manifest.json" "$APP/Contents/Resources/update-manifest.json"
 chmod 755 "$APP/Contents/Resources/update-installed.sh"
-sed -e "s#__MACBOT_HOME__#$HOME_DIR#g" -e "s#__MACBOT_BIN__#$APP_BIN#g" "$ROOT/macbotd/packaging/com.macbot.server.plist" > "$HOME/Library/LaunchAgents/com.macbot.server.plist"
+/bin/sh "$ROOT/macbotd/packaging/render-launchagent.sh" \
+  "$ROOT/macbotd/packaging/com.macbot.server.plist" \
+  "$HOME/Library/LaunchAgents/com.macbot.server.plist" "$APP_BIN" "$HOME_DIR" "$MACBOT_HOME_OVERRIDE"
 /usr/bin/plutil -insert EnvironmentVariables.MACBOT_UPDATE_SCRIPT -string \
   "$ROOT/macbotd/packaging/update.sh" "$HOME/Library/LaunchAgents/com.macbot.server.plist"
 launchctl unload "$HOME/Library/LaunchAgents/com.macbot.server.plist" 2>/dev/null || true
 launchctl load "$HOME/Library/LaunchAgents/com.macbot.server.plist"
-echo "Mac Bot installed at $BIN_DEST; open http://localhost:7788/admin to set the password"
+echo "Mac Bot installed at $BIN_DEST; open http://localhost:28789 to set the password"

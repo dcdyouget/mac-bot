@@ -2,7 +2,7 @@
 
 `server/` 是 macOS Apple Silicon 服务端 workspace，包含 JSON 文件存储、durable runtime、providers/tools/skills/memory/orchestrator、浏览器 sidecar、usage ledger 和 axum gateway。二进制 crate `macbotd` 同时提供守护进程与本机 CLI。
 
-数据目录默认为 `~/MacBot`，可用 `MACBOT_HOME` 覆盖。正式服务默认监听 `0.0.0.0:7788`；mock 服务默认监听 `0.0.0.0:7789`。mock 与正式服务必须使用不同的数据目录，Store 的单写锁会拒绝同目录的第二个进程。
+数据目录默认为 `~/MacBot`，可用 `MACBOT_HOME` 覆盖。用户级服务配置位于 `~/mac-bot/config.toml`，可用 `--config` 或 `MACBOT_CONFIG` 指定其他文件。正式服务默认监听 `0.0.0.0:28789`；mock 服务默认监听 `0.0.0.0:7789`。mock 与正式服务必须使用不同的数据目录，Store 的单写锁会拒绝同目录的第二个进程。
 
 ## 编译和运行
 
@@ -17,10 +17,18 @@ MACBOT_HOME=/tmp/macbot-mock \
   --mock --port 7789 --password dev
 
 # 正式服务：provider.create 之后才连接真实模型
-cargo run --manifest-path server/Cargo.toml -p macbotd -- --port 7788
+cargo run --manifest-path server/Cargo.toml -p macbotd -- --port 28789
 ```
 
-`--port`、`--password`、`--home` 可覆盖默认值；`--home` 优先于 `MACBOT_HOME`。`--password` 只在 `data/auth.json` 不存在时初始化，不覆盖已有密码。已有密码可用 `macbotd passwd --password <password>` 重置；密码只保存为 Argon2 哈希，文件权限为 0600。首次设置密码必须通过 loopback 的 `/admin` 完成；健康检查公开，其余接口在 `setup_required` 状态拒绝访问。`/api/v1/health` 无需鉴权。
+`~/mac-bot/config.toml` 首次启动时自动创建，文件权限为 0600。可按需取消注释并编辑：
+
+```toml
+port = 28789
+data_home = "~/MacBot"
+host_name = "Mac Bot"
+```
+
+相对 `data_home` 路径按配置文件所在目录解析；`~` 指当前用户目录。配置优先级为命令行参数（例如 `--port`、`--home`、`--config`）> 对应环境变量（`MACBOT_PORT`、`MACBOT_HOME`、`MACBOT_CONFIG`）> `config.toml` > 旧版 `data/settings.json` > 默认值。旧版数据中仅保存了原默认端口 `7788` 时，只迁移一次到 `28789`，并在 settings 中写入迁移标记；迁移后用户通过管理页或 CLI 明确保存的 `7788` 不会再被改写。命令行、环境变量和 TOML 中显式设置的 `7788` 始终优先保留。管理页状态会显示端口来源；由启动参数、`MACBOT_PORT` 或 TOML 管理的端口不可在管理页保存，配置冲突返回 `409 port_managed_by_startup`，同一次请求中的其他设置仍会保存。非整数或越界端口明确返回 `400 invalid_port`，不会被静默忽略。`--password` 只在 `data/auth.json` 不存在时初始化，不覆盖已有密码。已有密码可用 `macbotd passwd --password <password>` 重置；密码只保存为 Argon2 哈希，文件权限为 0600。首次设置密码必须通过 loopback 的管理页面完成；健康检查公开，其余接口在 `setup_required` 状态拒绝访问。`/api/v1/health` 无需鉴权。
 
 ## HTTP/WebSocket
 
@@ -29,17 +37,17 @@ cargo run --manifest-path server/Cargo.toml -p macbotd -- --port 7788
 - `GET /ws`：控制连接，支持 query `?token=<password>` 或 Bearer header。
 - `GET /ws/screen`：画面连接，同样需要鉴权；二进制帧为 4 字节大端 JSON 头加 JPEG，客户端 ACK 后才发送下一帧。
 - `/api/v1/files`、`/api/v1/uploads`、`/api/v1/usage/export.csv`：鉴权后的文件与用量接口。
-- `/admin`：首次设置密码和管理入口；已设置密码后使用 HTTP Basic Auth。
+- `/` 和 `/admin`：同一个首次设置密码和管理页面；已设置密码后使用 HTTP Basic Auth。浏览器打开服务根地址会直接显示管理页。
 
 正式画面连接会读取 Bot 和设置中的浏览器配置，服务重启后可直接恢复旧 Computer，无需先发送模型请求。无头模式会核对保存的任务标签页与真实 sidecar 页面，缺失时恢复保存的 URL；attach 模式不会自动重建用户已关闭的标签页。
 
-管理页可修改主机名称和监听端口；端口变更写入 `data/settings.json`，重启 LaunchAgent 后生效。
+管理页可修改主机名称和监听端口；端口变更写入 `data/settings.json`，重启 LaunchAgent 后生效。配置文件若明确设置同一字段，会覆盖管理页写入的旧版 setting。客户端继续使用既有 `/ws`、`/ws/screen` 和 `/api/v1/*` 路径；服务端只监听一个端口，不额外拆分管理端口或添加 `/client` 前缀。
 
 正式模式的 provider 配置通过 `provider.create` 写入，API key 默认进入 macOS Keychain。开发期可显式设置 `MACBOT_SECRET_BACKEND=file`，密钥以明文保存到仓库外的 `~/MacBot-dev-secrets`，也可用 `MACBOT_SECRET_DIR` 覆盖。目录权限为 0700、文件为 0600，写入采用原子替换；后端拒绝 Git checkout 内的目录。provider 响应、事件、运行日志和配置快照均不包含密钥值。
 
 ```sh
 MACBOT_SECRET_BACKEND=file MACBOT_SECRET_DIR="$HOME/MacBot-dev-secrets" \
-  cargo run --manifest-path server/Cargo.toml -p macbotd -- --port 7788
+  cargo run --manifest-path server/Cargo.toml -p macbotd -- --port 28789
 ```
 
 LaunchAgent 不继承当前 shell 的环境变量。开发期通过 LaunchAgent 使用 file 后端时，需要在安装后的 plist 的 `EnvironmentVariables` 中显式设置 `MACBOT_SECRET_BACKEND=file` 和仓库外的 `MACBOT_SECRET_DIR`，再重载该 LaunchAgent；默认安装仍使用 Keychain。
@@ -49,7 +57,7 @@ LaunchAgent 不继承当前 shell 的环境变量。开发期通过 LaunchAgent 
 ```sh
 macbotd status
 macbotd passwd --password 'new-password'
-macbotd settings --host-name '办公 Mac mini' --port 7788
+macbotd settings --host-name '办公 Mac mini' --port 28789
 macbotd logs [-f]
 macbotd restart
 macbotd update
@@ -62,18 +70,20 @@ macbotd update
 源码安装会为当前用户构建 release，安装无界面的 `~/Applications/MacBot Server.app`（`LSUIElement=true`）、`~/.local/bin/macbotd`/`macbot`，并加载 `~/Library/LaunchAgents/com.macbot.server.plist`。源码安装和 `.pkg` 都将 agent-browser 0.39.0 sidecar 及其 Apache-2.0 许可证放入 App；该版本包含 Chrome 144+ 远程调试确认框的等待和重复弹窗修复。首次构建下载固定版本并校验 SHA256，以后复用 `server/target/sidecars/` 缓存。可设置 `MACBOT_BROWSER_BIN` 使用已有 sidecar：
 
 ```sh
-MACBOT_HOME="$HOME/MacBot" server/macbotd/packaging/install-launchagent.sh
+server/macbotd/packaging/install-launchagent.sh
 # install.sh 是同一源码安装流程的短入口
 server/macbotd/packaging/install.sh
 server/macbotd/packaging/uninstall-launchagent.sh
 ```
+
+源码安装和 `.pkg` 默认不向 LaunchAgent 注入 `MACBOT_HOME`，所以服务会读取 `~/mac-bot/config.toml` 中的 `data_home`，未设置时使用 `~/MacBot`。如需在安装时固定数据目录，可显式执行 `MACBOT_HOME="$HOME/MacBot" server/macbotd/packaging/install-launchagent.sh`；LaunchAgent 此时会固定使用该目录，日志文件也写入该目录。
 
 直接从源码运行浏览器功能时，可先准备 sidecar 并指定路径：
 
 ```sh
 server/macbotd/packaging/prepare-sidecar.sh server/target/sidecars/agent-browser
 MACBOT_BROWSER_BIN="$PWD/server/target/sidecars/agent-browser" \
-  cargo run --manifest-path server/Cargo.toml -p macbotd -- --port 7788
+  cargo run --manifest-path server/Cargo.toml -p macbotd -- --port 28789
 ```
 
 更新脚本先 fast-forward 当前 checkout，再构建 release 并重载 LaunchAgent：

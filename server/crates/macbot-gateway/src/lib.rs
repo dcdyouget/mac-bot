@@ -95,16 +95,22 @@ pub struct GatewayConfig {
     pub password: Option<String>,
     pub mock: bool,
     pub host_name: String,
+    pub host_name_source: String,
+    pub port_source: String,
+    pub config_path: PathBuf,
 }
 
 impl Default for GatewayConfig {
     fn default() -> Self {
         Self {
-            bind_addr: SocketAddr::from(([127, 0, 0, 1], 7788)),
+            bind_addr: SocketAddr::from(([127, 0, 0, 1], 28789)),
             home: default_home(),
             password: None,
             mock: false,
             host_name: "Mac Bot".to_string(),
+            host_name_source: "default".to_string(),
+            port_source: "default".to_string(),
+            config_path: PathBuf::new(),
         }
     }
 }
@@ -116,6 +122,9 @@ pub struct Gateway {
     backend: Option<Arc<dyn RpcBackend>>,
     bind_addr: SocketAddr,
     mock: bool,
+    host_name_source: String,
+    port_source: String,
+    config_path: PathBuf,
     started_at: Instant,
 }
 
@@ -685,7 +694,11 @@ impl Gateway {
                     .and_then(Value::as_str)
                     .map(str::to_string)
             });
-        let host_name = persisted_name.unwrap_or_else(|| config.host_name.clone());
+        let host_name = if config.host_name_source == "config" {
+            config.host_name.clone()
+        } else {
+            persisted_name.unwrap_or_else(|| config.host_name.clone())
+        };
         let (events, _) = broadcast::channel(512);
         let node_id = if config.mock {
             "node_1".to_string()
@@ -729,6 +742,9 @@ impl Gateway {
             backend: None,
             bind_addr: config.bind_addr,
             mock: config.mock,
+            host_name_source: config.host_name_source,
+            port_source: config.port_source,
+            config_path: config.config_path,
             started_at: Instant::now(),
         }
     }
@@ -749,6 +765,7 @@ impl Gateway {
 
     pub fn router(&self) -> Router {
         Router::new()
+            .route("/", get(admin_handler))
             .route("/ws", get(ws_handler))
             .route("/ws/screen", get(screen_handler))
             .route("/api/v1/health", get(health_handler))
@@ -3409,7 +3426,10 @@ async fn admin_status_handler(
         "running": true,
         "setup_required": gw.setup_required().await,
         "port": gw.bind_addr.port(),
+        "port_source": gw.port_source,
         "host_name": gw.state.host_name.read().await.clone(),
+        "host_name_source": gw.host_name_source,
+        "config_path": gw.config_path.display().to_string(),
         "seq": seq,
         "mock": gw.mock,
         "node_id": gw.state.node_id.read().await.clone(),
@@ -3516,7 +3536,86 @@ struct LocalPassword {
     password: String,
 }
 
+fn port_source_message(source: &str, config_path: &FsPath) -> String {
+    match source {
+        "config" => format!(
+            "监听端口由 {} 管理，请编辑该文件后重启服务。",
+            config_path.display()
+        ),
+        "environment" => {
+            "监听端口由 MACBOT_PORT 环境变量管理，请修改启动环境后重启服务。".to_string()
+        }
+        "command_line" => "监听端口由服务启动参数管理，请修改启动参数后重启服务。".to_string(),
+        _ => "监听端口当前不可从管理页修改。".to_string(),
+    }
+}
+
+fn host_name_source_message(source: &str, config_path: &FsPath) -> String {
+    match source {
+        "config" => format!(
+            "Host 名称由 {} 管理，请编辑该文件后重启服务。",
+            config_path.display()
+        ),
+        _ => "Host 名称当前不可从管理页修改。".to_string(),
+    }
+}
+
+fn managed_setting_conflict_response(gw: &Gateway, port_conflict: bool) -> Response {
+    if port_conflict {
+        let message = port_source_message(&gw.port_source, &gw.config_path);
+        error_response(StatusCode::CONFLICT, "port_managed_by_startup", &message)
+    } else {
+        let message = host_name_source_message(&gw.host_name_source, &gw.config_path);
+        error_response(
+            StatusCode::CONFLICT,
+            "host_name_managed_by_config",
+            &message,
+        )
+    }
+}
+
+fn port_is_managed_by_startup(source: &str) -> bool {
+    matches!(source, "config" | "environment" | "command_line")
+}
+
+fn mark_port_migration_complete(settings: &mut serde_json::Map<String, Value>) {
+    let mut migrations = settings
+        .get("server_migrations")
+        .and_then(Value::as_object)
+        .cloned()
+        .unwrap_or_default();
+    migrations.insert("legacy_port_7788_to_28789".into(), json!(true));
+    settings.insert("server_migrations".into(), Value::Object(migrations));
+}
+
 async fn local_settings_handler(State(gw): State<Gateway>, Json(patch): Json<Value>) -> Response {
+    let port_conflict = patch.get("port").is_some() && port_is_managed_by_startup(&gw.port_source);
+    let host_name_managed = gw.host_name_source == "config";
+    let current_host_name = gw.state.host_name.read().await.clone();
+    let host_name_conflict = host_name_managed
+        && patch
+            .get("host_name")
+            .is_some_and(|requested| requested.as_str() != Some(current_host_name.as_str()));
+    if (port_conflict || host_name_conflict)
+        && patch.as_object().is_none_or(|patch| {
+            patch.keys().all(|key| {
+                (key == "port" && port_conflict) || (key == "host_name" && host_name_conflict)
+            })
+        })
+    {
+        return managed_setting_conflict_response(&gw, port_conflict);
+    }
+    let mut effective_patch = patch.clone();
+    if port_conflict {
+        if let Some(object) = effective_patch.as_object_mut() {
+            object.remove("port");
+        }
+    }
+    if host_name_managed {
+        if let Some(object) = effective_patch.as_object_mut() {
+            object.remove("host_name");
+        }
+    }
     let settings_path = gw.state.home.join("data/settings.json");
     let current = fs::read_to_string(&settings_path)
         .await
@@ -3524,14 +3623,22 @@ async fn local_settings_handler(State(gw): State<Gateway>, Json(patch): Json<Val
         .and_then(|text| serde_json::from_str::<Value>(&text).ok())
         .unwrap_or_else(|| json!({}));
     let mut settings = current.as_object().cloned().unwrap_or_default();
-    if let Some(name) = patch.get("host_name") {
+    if let Some(name) = effective_patch.get("host_name") {
         settings.insert("host_name".into(), name.clone());
     }
-    if let Some(port) = patch.get("port").and_then(Value::as_u64) {
+    if let Some(raw_port) = effective_patch.get("port") {
+        let Some(port) = raw_port.as_u64() else {
+            return error_response(
+                StatusCode::BAD_REQUEST,
+                "invalid_port",
+                "port must be an integer between 1 and 65535",
+            );
+        };
         if !(1..=u16::MAX as u64).contains(&port) {
             return error_response(StatusCode::BAD_REQUEST, "invalid_port", "port out of range");
         }
         settings.insert("port".into(), json!(port));
+        mark_port_migration_complete(&mut settings);
     }
     let tmp = settings_path.with_extension("json.tmp");
     let result = serde_json::to_vec_pretty(&Value::Object(settings.clone()))
@@ -3550,10 +3657,13 @@ async fn local_settings_handler(State(gw): State<Gateway>, Json(patch): Json<Val
         });
     match result {
         Ok(()) => {
-            if let Some(name) = patch.get("host_name").and_then(Value::as_str) {
+            if let Some(name) = effective_patch.get("host_name").and_then(Value::as_str) {
                 *gw.state.host_name.write().await = name.to_owned();
             }
-            Json(json!({"ok":true,"settings":settings,"restart_required":patch.get("port").is_some()})).into_response()
+            if port_conflict || host_name_conflict {
+                return managed_setting_conflict_response(&gw, port_conflict);
+            }
+            Json(json!({"ok":true,"settings":settings,"restart_required":effective_patch.get("port").is_some()})).into_response()
         }
         Err(error) => error_response(StatusCode::INTERNAL_SERVER_ERROR, "settings", &error),
     }
@@ -3770,6 +3880,66 @@ mod tests {
     use super::*;
     use axum::body::Body;
     use tower::ServiceExt;
+
+    #[tokio::test]
+    async fn root_serves_the_authenticated_admin_page_and_admin_path_stays_available() {
+        let dir = tempfile::tempdir().unwrap();
+        let gw = Gateway::new(GatewayConfig {
+            home: dir.path().into(),
+            password: Some("dev".into()),
+            ..Default::default()
+        });
+        for path in ["/", "/admin"] {
+            let response = gw
+                .router()
+                .oneshot(
+                    http::Request::builder()
+                        .uri(path)
+                        .header("authorization", "Basic YWRtaW46ZGV2")
+                        .extension(ConnectInfo("127.0.0.1:1234".parse::<SocketAddr>().unwrap()))
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::OK, "{path}");
+            let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+                .await
+                .unwrap();
+            let html = String::from_utf8_lossy(&body);
+            assert!(html.contains("/admin/assets/tokens.css"), "{path}");
+            assert!(html.contains("host_name_source"), "{path}");
+            assert!(html.contains("host-name-hint"), "{path}");
+            assert!(html.contains("disabled=hostNameManaged(x)"), "{path}");
+            assert!(html.contains("x.config_path"), "{path}");
+            assert!(html.contains("由 {path} 管理"), "{path}");
+        }
+    }
+
+    #[tokio::test]
+    async fn root_uses_the_same_admin_authentication_as_admin_path() {
+        let dir = tempfile::tempdir().unwrap();
+        let gw = Gateway::new(GatewayConfig {
+            home: dir.path().into(),
+            password: Some("dev".into()),
+            ..Default::default()
+        });
+        for path in ["/", "/admin"] {
+            let response = gw
+                .router()
+                .oneshot(
+                    http::Request::builder()
+                        .uri(path)
+                        .extension(ConnectInfo("10.0.0.1:1234".parse::<SocketAddr>().unwrap()))
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::UNAUTHORIZED, "{path}");
+            assert!(response.headers().contains_key(header::WWW_AUTHENTICATE));
+        }
+    }
 
     #[test]
     fn client_locale_enforces_bcp47_subtag_order_and_lengths() {
@@ -4054,6 +4224,10 @@ mod tests {
         assert_eq!(saved["concurrency"], prior["concurrency"]);
         assert_eq!(saved["web_search"], prior["web_search"]);
         assert_eq!(saved["host_name"], "after");
+        assert_eq!(
+            saved["server_migrations"]["legacy_port_7788_to_28789"],
+            true
+        );
         let response = local_settings_handler(
             State(gw.clone()),
             Json(json!({"host_name":"invalid","port":0})),
@@ -4061,6 +4235,153 @@ mod tests {
         .await;
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
         assert_eq!(gw.state.host_name.read().await.as_str(), "after");
+    }
+
+    #[tokio::test]
+    async fn config_managed_port_is_reported_and_cannot_be_written_to_legacy_settings() {
+        let dir = tempfile::tempdir().unwrap();
+        let config_path = dir.path().join("custom/server.toml");
+        let gw = Gateway::new(GatewayConfig {
+            home: dir.path().into(),
+            password: Some("dev".into()),
+            port_source: "config".into(),
+            config_path: config_path.clone(),
+            ..Default::default()
+        });
+        let status = admin_status_handler(
+            State(gw.clone()),
+            ConnectInfo("127.0.0.1:1234".parse::<SocketAddr>().unwrap()),
+            HeaderMap::from_iter([(
+                header::AUTHORIZATION,
+                HeaderValue::from_static("Basic YWRtaW46ZGV2"),
+            )]),
+        )
+        .await;
+        assert_eq!(status.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(status.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let body: Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(body["port_source"], "config");
+        assert_eq!(body["config_path"], config_path.display().to_string());
+
+        let response = local_settings_handler(
+            State(gw.clone()),
+            Json(json!({"host_name":"changed","port":28790})),
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::CONFLICT);
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let body: Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(body["error"], "port_managed_by_startup");
+        assert!(body["message"]
+            .as_str()
+            .unwrap()
+            .contains(&config_path.display().to_string()));
+
+        let saved: Value = serde_json::from_slice(
+            &fs::read(dir.path().join("data/settings.json"))
+                .await
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(saved["host_name"], "changed");
+        assert!(saved.get("port").is_none());
+        assert!(saved.get("server_migrations").is_none());
+    }
+
+    #[tokio::test]
+    async fn config_managed_host_name_is_reported_and_cannot_be_overwritten() {
+        let dir = tempfile::tempdir().unwrap();
+        let config_path = dir.path().join("alternate/settings.toml");
+        let settings_path = dir.path().join("data/settings.json");
+        fs::create_dir_all(settings_path.parent().unwrap())
+            .await
+            .unwrap();
+        fs::write(&settings_path, br#"{"host_name":"Legacy Host"}"#)
+            .await
+            .unwrap();
+        let gw = Gateway::new(GatewayConfig {
+            home: dir.path().into(),
+            password: Some("dev".into()),
+            host_name: "Configured Host".into(),
+            host_name_source: "config".into(),
+            config_path: config_path.clone(),
+            ..Default::default()
+        });
+        assert_eq!(gw.state.host_name.read().await.as_str(), "Configured Host");
+
+        let status = admin_status_handler(
+            State(gw.clone()),
+            ConnectInfo("127.0.0.1:1234".parse::<SocketAddr>().unwrap()),
+            HeaderMap::from_iter([(
+                header::AUTHORIZATION,
+                HeaderValue::from_static("Basic YWRtaW46ZGV2"),
+            )]),
+        )
+        .await;
+        assert_eq!(status.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(status.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let body: Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(body["host_name"], "Configured Host");
+        assert_eq!(body["host_name_source"], "config");
+        assert_eq!(body["config_path"], config_path.display().to_string());
+
+        let response = local_settings_handler(
+            State(gw.clone()),
+            Json(json!({"host_name":"Changed Host","port":28790})),
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::CONFLICT);
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let body: Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(body["error"], "host_name_managed_by_config");
+        assert!(body["message"]
+            .as_str()
+            .unwrap()
+            .contains(&config_path.display().to_string()));
+        assert_eq!(gw.state.host_name.read().await.as_str(), "Configured Host");
+
+        let saved: Value =
+            serde_json::from_slice(&fs::read(&settings_path).await.unwrap()).unwrap();
+        assert_eq!(saved["host_name"], "Legacy Host");
+        assert_eq!(saved["port"], 28790);
+
+        let unchanged =
+            local_settings_handler(State(gw), Json(json!({"host_name":"Configured Host"}))).await;
+        assert_eq!(unchanged.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn non_integer_port_is_rejected_and_explicit_legacy_default_is_marked() {
+        let dir = tempfile::tempdir().unwrap();
+        let gw = Gateway::new(GatewayConfig {
+            home: dir.path().into(),
+            ..Default::default()
+        });
+        let invalid = local_settings_handler(State(gw.clone()), Json(json!({"port":"7788"}))).await;
+        assert_eq!(invalid.status(), StatusCode::BAD_REQUEST);
+        assert!(!dir.path().join("data/settings.json").exists());
+
+        let explicit = local_settings_handler(State(gw), Json(json!({"port":7788}))).await;
+        assert_eq!(explicit.status(), StatusCode::OK);
+        let saved: Value = serde_json::from_slice(
+            &fs::read(dir.path().join("data/settings.json"))
+                .await
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(saved["port"], 7788);
+        assert_eq!(
+            saved["server_migrations"]["legacy_port_7788_to_28789"],
+            true
+        );
     }
 
     #[tokio::test]

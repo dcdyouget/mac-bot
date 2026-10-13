@@ -19,6 +19,34 @@ def digest(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def inspect_launchagent_rendering(directory):
+    directory.mkdir(parents=True, exist_ok=True)
+    template = SERVER / "macbotd/packaging/com.macbot.server.plist"
+    renderer = SERVER / "macbotd/packaging/render-launchagent.sh"
+    assert "MACBOT_HOME" not in plistlib.loads(template.read_bytes())["EnvironmentVariables"]
+    default_home = directory / "default home"
+    app_binary = directory / "MacBot Server.app/Contents/MacOS/macbotd"
+
+    def render(name, home, override=None):
+        output = directory / name
+        command = ["/bin/sh", str(renderer), str(template), str(output), str(app_binary), str(home)]
+        if override is not None:
+            command.append(str(override))
+        subprocess.run(command, check=True)
+        return plistlib.loads(output.read_bytes())
+
+    default = render("default.plist", default_home)
+    assert "MACBOT_HOME" not in default["EnvironmentVariables"]
+    assert default["StandardOutPath"] == str(default_home / "data/macbot.log")
+    assert default["StandardErrorPath"] == str(default_home / "data/macbot.log")
+
+    custom_home = directory / "custom home"
+    custom = render("custom.plist", custom_home, custom_home)
+    assert custom["EnvironmentVariables"]["MACBOT_HOME"] == str(custom_home)
+    assert custom["StandardOutPath"] == str(custom_home / "data/macbot.log")
+    assert custom["StandardErrorPath"] == str(custom_home / "data/macbot.log")
+
+
 def inspect_pkg(pkg, destination):
     subprocess.run(["pkgutil", "--expand-full", str(pkg), str(destination)], check=True)
     package_infos = list(destination.glob("**/PackageInfo"))
@@ -40,6 +68,7 @@ def inspect_pkg(pkg, destination):
         "Contents/Resources/update-installed.sh",
         "Contents/Resources/update-manifest.json",
         "Contents/Resources/com.macbot.server.plist",
+        "Contents/Resources/render-launchagent.sh",
         "Contents/Resources/source-commit.txt",
         "Contents/Resources/build-info.json",
     ):
@@ -104,9 +133,14 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--pkg", type=Path)
     parser.add_argument("--daemon", type=Path, default=SERVER / "target/debug/macbotd")
+    parser.add_argument("--launchagent-only", action="store_true")
     args = parser.parse_args()
     with tempfile.TemporaryDirectory(prefix="macbot-package-smoke-") as temporary:
         root = Path(temporary)
+        inspect_launchagent_rendering(root / "launchagent")
+        if args.launchagent_only:
+            print("launchagent smoke passed: default and explicit MACBOT_HOME rendering")
+            return
         daemon = args.daemon.resolve()
         if args.pkg:
             daemon = inspect_pkg(args.pkg.resolve(), root / "expanded")
