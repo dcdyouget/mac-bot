@@ -397,6 +397,36 @@ impl FeatureExecutionSink {
         json!({"call_id":call_id,"result":payload})
     }
 
+    async fn record_automatic_memory_failure(
+        &self,
+        request: &crate::execution::ExecutionRequest,
+        stage: &'static str,
+        error: FeatureError,
+    ) {
+        let code = error.code();
+        tracing::warn!(
+            run_id = %request.run_id,
+            bot_id = %request.bot_id,
+            stage,
+            code,
+            %error,
+            "automatic memory write failed; continuing model execution"
+        );
+        self.delegate
+            .emit(crate::execution::ExecutionEvent {
+                event: "memory.failed".into(),
+                data: json!({
+                    "run_id":request.run_id,
+                    "bot_id":request.bot_id,
+                    "stage":stage,
+                    "code":code,
+                    "message":error.to_string(),
+                }),
+                persistent: true,
+            })
+            .await;
+    }
+
     fn context_request(&self, request: &crate::execution::ExecutionRequest) -> ContextRequest {
         let is_main = self.runtime.run.actor.is_main();
         let kind = if request.private {
@@ -668,7 +698,7 @@ impl crate::execution::ExecutionSink for FeatureExecutionSink {
                     })
                     .cloned()
                     .collect::<Vec<_>>();
-                let (_, events) = self
+                let extraction = self
                     .runtime
                     .service
                     .maintenance_extract_for_segment(
@@ -677,10 +707,18 @@ impl crate::execution::ExecutionSink for FeatureExecutionSink {
                         &extraction_transcript,
                         source.clone(),
                     )
-                    .await
-                    .map_err(|error| format!("memory extraction failed: {error}"))?;
-                for event in events {
-                    self.delegate.publish_persisted(event).await;
+                    .await;
+                match extraction {
+                    Ok((_, events)) => {
+                        for event in events {
+                            self.delegate.publish_persisted(event).await;
+                        }
+                    }
+                    Err(error) if error.code() == "quota_full" => {
+                        self.record_automatic_memory_failure(request, "segment_extract", error)
+                            .await;
+                    }
+                    Err(error) => return Err(format!("memory extraction failed: {error}")),
                 }
             }
             let transcript = maintenance_transcript(request, true);
@@ -691,20 +729,27 @@ impl crate::execution::ExecutionSink for FeatureExecutionSink {
                 .await
                 .map_err(|error| format!("context summarization failed: {error}"))?;
             if !self.runtime.run.actor.is_main() {
-                let events = self
-                    .runtime
-                    .service
-                    .persist_context_summary_immediate(
-                        &self.runtime.run.actor,
-                        &self.runtime.run.access,
-                        &request.run_id,
-                        MemoryTarget::bot(request.bot_id.clone()),
-                        &summary,
-                        source,
-                    )
-                    .map_err(|error| format!("context summary persistence failed: {error}"))?;
-                for event in events {
-                    self.delegate.publish_persisted(event).await;
+                let persistence = self.runtime.service.persist_context_summary_immediate(
+                    &self.runtime.run.actor,
+                    &self.runtime.run.access,
+                    &request.run_id,
+                    MemoryTarget::bot(request.bot_id.clone()),
+                    &summary,
+                    source,
+                );
+                match persistence {
+                    Ok(events) => {
+                        for event in events {
+                            self.delegate.publish_persisted(event).await;
+                        }
+                    }
+                    Err(error) if error.code() == "quota_full" => {
+                        self.record_automatic_memory_failure(request, "context_summary", error)
+                            .await;
+                    }
+                    Err(error) => {
+                        return Err(format!("context summary persistence failed: {error}"));
+                    }
                 }
             }
             segment_id = self
@@ -842,10 +887,11 @@ impl crate::execution::ExecutionSink for FeatureExecutionSink {
             }
             Err(error) => {
                 tracing::error!(run_id = %request.run_id, %error, "failed to commit run memory");
+                let code = error.code();
                 self.delegate
                     .emit(crate::execution::ExecutionEvent {
                         event: "memory.failed".into(),
-                        data: json!({"run_id":request.run_id,"bot_id":request.bot_id,"code":"worklog_write","message":error.to_string()}),
+                        data: json!({"run_id":request.run_id,"bot_id":request.bot_id,"stage":"worklog_write","code":code,"message":error.to_string()}),
                         persistent: true,
                     })
                     .await;
@@ -2537,6 +2583,8 @@ mod tests {
             }
         }
 
+        async fn publish_persisted(&self, _event: macbot_store::Event) {}
+
         async fn send_group_message(&self, message: Value) -> Result<Value, String> {
             Ok(message)
         }
@@ -2632,6 +2680,179 @@ mod tests {
             self.calls.lock().unwrap().push("extract".into());
             Ok(Vec::new())
         }
+    }
+
+    struct QuotaMaintenance;
+
+    #[async_trait]
+    impl macbot_memory::AsyncMaintenanceProvider for QuotaMaintenance {
+        async fn summarize(&self, _text: &str) -> Result<String, macbot_memory::MemoryError> {
+            Ok("s".repeat(440))
+        }
+
+        async fn extract_for_targets(
+            &self,
+            _text: &str,
+            targets: &[MemoryTarget],
+        ) -> Result<Vec<macbot_memory::MemoryDraft>, macbot_memory::MemoryError> {
+            let target = targets
+                .iter()
+                .find(|target| target.scope == MemoryScope::Bot)
+                .cloned()
+                .ok_or_else(|| {
+                    macbot_memory::MemoryError::Invalid(
+                        "test expected a Bot extraction target".into(),
+                    )
+                })?;
+            Ok(vec![macbot_memory::MemoryDraft {
+                target,
+                kind: macbot_memory::MemoryKind::BotWorklog,
+                content: "e".repeat(440),
+                source: MemorySource::default(),
+            }])
+        }
+    }
+
+    struct RecordingFinalProvider {
+        requests: Arc<StdMutex<Vec<ModelRequest>>>,
+    }
+
+    #[async_trait]
+    impl ModelProvider for RecordingFinalProvider {
+        async fn stream(
+            &self,
+            request: ModelRequest,
+            _events: tokio::sync::mpsc::Sender<ModelEvent>,
+        ) -> macbot_providers::Result<Completion> {
+            self.requests.lock().unwrap().push(request);
+            Ok(Completion {
+                text: "task completed despite full automatic memory".into(),
+                stop_reason: "stop".into(),
+                ..Default::default()
+            })
+        }
+    }
+
+    #[tokio::test]
+    async fn quota_full_automatic_memory_writes_do_not_block_worker_model_run() {
+        let home = tempdir().unwrap().keep();
+        let service = Arc::new(FeatureService::open(&home, Vec::new()).unwrap());
+        service
+            .shared_memory
+            .add(MemoryRequest {
+                target: MemoryTarget::bot("worker-a"),
+                action: MemoryAction::Add,
+                content: "w".repeat(1_401),
+                id: None,
+                kind: Some(macbot_memory::MemoryKind::BotWorklog),
+                source: MemorySource::default(),
+            })
+            .unwrap();
+        service
+            .shared_memory
+            .add(MemoryRequest {
+                target: MemoryTarget::bot("worker-a"),
+                action: MemoryAction::Add,
+                content: "KEEP_WORKER_L2_AFTER_AUTOMATIC_QUOTA_FAILURE".into(),
+                id: None,
+                kind: Some(macbot_memory::MemoryKind::BotExperience),
+                source: MemorySource::default(),
+            })
+            .unwrap();
+        service
+            .set_maintenance_provider(Some(Arc::new(QuotaMaintenance)))
+            .unwrap();
+
+        let request = crate::execution::ExecutionRequest {
+            run_id: "quota-full-worker-run".into(),
+            assignment_id: None,
+            source_message_id: None,
+            chat_id: "quota-full-worker-chat".into(),
+            bot_id: "worker-a".into(),
+            model: "mock/model".into(),
+            provider_id: "mock".into(),
+            project_id: None,
+            instruction: "complete a small worker task".into(),
+            messages: vec![json!({"role":"user","content":"please proceed"})],
+            max_turns: 1,
+            private: true,
+            allow_unsafe: false,
+            cwd: None,
+            routine: false,
+            price: None,
+            resume_approved: false,
+            subagent: false,
+            tools: None,
+            phase: None,
+            parent_run_id: None,
+            subagent_task: None,
+            save_full_requests: false,
+            resume_message: None,
+            client_locale: None,
+        };
+        let mut run = FeatureRunContext::bot("worker-a", "user-a");
+        run.run_id = Some(request.run_id.clone());
+        run.chat_id = Some(request.chat_id.clone());
+        run.session_id = Some(request.chat_id.clone());
+        run.model_context_window = 2;
+        let runtime = FeatureToolRuntime::new(service.clone(), run);
+        let sink = FeatureExecutionSink::new(
+            Arc::new(DurableEventSink {
+                store: service.shared_store.clone(),
+            }),
+            runtime.clone(),
+        );
+        let requests = Arc::new(StdMutex::new(Vec::new()));
+        let engine = crate::execution::ExecutionEngine::new(
+            service.shared_store.clone(),
+            Arc::new(RecordingFinalProvider {
+                requests: requests.clone(),
+            }),
+            runtime.tools(),
+            Arc::new(sink),
+            home.clone(),
+        )
+        .unwrap();
+
+        let outcome = engine.run(request).await.unwrap();
+        assert_eq!(outcome.status, "done");
+        assert_eq!(outcome.text, "task completed despite full automatic memory");
+        let requests = requests.lock().unwrap();
+        assert_eq!(requests.len(), 1, "the worker must reach llm.request");
+        assert!(requests[0].messages.iter().any(|message| {
+            message["role"] == "system"
+                && message["content"].as_str().is_some_and(|text| {
+                    text.contains("KEEP_WORKER_L2_AFTER_AUTOMATIC_QUOTA_FAILURE")
+                })
+        }));
+        drop(requests);
+
+        let events = service.shared_store.events_since(0).unwrap();
+        let failures = events
+            .iter()
+            .filter(|event| event.event == "memory.failed")
+            .map(|event| event.data.clone())
+            .collect::<Vec<_>>();
+        for stage in ["segment_extract", "context_summary", "worklog_write"] {
+            assert!(
+                events.iter().any(|event| {
+                    event.event == "memory.failed"
+                        && event.data["run_id"] == "quota-full-worker-run"
+                        && event.data["stage"] == stage
+                        && event.data["code"] == "quota_full"
+                }),
+                "missing observable quota failure for {stage}; failures={failures:?}"
+            );
+        }
+        assert!(events.iter().any(|event| {
+            event.event == "trace.item"
+                && event.data.pointer("/item/type").and_then(Value::as_str) == Some("llm.request")
+        }));
+        assert!(events.iter().any(|event| {
+            event.event == "trace.item"
+                && event.data.pointer("/item/type").and_then(Value::as_str) == Some("run.end")
+                && event.data.pointer("/item/data/status") == Some(&json!("done"))
+        }));
     }
 
     #[tokio::test]

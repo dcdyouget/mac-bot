@@ -1984,11 +1984,11 @@ impl FeatureService {
             let result = self.shared_memory.mutate_persisted(
                 &self.memory_path,
                 MemoryRequest {
-                    target: draft_target,
+                    target: draft_target.clone(),
                     action: MemoryAction::Add,
                     content: draft.content,
                     id: None,
-                    kind: Some(draft.kind),
+                    kind: Some(draft.kind.clone()),
                     source: MemorySource {
                         bot_id: Some(bot_id.clone()),
                         run_id: Some(run_id.to_owned()),
@@ -2002,7 +2002,38 @@ impl FeatureService {
                     bot_id: Some(bot_id.clone()),
                     run_id: Some(run_id.to_owned()),
                 },
-            )?;
+            );
+            let result = match result {
+                Ok(result) => result,
+                Err(error @ MemoryError::QuotaExceeded { .. }) => {
+                    tracing::warn!(
+                        run_id = %run_id,
+                        bot_id = %bot_id,
+                        scope = %draft_target.scope,
+                        owner_id = %draft_target.owner_id,
+                        kind = ?draft.kind,
+                        %error,
+                        "skipping automatic memory extraction because the memory quota is full"
+                    );
+                    if let Some(event) = self.shared_store.append_event_once(
+                        &format!("memory-failed:{operation_id}"),
+                        "memory.failed",
+                        json!({
+                            "run_id":source.run_id.as_deref().unwrap_or(run_id),
+                            "bot_id":bot_id,
+                            "stage":"segment_extract",
+                            "code":"quota_full",
+                            "target":{"scope":draft_target.scope,"owner_id":draft_target.owner_id},
+                            "kind":draft.kind,
+                            "message":error.to_string(),
+                        }),
+                    )? {
+                        events.push(event);
+                    }
+                    continue;
+                }
+                Err(error) => return Err(error.into()),
+            };
             if let Some(entry) = result.entry {
                 if let Some(event) = self.shared_store.append_event_once(
                     &format!("memory-operation:{operation_id}"),
