@@ -67,12 +67,25 @@ export function taskCardOwnsFollowingAvatar(
   current: Message,
   assignments: Record<string, { bot_id?: unknown }> = {},
 ): boolean {
-  if (!previous || previous.sender?.kind !== 'bot' || current.blocks?.length !== 1 || current.blocks[0]?.type !== 'task_card') return false
+  return Boolean(taskCardAvatarOwnerBotId(previous, current, assignments))
+}
+
+export function taskCardAvatarOwnerBotId(
+  previous: Message | undefined,
+  current: Message,
+  assignments: Record<string, { bot_id?: unknown }> = {},
+): string | undefined {
+  if (!previous || previous.sender?.kind !== 'bot' || current.blocks?.length !== 1 || current.blocks[0]?.type !== 'task_card') return undefined
   const blockAssignmentId = current.blocks[0].assignment_id
   const assignmentId = typeof current.assignment_id === 'string'
     ? current.assignment_id
     : typeof blockAssignmentId === 'string' ? blockAssignmentId : undefined
   const assignedBotId = assignmentId ? assignments[assignmentId]?.bot_id : undefined
-  const botId = typeof assignedBotId === 'string' ? assignedBotId : current.sender?.bot_id
-  return Boolean(botId && previous.sender.bot_id === botId)
+  const taskSenderBotId = current.sender?.bot_id
+  const assignmentBotId = typeof assignedBotId === 'string' ? assignedBotId : undefined
+  const ownerBotId = previous.sender.bot_id
+  if (assignmentBotId && assignmentBotId !== ownerBotId) return undefined
+  if (taskSenderBotId && taskSenderBotId !== ownerBotId) return undefined
+  const linkedByAssignment = current.sender?.kind === 'system' && Boolean(assignmentId)
+  return assignmentBotId === ownerBotId || taskSenderBotId === ownerBotId || linkedByAssignment ? ownerBotId : undefined
 }

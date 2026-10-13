@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { collectPendingChatActions, taskCardOwnsFollowingAvatar } from './pendingChatActions.model.ts'
+import { readFileSync } from 'node:fs'
+import { collectPendingChatActions, taskCardAvatarOwnerBotId, taskCardOwnsFollowingAvatar } from './pendingChatActions.model.ts'
+
+const realChatMainTaskShape = JSON.parse(readFileSync(new URL('./fixtures/chat-main-task-avatar-shape.json', import.meta.url), 'utf8'))
 
 test('collects actionable approvals even when their message card is absent', () => {
   const actions = collectPendingChatActions('chat-main', [], {}, {
@@ -41,4 +44,16 @@ test('uses the linked assignment bot when a standalone task-card message has sys
   const task = { id: 'message-2', sender: { kind: 'system' }, assignment_id: 'assignment-1', blocks: [{ type: 'task_card', assignment_id: 'assignment-1' }] }
   assert.equal(taskCardOwnsFollowingAvatar(previous, task, { 'assignment-1': { bot_id: 'bot-main' } }), true)
   assert.equal(taskCardOwnsFollowingAvatar(previous, task, { 'assignment-1': { bot_id: 'bot-other' } }), false)
+})
+
+test('recognizes sanitized chat_main system task-card data when the assignment snapshot is absent', () => {
+  const [previous, task] = realChatMainTaskShape.messages
+  const ownerBotId = taskCardAvatarOwnerBotId(previous, task, {})
+  assert.equal(ownerBotId, 'main')
+  assert.equal(taskCardOwnsFollowingAvatar(previous, task, {}), true)
+})
+
+test('uses the assignment bot from sanitized chat_main task-card data to confirm ownership', () => {
+  const [previous, task] = realChatMainTaskShape.messages
+  assert.equal(taskCardAvatarOwnerBotId(previous, task, realChatMainTaskShape.assignments), 'main')
 })
