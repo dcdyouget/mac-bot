@@ -4,9 +4,9 @@
 .memory-page-toolbar button { display: inline-flex; min-height: 28px; align-items: center; gap: 4px; padding: 0 7px; border: 0; border-radius: 6px; background: transparent; color: var(--text-secondary); font-size: 12px; }
 .memory-page-toolbar button:hover { background: var(--bg-hover); }
 .memory-scroll { min-height: 0; flex: 1; overflow: auto; }
-.memory-content { width: min(100%, 744px); padding: 24px 32px 44px; margin: 0 auto; }
+.memory-content { width: min(100%, 680px); padding: 24px 32px 44px; margin: 0 auto; }
 .memory-description { margin: 0 0 16px; color: var(--text-secondary); font-size: 13px; line-height: 20px; }
-.memory-card { margin-bottom: 16px; padding: 14px 16px; border: 1px solid var(--border-subtle); border-radius: 11px; background: var(--bg-elevated); box-shadow: 0 1px 2px rgb(0 0 0 / 3%); }
+.memory-card { margin-bottom: 16px; padding: 14px 16px; border: .5px solid var(--border-default); border-radius: 14px; background: var(--bg-elevated); box-shadow: 0 0 0 .5px var(--border-default), 0 1px 3px rgb(0 0 0 / 4%); }
 .memory-card h2 { margin: 0 0 10px; font-size: 13px; font-weight: 600; }
 .memory-profile-fields { display: flex; flex-direction: column; gap: 7px; }
 .memory-profile-fields > label, .memory-timezone { display: grid; min-height: 34px; grid-template-columns: 88px minmax(0, 1fr) 18px; align-items: center; gap: 8px; }
@@ -44,7 +44,7 @@
 .memory-button-primary { border-color: var(--accent) !important; background: var(--accent) !important; color: var(--accent-on) !important; }
 .memory-button-primary:hover:not(:disabled) { filter: brightness(.96); }
 .memory-button { display: inline-flex; min-height: 32px; flex: none; align-items: center; justify-content: center; gap: 6px; padding: 0 11px; border: 1px solid var(--border-default); border-radius: 8px; background: var(--bg-elevated); color: var(--text-primary); font-size: 12px; }
-.memory-list { overflow: hidden; border: 1px solid var(--border-subtle); border-radius: 10px; background: var(--bg-elevated); }
+.memory-list { overflow: hidden; border: .5px solid var(--border-default); border-radius: 14px; background: var(--bg-elevated); box-shadow: 0 0 0 .5px var(--border-default), 0 1px 3px rgb(0 0 0 / 4%); }
 .memory-row { position: relative; display: flex; min-height: 70px; align-items: center; gap: 10px; padding: 12px 14px; border-top: 1px solid var(--border-subtle); }
 .memory-row:first-child { border-top: 0; }
 .memory-row:hover { background: color-mix(in srgb, var(--bg-hover) 58%, transparent); }
