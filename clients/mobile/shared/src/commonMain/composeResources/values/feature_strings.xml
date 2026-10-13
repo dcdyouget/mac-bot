@@ -65,6 +65,7 @@
     <string name="host_field_address">地址</string>
     <string name="host_field_address_hint">host:port、ws:// 或 wss://</string>
     <string name="host_field_password">密码</string>
+    <string name="host_field_password_edit_hint">编辑时留空可保留当前密码；输入新值后替换。</string>
     <string name="host_field_name">名称</string>
     <string name="host_reconnecting">正在重连 %1$s…</string>
     <string name="host_reconnecting_detail">本地缓存可浏览，发送已暂停</string>

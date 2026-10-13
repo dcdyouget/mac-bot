@@ -47,6 +47,73 @@ import java.util.concurrent.atomic.AtomicBoolean
 
 class ClientRepositoryMultiHostTest {
     @Test
+    fun editingHostWithBlankPasswordKeepsSavedCredential() = runBlocking {
+        val storage = MemoryPersistentStore()
+        val credentials = MemoryCredentialStore(mapOf("host-a" to "encrypted-secret"))
+        val repository = ClientRepository(storage, credentials)
+        try {
+            repository.saveHost("Updated name", listOf("10.0.2.2:28789"), password = "", existingId = "host-a")
+
+            assertEquals("encrypted-secret", credentials.read("host-a"))
+            assertEquals(SavedHost("host-a", "Updated name", listOf("10.0.2.2:28789")), repository.hosts.value.single())
+            assertEquals("host-a", storage.read("selected_host"))
+
+            repository.saveHost("Updated name", listOf("10.0.2.2:28789"), password = "replacement-secret", existingId = "host-a")
+            assertEquals("replacement-secret", credentials.read("host-a"))
+        } finally {
+            repository.scope.cancel()
+        }
+    }
+
+    @Test
+    fun legacyLocalHostPortMigrationIsScopedPreservesStateAndIsIdempotent() = runBlocking {
+        val storage = MemoryPersistentStore()
+        val credentials = MemoryCredentialStore(mapOf("emulator" to "secret", "remote" to "remote-secret"))
+        val original = listOf(
+            SavedHost("emulator", "Emulator", listOf("10.0.2.2:7788", "ws://LOCALHOST:7788/api"), nodeId = "node-local"),
+            SavedHost("loopback", "Loopback", listOf("https://127.0.0.1:7788/admin")),
+            SavedHost("remote", "Remote", listOf("https://api.example.com:7788/client")),
+        )
+        storage.setHostRecordsJson(protocolJson.encodeToString(original))
+        storage.write("last_seq:emulator", "42")
+        storage.write("last_seq:remote", "7")
+        val repository = ClientRepository(storage, credentials)
+        try {
+            repository.migrateLegacySavedHosts()
+            val migratedJson = storage.hostRecordsJson()
+            val migrated = protocolJson.decodeFromString<List<SavedHost>>(migratedJson!!)
+            assertEquals(listOf("10.0.2.2:28789", "ws://LOCALHOST:28789/api"), migrated[0].addresses)
+            assertEquals("node-local", migrated[0].nodeId)
+            assertEquals(listOf("https://127.0.0.1:28789/admin"), migrated[1].addresses)
+            assertEquals(listOf("https://api.example.com:7788/client"), migrated[2].addresses)
+            assertEquals("secret", credentials.read("emulator"))
+            assertEquals("remote-secret", credentials.read("remote"))
+            assertEquals("42", storage.read("last_seq:emulator"))
+            assertEquals("7", storage.read("last_seq:remote"))
+
+            repository.migrateLegacySavedHosts()
+            assertEquals(migratedJson, storage.hostRecordsJson())
+            assertEquals("1", storage.read("migration:host-port-28789-v1"))
+        } finally {
+            repository.scope.cancel()
+        }
+    }
+
+    @Test
+    fun malformedHostRecordsDoNotMarkMigrationComplete() = runBlocking {
+        val storage = MemoryPersistentStore()
+        storage.setHostRecordsJson("not-json")
+        val repository = ClientRepository(storage, MemoryCredentialStore(emptyMap()))
+        try {
+            repository.migrateLegacySavedHosts()
+            assertEquals("not-json", storage.hostRecordsJson())
+            assertEquals(null, storage.read("migration:host-port-28789-v1"))
+        } finally {
+            repository.scope.cancel()
+        }
+    }
+
+    @Test
     fun groupMessageNotificationPreferenceIsIndependentAndPersists() = runBlocking {
         val storage = MemoryPersistentStore()
         val first = ClientRepository(storage, MemoryCredentialStore(emptyMap()))

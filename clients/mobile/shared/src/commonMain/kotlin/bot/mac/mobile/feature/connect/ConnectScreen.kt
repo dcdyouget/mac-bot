@@ -35,11 +35,11 @@ import org.jetbrains.compose.resources.stringResource
         Text(stringResource(Res.string.host_hint), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(vertical = 12.dp))
         LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             item { OutlinedTextField(addresses, { addresses = it }, label = { Text(stringResource(Res.string.host_field_address)) }, supportingText = { Text(stringResource(Res.string.host_field_address_hint)) }, minLines = 2, modifier = Modifier.fillMaxWidth()) }
-            item { OutlinedTextField(password, { password = it }, label = { Text(stringResource(Res.string.host_field_password)) }, visualTransformation = PasswordVisualTransformation(), singleLine = true, modifier = Modifier.fillMaxWidth()) }
+            item { OutlinedTextField(password, { password = it }, label = { Text(stringResource(Res.string.host_field_password)) }, supportingText = { if (editing != null) Text(stringResource(Res.string.host_field_password_edit_hint)) }, visualTransformation = PasswordVisualTransformation(), singleLine = true, modifier = Modifier.fillMaxWidth()) }
             item { OutlinedTextField(name, { name = it }, label = { Text(stringResource(Res.string.host_field_name)) }, singleLine = true, modifier = Modifier.fillMaxWidth()) }
             item {
                 error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-                Button(enabled = !saving && name.isNotBlank() && addresses.isNotBlank() && password.isNotEmpty(), modifier = Modifier.fillMaxWidth(), onClick = {
+                Button(enabled = !saving && name.isNotBlank() && addresses.isNotBlank() && (editing != null || password.isNotEmpty()), modifier = Modifier.fillMaxWidth(), onClick = {
                     saving = true
                     val isFirstHost = hosts.isEmpty() && editing == null
                     repository.scope.launch {

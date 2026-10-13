@@ -31,6 +31,21 @@ import kotlinx.serialization.json.*
 @Serializable
 data class SavedHost(val id: String, val name: String, val addresses: List<String>, val nodeId: String? = null)
 
+private const val LEGACY_HOST_PORT_MIGRATION_KEY = "migration:host-port-28789-v1"
+
+/** Rewrites only the three well-known local development endpoints. */
+internal fun migrateLegacyLocalHostAddress(address: String): String {
+    val schemeEnd = address.indexOf("://")
+    val authorityStart = if (schemeEnd >= 0) schemeEnd + 3 else 0
+    val authorityEnd = address.indexOfAny(charArrayOf('/', '?', '#'), authorityStart)
+        .takeIf { it >= 0 } ?: address.length
+    val authority = address.substring(authorityStart, authorityEnd)
+    val normalized = authority.lowercase()
+    if (normalized !in setOf("10.0.2.2:7788", "localhost:7788", "127.0.0.1:7788")) return address
+    val migratedAuthority = authority.dropLast(4) + "28789"
+    return address.replaceRange(authorityStart, authorityEnd, migratedAuthority)
+}
+
 private class HostSession(
     val id: String,
     val generation: Long,
@@ -125,6 +140,7 @@ class ClientRepository(
 
     suspend fun initialize() = initMutex.withLock {
         if (initialized) return@withLock
+        migrateLegacySavedHosts()
         _hosts.value = storage.hostRecordsJson()
             ?.let { runCatching { protocolJson.decodeFromString<List<SavedHost>>(it) }.getOrNull() }
             .orEmpty()
@@ -165,15 +181,34 @@ class ClientRepository(
     }
 
     suspend fun saveHost(name: String, addresses: List<String>, password: String, existingId: String? = null) {
-        require(name.isNotBlank() && addresses.isNotEmpty() && password.isNotEmpty())
+        require(name.isNotBlank() && addresses.isNotEmpty() && (existingId != null || password.isNotEmpty()))
         addresses.forEach { EndpointBuilder.main(it) }
         val id = existingId ?: RandomIdGenerator.nextId()
-        credentials.write(id, password)
+        // An empty password while editing means “keep the existing credential”.
+        if (password.isNotEmpty()) credentials.write(id, password)
         val saved = SavedHost(id, name.trim(), addresses)
         _hosts.value = _hosts.value.filterNot { it.id == id } + saved
         storage.setHostRecordsJson(protocolJson.encodeToString(_hosts.value))
         if (initialized) startHost(saved)
         selectHost(id)
+    }
+
+    /** One-time, idempotent migration for old local defaults; credentials and cursors are untouched. */
+    internal suspend fun migrateLegacySavedHosts() {
+        if (storage.read(LEGACY_HOST_PORT_MIGRATION_KEY) == "1") return
+        val raw = storage.hostRecordsJson()
+        if (raw == null) {
+            storage.write(LEGACY_HOST_PORT_MIGRATION_KEY, "1")
+            return
+        }
+        val hosts = runCatching { protocolJson.decodeFromString<List<SavedHost>>(raw) }.getOrNull() ?: return
+        val migrated = hosts.map { host ->
+            val addresses = host.addresses.map(::migrateLegacyLocalHostAddress)
+            if (addresses == host.addresses) host else host.copy(addresses = addresses)
+        }
+        if (migrated != hosts) storage.setHostRecordsJson(protocolJson.encodeToString(migrated))
+        // Write the marker only after any records update succeeds, so an interrupted migration retries safely.
+        storage.write(LEGACY_HOST_PORT_MIGRATION_KEY, "1")
     }
 
     suspend fun deleteHost(id: String) {
