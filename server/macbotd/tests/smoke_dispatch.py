@@ -130,7 +130,7 @@ class DispatchProvider(BaseHTTPRequestHandler):
             (message.get("content", "") for message in reversed(messages) if message.get("role") == "user"),
             "",
         )
-        is_main = any(message.get("role") == "system" and "\n总管\n" in message.get("content", "") for message in messages)
+        is_main = any(message.get("role") == "system" and "\n秘书长\n" in message.get("content", "") for message in messages)
         project_id = self._project_id(messages)
 
         if "DISPATCH_MAIN" in latest and is_main:

@@ -67,6 +67,9 @@ struct Inner {
     settings: OrchestratorSettings,
     default_bot_tools: ToolToggles,
     bots: HashMap<Id, Bot>,
+    /// Ephemeral, run-scoped analysis subagents. They are not serialized:
+    /// active read-only children are released when the parent process exits.
+    run_subagents: HashMap<Id, HashSet<Id>>,
     idempotent_bot_creations: HashMap<String, BotCreationRequest>,
     projects: HashMap<Id, Project>,
     announcement_text: HashMap<Id, AnnouncementText>,
@@ -189,18 +192,29 @@ fn same_bot_id(left: &str, right: &str) -> bool {
     left == right || (matches!(left, "main" | "bot_main") && matches!(right, "main" | "bot_main"))
 }
 
+fn main_bot_tool_toggles() -> ToolToggles {
+    ToolToggles {
+        files: false,
+        bash: false,
+        browser: false,
+        subagent: true,
+        web: false,
+        mcp: false,
+    }
+}
+
 impl Orchestrator {
     pub fn new(settings: OrchestratorSettings) -> Self {
         let ts = now();
         let main = Bot {
             id: "main".to_string(),
-            name: "总管".to_string(),
+            name: "秘书长".to_string(),
             label: "主 Bot".to_string(),
-            description: "负责协调团队、派发任务和提醒验收".to_string(),
+            description: "只负责协调和派发任务，不直接执行工作".to_string(),
             avatar: None,
             model: None,
             max_parallel: 0,
-            tools: ToolToggles::default(),
+            tools: main_bot_tool_toggles(),
             browser_mode: "headless".into(),
             dm_chat_id: "chat_main".into(),
             pinned: true,
@@ -261,6 +275,7 @@ impl Orchestrator {
                 settings,
                 default_bot_tools: ToolToggles::default(),
                 bots: HashMap::from([(main.id.clone(), main)]),
+                run_subagents: HashMap::new(),
                 idempotent_bot_creations: HashMap::new(),
                 projects: HashMap::new(),
                 announcement_text: HashMap::new(),
@@ -352,11 +367,24 @@ impl Orchestrator {
                 .map_err(|e| OrchestratorError::Invalid(e.to_string()))?;
         }
         restore_map(&mut i.bots, value.get("bots"))?;
+        // Run-scoped analysis children are process-local and never restored.
+        i.run_subagents.clear();
         restore_map(
             &mut i.idempotent_bot_creations,
             value.get("idempotent_bot_creations"),
         )?;
         for bot in i.bots.values_mut() {
+            if bot.is_main {
+                if bot.name == "总管" {
+                    bot.name = "秘书长".into();
+                }
+                if bot.description == "负责协调团队、派发任务和提醒验收" {
+                    bot.description = "只负责协调和派发任务，不直接执行工作".into();
+                }
+                if bot.tools == ToolToggles::default() {
+                    bot.tools = main_bot_tool_toggles();
+                }
+            }
             normalize_bot_dm_chat_id(bot);
         }
         restore_map(&mut i.projects, value.get("projects"))?;
@@ -612,6 +640,14 @@ impl Orchestrator {
     pub fn start_subagent(&self, request: SubagentRequest) -> Result<SubagentHandle> {
         let mut i = self.lock()?;
         i.start_subagent(request)
+    }
+
+    pub fn start_run_subagent(&self, run_id: Id, task: String) -> Result<RunSubagentHandle> {
+        self.lock()?.start_run_subagent(run_id, task)
+    }
+
+    pub fn finish_run_subagent(&self, run_id: &str, subagent_id: &str) -> Result<()> {
+        self.lock()?.finish_run_subagent(run_id, subagent_id)
     }
 
     pub fn finish_subagent(&self, assignment_id: &str, subagent_id: &str) -> Result<()> {
@@ -1079,6 +1115,13 @@ pub struct SubagentRequest {
 pub struct SubagentHandle {
     pub id: Id,
     pub assignment_id: Id,
+    pub task: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct RunSubagentHandle {
+    pub id: Id,
+    pub run_id: Id,
     pub task: String,
 }
 
@@ -3133,12 +3176,16 @@ impl Inner {
             .ok_or_else(|| OrchestratorError::NotFound(format!("assignment {id}")))
     }
 
-    fn start_subagent(&mut self, request: SubagentRequest) -> Result<SubagentHandle> {
-        let total = self
-            .assignments
+    fn active_subagent_count(&self) -> usize {
+        self.assignments
             .values()
-            .map(|a| a.subagents_active)
-            .sum::<usize>();
+            .map(|assignment| assignment.subagents_active)
+            .sum::<usize>()
+            + self.run_subagents.values().map(HashSet::len).sum::<usize>()
+    }
+
+    fn start_subagent(&mut self, request: SubagentRequest) -> Result<SubagentHandle> {
+        let total = self.active_subagent_count();
         let active = self.assignment(&request.assignment_id)?.subagents_active;
         if active >= self.settings.subagent_per_run {
             return Err(OrchestratorError::Conflict(
@@ -3160,12 +3207,54 @@ impl Inner {
         })
     }
 
+    fn start_run_subagent(&mut self, run_id: Id, task: String) -> Result<RunSubagentHandle> {
+        if run_id.trim().is_empty() || task.trim().is_empty() {
+            return Err(OrchestratorError::Invalid(
+                "run_id and task must be nonempty".into(),
+            ));
+        }
+        let run_active = self.run_subagents.get(&run_id).map_or(0, HashSet::len);
+        if run_active >= self.settings.subagent_per_run {
+            return Err(OrchestratorError::Conflict(
+                "subagent per-run limit reached".into(),
+            ));
+        }
+        if self.active_subagent_count() >= self.settings.subagent_global {
+            return Err(OrchestratorError::Conflict(
+                "global subagent limit reached".into(),
+            ));
+        }
+        let id = new_id();
+        self.run_subagents
+            .entry(run_id.clone())
+            .or_default()
+            .insert(id.clone());
+        Ok(RunSubagentHandle { id, run_id, task })
+    }
+
     fn finish_subagent(&mut self, assignment_id: &str, _subagent_id: &str) -> Result<()> {
         let a = self.assignment_mut(assignment_id)?;
         if a.subagents_active == 0 {
             return Err(OrchestratorError::Conflict("no active subagent".into()));
         }
         a.subagents_active -= 1;
+        Ok(())
+    }
+
+    fn finish_run_subagent(&mut self, run_id: &str, subagent_id: &str) -> Result<()> {
+        let Some(active) = self.run_subagents.get_mut(run_id) else {
+            return Err(OrchestratorError::NotFound(format!(
+                "run-scoped subagent {subagent_id}"
+            )));
+        };
+        if !active.remove(subagent_id) {
+            return Err(OrchestratorError::NotFound(format!(
+                "run-scoped subagent {subagent_id}"
+            )));
+        }
+        if active.is_empty() {
+            self.run_subagents.remove(run_id);
+        }
         Ok(())
     }
     fn finish_assignment(&mut self, id: &str, status: &str) -> Result<Assignment> {
@@ -4175,7 +4264,7 @@ impl Inner {
             })
             .cloned()
             .collect::<Vec<_>>();
-        json!({"running":running,"global_limit":self.settings.global_limit,"subagents_running":self.assignments.values().map(|a|a.subagents_active).sum::<usize>(),"waiting":waiting,"bots":bots,"done_today":done_today})
+        json!({"running":running,"global_limit":self.settings.global_limit,"subagents_running":self.active_subagent_count(),"waiting":waiting,"bots":bots,"done_today":done_today})
     }
 
     fn create_routine(&mut self, p: &Value) -> Result<Routine> {
@@ -4679,6 +4768,44 @@ fn artifact_is_better_for_announcement(candidate: &Artifact, current: &Artifact)
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn new_main_bot_defaults_to_secretary_general_and_coordination_only_tools() {
+        let orchestrator = Orchestrator::default();
+        let snapshot = orchestrator.snapshot().unwrap();
+        let main = &snapshot["bots"]["main"];
+        assert_eq!(main["name"], "秘书长");
+        assert_eq!(main["description"], "只负责协调和派发任务，不直接执行工作");
+        assert_eq!(main["tools"]["files"], false);
+        assert_eq!(main["tools"]["bash"], false);
+        assert_eq!(main["tools"]["browser"], false);
+        assert_eq!(main["tools"]["subagent"], true);
+        assert_eq!(main["tools"]["web"], false);
+        assert_eq!(main["tools"]["mcp"], false);
+    }
+
+    #[test]
+    fn restore_renames_only_legacy_default_main_bot() {
+        let source = Orchestrator::default();
+        let mut legacy = source.snapshot().unwrap();
+        legacy["bots"]["main"]["name"] = json!("总管");
+        legacy["bots"]["main"]["description"] = json!("负责协调团队、派发任务和提醒验收");
+        legacy["bots"]["main"]["tools"] = serde_json::to_value(ToolToggles::default()).unwrap();
+        let restored = Orchestrator::default();
+        restored.restore(legacy).unwrap();
+        let migrated = restored.snapshot().unwrap();
+        assert_eq!(migrated["bots"]["main"]["name"], "秘书长");
+        assert_eq!(migrated["bots"]["main"]["tools"]["subagent"], true);
+
+        let mut customized = migrated;
+        customized["bots"]["main"]["name"] = json!("我的协调员");
+        customized["bots"]["main"]["description"] = json!("用户自定义简介");
+        let restored = Orchestrator::default();
+        restored.restore(customized).unwrap();
+        let unchanged = restored.snapshot().unwrap();
+        assert_eq!(unchanged["bots"]["main"]["name"], "我的协调员");
+        assert_eq!(unchanged["bots"]["main"]["description"], "用户自定义简介");
+    }
 
     #[test]
     fn announcement_prefers_current_work_and_selects_history_deterministically() {
@@ -7210,6 +7337,40 @@ mod tests {
             restored.snapshot().unwrap()["assignments"][&assignment.id]["wait"]["message_id"]
                 .is_null()
         );
+    }
+
+    #[test]
+    fn run_scoped_subagents_obey_run_and_global_limits_and_release_quota() {
+        let orchestrator = Orchestrator::new(OrchestratorSettings {
+            subagent_per_run: 1,
+            subagent_global: 2,
+            ..Default::default()
+        });
+        let first = orchestrator
+            .start_run_subagent("private-run-1".into(), "Analyze options".into())
+            .unwrap();
+        assert!(orchestrator
+            .start_run_subagent("private-run-1".into(), "Second analysis".into())
+            .is_err());
+        let second = orchestrator
+            .start_run_subagent("private-run-2".into(), "Analyze separately".into())
+            .unwrap();
+        assert!(orchestrator
+            .start_run_subagent("private-run-3".into(), "Exceed global limit".into())
+            .is_err());
+        assert_eq!(orchestrator.lock().unwrap().active_subagent_count(), 2);
+        orchestrator
+            .finish_run_subagent(&first.run_id, &first.id)
+            .unwrap();
+        assert!(orchestrator
+            .finish_run_subagent(&first.run_id, &first.id)
+            .is_err());
+        orchestrator
+            .start_run_subagent("private-run-1".into(), "Quota is reusable".into())
+            .unwrap();
+        orchestrator
+            .finish_run_subagent(&second.run_id, &second.id)
+            .unwrap();
     }
 
     #[test]

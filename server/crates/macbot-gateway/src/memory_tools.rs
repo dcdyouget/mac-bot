@@ -144,6 +144,7 @@ impl FeatureRunContext {
         context.project_id = request.project_id.clone();
         context.session_id = Some(request.chat_id.clone());
         context.chat_id = Some(request.chat_id.clone());
+        context.allow_memory = !is_main && !request.subagent;
         context.profile_onboarding = is_main
             && request.private
             && request.assignment_id.is_none()
@@ -212,26 +213,30 @@ impl FeatureToolRuntime {
     }
 
     pub fn tools(&self) -> Vec<Arc<dyn Tool>> {
-        let mut tools: Vec<Arc<dyn Tool>> = vec![
-            Arc::new(SkillTool {
-                runtime: self.clone(),
-            }),
-            Arc::new(MemoryTool {
-                runtime: self.clone(),
-            }),
-            Arc::new(MemorySearchTool {
-                runtime: self.clone(),
-            }),
-            Arc::new(SessionSearchTool {
-                runtime: self.clone(),
-            }),
-            Arc::new(ProjectFindTool {
-                runtime: self.clone(),
-            }),
-            Arc::new(ChatHistoryTool {
-                runtime: self.clone(),
-            }),
-        ];
+        let mut tools: Vec<Arc<dyn Tool>> = if self.run.actor.is_main() {
+            Vec::new()
+        } else {
+            vec![
+                Arc::new(SkillTool {
+                    runtime: self.clone(),
+                }),
+                Arc::new(MemoryTool {
+                    runtime: self.clone(),
+                }),
+                Arc::new(MemorySearchTool {
+                    runtime: self.clone(),
+                }),
+                Arc::new(SessionSearchTool {
+                    runtime: self.clone(),
+                }),
+                Arc::new(ProjectFindTool {
+                    runtime: self.clone(),
+                }),
+                Arc::new(ChatHistoryTool {
+                    runtime: self.clone(),
+                }),
+            ]
+        };
         // Main is a coordination-only Bot. Draft creation is a work-side
         // mutation and must never be exposed in its model tool set.
         if !self.run.actor.is_main() {
@@ -1976,10 +1981,13 @@ mod tests {
             MemoryAccess::user("local-user"),
             true,
         );
-        assert!(main_runtime
+        let main_tools = main_runtime
             .tools()
             .iter()
-            .any(|tool| tool.name() == "set_user_profile"));
+            .map(|tool| tool.name().to_owned())
+            .collect::<Vec<_>>();
+        assert_eq!(main_tools, ["set_user_profile"]);
+        assert!(!main_runtime.run.allow_memory);
 
         let group_request = make_request(false, Some("project-a"));
         let group_runtime = FeatureToolRuntime::for_execution(
@@ -2003,6 +2011,11 @@ mod tests {
             .tools()
             .iter()
             .any(|tool| tool.name() == "set_user_profile"));
+        assert!(bot_runtime.run.allow_memory);
+        assert!(bot_runtime
+            .tools()
+            .iter()
+            .any(|tool| tool.name() == "memory"));
     }
 
     #[tokio::test]
@@ -2813,7 +2826,9 @@ mod tests {
             )
             .unwrap();
 
-        let mut run = FeatureRunContext::main("main-bot", "local-user");
+        let mut run = FeatureRunContext::bot("bot-a", "local-user");
+        run.access =
+            MemoryAccess::group_for_user("local-user", "project-atlas", vec!["bot-a".into()]);
         run.private = true;
         run.run_id = Some("private-project-run".into());
         run.chat_id = Some("private-project-chat".into());
@@ -2825,7 +2840,7 @@ mod tests {
             assignment_id: None,
             source_message_id: None,
             chat_id: "private-project-chat".into(),
-            bot_id: "main-bot".into(),
+            bot_id: "bot-a".into(),
             model: "mock/model".into(),
             provider_id: "mock".into(),
             project_id: None,

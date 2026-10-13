@@ -3579,6 +3579,16 @@ fn tool_allowed(request: &ExecutionRequest, name: &str) -> bool {
     if !subagent_requested(request) {
         return true;
     }
+    // The Main Bot's run-scoped analysis child has no assignment. Keep this
+    // path closed to the legacy skill/web exceptions below, even if an old
+    // persisted request or a future generic tool registration advertises one.
+    if request.assignment_id.is_none() {
+        return matches!(name, "read" | "ls" | "find" | "grep")
+            && request
+                .tools
+                .as_ref()
+                .is_some_and(|allowlist| allowlist.iter().any(|tool| tool == name));
+    }
     if matches!(
         name,
         "send_msg" | "memory" | "memory_search" | "subagent" | "request_takeover" | "takeover"
@@ -6944,6 +6954,23 @@ mod tests {
         .unwrap();
         let mut req = request(true);
         req.subagent = true;
+        req.tools = Some(vec![
+            "read".into(),
+            "ls".into(),
+            "find".into(),
+            "grep".into(),
+            "skill".into(),
+            "web_fetch".into(),
+        ]);
+        assert!(tool_allowed(&req, "read"));
+        assert!(!tool_allowed(&req, "skill"));
+        assert!(!tool_allowed(&req, "web_fetch"));
+        assert!(!tool_allowed(&req, "send_msg"));
+
+        let mut worker_subagent = req.clone();
+        worker_subagent.assignment_id = Some("worker-assignment".into());
+        assert!(tool_allowed(&worker_subagent, "skill"));
+        assert!(tool_allowed(&worker_subagent, "web_fetch"));
         assert_eq!(engine.run(req).await.unwrap().status, "done");
         assert!(!dir.path().join("subagent.txt").exists());
     }

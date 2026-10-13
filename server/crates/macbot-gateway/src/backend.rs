@@ -694,13 +694,16 @@ impl ComposedBackend {
                 let Some(run_id) = job.checkpoint.get("run_id").and_then(Value::as_str) else {
                     continue;
                 };
-                let Ok(Some(request)) = self
+                let Ok(Some(mut request)) = self
                     .inner
                     .store
                     .read_snapshot::<ExecutionRequest>(format!("data/run_requests/{run_id}.json"))
                 else {
                     continue;
                 };
+                if self.runtime.tighten_request_tools(&mut request).is_err() {
+                    continue;
+                }
                 if request.run_id != run_id
                     || !invalid_tool_approval_request_matches(&snapshot, approval, &request)
                 {
@@ -1301,7 +1304,7 @@ impl ComposedBackend {
                 price,
                 resume_approved: false,
                 subagent: false,
-                tools: bot_tool_allowlist(bot, is_main, false, self.web_search_configured()),
+                tools: bot_tool_allowlist(bot, is_main, false, true, self.web_search_configured()),
                 phase: Some(if is_main { "coordinate" } else { "work" }.into()),
                 parent_run_id: None,
                 subagent_task: None,
@@ -1603,7 +1606,13 @@ impl ComposedBackend {
             "direct"
         };
         let private = chat_kind != "project";
-        let mut tools = bot_tool_allowlist(bot, bot_is_main, private, self.web_search_configured());
+        let mut tools = bot_tool_allowlist(
+            bot,
+            bot_is_main,
+            private,
+            assignment_id.is_some(),
+            self.web_search_configured(),
+        );
         let host_timezone = self
             .inner
             .orchestrator
@@ -1954,7 +1963,7 @@ impl ComposedBackend {
             price,
             resume_approved: false,
             subagent: false,
-            tools: bot_tool_allowlist(bot, is_main, private, self.web_search_configured()),
+            tools: bot_tool_allowlist(bot, is_main, private, true, self.web_search_configured()),
             phase: Some(if is_main { "coordinate" } else { "work" }.into()),
             parent_run_id: None,
             subagent_task: None,
@@ -3575,7 +3584,7 @@ impl crate::RpcBackend for ComposedBackend {
                                 "bot_id":bot_id,
                                 "chat_id":chat_id,
                                 "client_request_id":"profile-onboarding:first-connection-greeting:v1",
-                                "text":"你好，我是总管。为了之后更好地配合你，想先了解你希望我怎么称呼你、使用什么语言，以及你的身份或角色；你也可以跳过。",
+                                "text":"你好，我是秘书长。为了之后更好地配合你，想先了解你希望我怎么称呼你、使用什么语言，以及你的身份或角色；你也可以跳过。",
                                 "intent":"ack",
                                 "mentions":[]
                             }),
@@ -4641,19 +4650,24 @@ fn approval_detail_raw_args_match(call_args: Option<&Value>, detail: &Value, too
 fn bot_tool_allowlist(
     bot: Option<&Value>,
     is_main: bool,
-    _private: bool,
+    private: bool,
+    has_assignment: bool,
     web_search_configured: bool,
 ) -> Option<Vec<String>> {
     let config = bot.and_then(|value| value.get("tools").and_then(Value::as_object));
-    let mut names = vec![
-        "skill",
-        "memory",
-        "memory_search",
-        "session_search",
-        "project_find",
-        "chat_history",
-        "question",
-    ];
+    let mut names = if is_main {
+        vec!["question"]
+    } else {
+        vec![
+            "skill",
+            "memory",
+            "memory_search",
+            "session_search",
+            "project_find",
+            "chat_history",
+            "question",
+        ]
+    };
     let files_enabled = config
         .and_then(|value| value.get("files"))
         .and_then(Value::as_bool)
@@ -4672,7 +4686,8 @@ fn bot_tool_allowlist(
     {
         names.extend(["bash", "bash_job"]);
     }
-    if web_search_configured
+    if !is_main
+        && web_search_configured
         && config
             .and_then(|value| value.get("web"))
             .and_then(Value::as_bool)
@@ -4699,14 +4714,6 @@ fn bot_tool_allowlist(
             "request_takeover",
         ]);
     }
-    if config
-        .and_then(|value| value.get("subagent"))
-        .and_then(Value::as_bool)
-        .unwrap_or(false)
-        && !is_main
-    {
-        names.push("subagent");
-    }
     if is_main {
         names.extend([
             "list_bots",
@@ -4719,15 +4726,95 @@ fn bot_tool_allowlist(
             "request_review",
             "finish_project",
             "propose_bot",
-            "notify_user",
-            "remind",
-            "routine",
         ]);
+        if private && !has_assignment {
+            names.push("subagent");
+        }
+    } else if config
+        .and_then(|value| value.get("subagent"))
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+    {
+        names.push("subagent");
     }
     // Coordination may begin in the main DM and report into the newly
     // created project. Subagents use their own restricted tool list.
     names.push("send_msg");
     Some(names.into_iter().map(str::to_owned).collect())
+}
+
+const MAIN_ANALYSIS_SUBAGENT_TOOLS: &[&str] = &["read", "ls", "find", "grep"];
+
+/// Recompute persisted main-Bot tool capabilities from current durable identity
+/// and scope before resuming any old checkpoint. Historical `request.tools`
+/// values are not an authority after the main-Bot capability policy changes.
+fn tighten_request_tools_for_current_policy(
+    snapshot: &Value,
+    request: &mut ExecutionRequest,
+    web_search_configured: bool,
+) -> bool {
+    let bots = snapshot.get("bots").and_then(Value::as_object);
+    let bot = bots.and_then(|bots| bots.get(&request.bot_id));
+    let Some(bot) = bot else {
+        return false;
+    };
+    let is_main = bot
+        .get("is_main")
+        .and_then(Value::as_bool)
+        .unwrap_or(request.bot_id == "main");
+    if !is_main {
+        return true;
+    }
+    if request.subagent {
+        request.tools = Some(
+            MAIN_ANALYSIS_SUBAGENT_TOOLS
+                .iter()
+                .map(|name| (*name).to_owned())
+                .collect(),
+        );
+        return true;
+    }
+
+    let main_dm_chat = bot
+        .get("dm_chat_id")
+        .and_then(Value::as_str)
+        .unwrap_or("chat_main");
+    let is_project_chat = snapshot
+        .get("projects")
+        .and_then(Value::as_object)
+        .is_some_and(|projects| {
+            projects.values().any(|project| {
+                project.get("chat_id").and_then(Value::as_str) == Some(request.chat_id.as_str())
+            })
+        });
+    let private_dm = request.private && !is_project_chat && request.chat_id == main_dm_chat;
+    let coordinator_phase = request
+        .phase
+        .as_deref()
+        .is_none_or(|phase| phase == "coordinate");
+    let can_use_private_subagent = private_dm
+        && request.assignment_id.is_none()
+        && request.project_id.is_none()
+        && !request.routine
+        && coordinator_phase;
+    let had_profile_onboarding = request
+        .tools
+        .as_ref()
+        .is_some_and(|tools| tools.iter().any(|tool| tool == "set_user_profile"));
+    request.tools = bot_tool_allowlist(
+        Some(bot),
+        true,
+        can_use_private_subagent,
+        request.assignment_id.is_some(),
+        web_search_configured,
+    );
+    if had_profile_onboarding && can_use_private_subagent {
+        request
+            .tools
+            .get_or_insert_with(Vec::new)
+            .push("set_user_profile".into());
+    }
+    request.tools.is_some()
 }
 
 /// Private Bots may search projects they belong to, while the generic feature
@@ -4975,12 +5062,29 @@ impl RuntimeExecution {
 
     pub async fn run(&self, request: ExecutionRequest) -> Result<ExecutionOutcome, RuntimeError> {
         self.configure_feature_runtime().await?;
+        let mut request = request;
+        self.tighten_request_tools(&mut request)?;
         self.persist_request(&request)?;
         Ok(self
             .configured_engine_for(&request)
             .await?
             .run(request)
             .await?)
+    }
+
+    fn tighten_request_tools(&self, request: &mut ExecutionRequest) -> Result<(), RuntimeError> {
+        let snapshot = self
+            .backend
+            .orchestrator
+            .snapshot()
+            .map_err(|error| RuntimeError::Orchestrator(error.to_string()))?;
+        if !tighten_request_tools_for_current_policy(&snapshot, request, false) {
+            return Err(RuntimeError::Orchestrator(format!(
+                "cannot revalidate tool policy for Bot {}",
+                request.bot_id
+            )));
+        }
+        Ok(())
     }
 
     /// Cancel the durable execution owned by an assignment.  Assignment.stop
@@ -5353,7 +5457,7 @@ impl RuntimeExecution {
             if expected_run_id.is_some_and(|expected| expected != run_id) {
                 continue;
             }
-            let Some(request) = self
+            let Some(mut request) = self
                 .store
                 .read_snapshot::<ExecutionRequest>(format!("data/run_requests/{run_id}.json"))
                 .map_err(|error| RuntimeError::Execution(error.into()))?
@@ -5361,6 +5465,7 @@ impl RuntimeExecution {
                 tracing::warn!(%run_id, "approval has no persisted execution request");
                 return Ok(None);
             };
+            self.tighten_request_tools(&mut request)?;
             if !allowed_tool_approval_matches(
                 &snapshot,
                 approval,
@@ -5489,13 +5594,14 @@ impl RuntimeExecution {
             let Some(run_id) = job.checkpoint.get("run_id").and_then(Value::as_str) else {
                 continue;
             };
-            let Some(request) = self
+            let Some(mut request) = self
                 .store
                 .read_snapshot::<ExecutionRequest>(format!("data/run_requests/{run_id}.json"))
                 .map_err(|error| RuntimeError::Execution(error.into()))?
             else {
                 continue;
             };
+            self.tighten_request_tools(&mut request)?;
             let matches_request = if has_assignment {
                 request.assignment_id.as_deref() == question_assignment_id
             } else {
@@ -5542,11 +5648,12 @@ impl RuntimeExecution {
         message_id: &str,
         text: String,
     ) -> Result<Option<(Option<String>, ExecutionOutcome)>, RuntimeError> {
-        let Some(request) =
+        let Some(mut request) =
             self.find_request(|request| request.assignment_id.as_deref() == Some(assignment_id))
         else {
             return Ok(None);
         };
+        self.tighten_request_tools(&mut request)?;
         let expected = {
             let durable = self.state.durable.lock().await;
             let message_id = durable
@@ -5650,13 +5757,14 @@ impl RuntimeExecution {
             let Some(run_id) = job.checkpoint.get("run_id").and_then(Value::as_str) else {
                 continue;
             };
-            let Some(request) = self
+            let Some(mut request) = self
                 .store
                 .read_snapshot::<ExecutionRequest>(format!("data/run_requests/{run_id}.json"))
                 .map_err(|error| RuntimeError::Execution(error.into()))?
             else {
                 continue;
             };
+            self.tighten_request_tools(&mut request)?;
             if request.assignment_id.as_deref() != Some(assignment_id) {
                 continue;
             }
@@ -5751,13 +5859,14 @@ impl RuntimeExecution {
             let Some(run_id) = job.checkpoint.get("run_id").and_then(Value::as_str) else {
                 continue;
             };
-            let Some(request) = self
+            let Some(mut request) = self
                 .store
                 .read_snapshot::<ExecutionRequest>(format!("data/run_requests/{run_id}.json"))
                 .map_err(|error| RuntimeError::Execution(error.into()))?
             else {
                 continue;
             };
+            self.tighten_request_tools(&mut request)?;
             let assignment_matches = request.assignment_id.as_deref() == Some(marker_or_assignment)
                 || question_assignment.as_deref() == request.assignment_id.as_deref()
                 || (request.assignment_id.is_none()
@@ -6307,6 +6416,9 @@ impl RuntimeExecution {
                     .and_then(Value::as_str)
                     .map(str::to_owned)
             });
+        // Main Bot model runs do not receive memory/skill tools. Profile
+        // onboarding remains a separately authorized capability.
+        context.allow_memory = !is_main && !request.subagent;
         context.access = self.feature_access(request);
         context.recent_context = request
             .messages
@@ -6321,34 +6433,38 @@ impl RuntimeExecution {
             .collect();
         self.sync_feature_projects();
         self.sync_feature_messages(request);
-        if let Ok(skills) = self.feature_service.skill_registry.read() {
-            let skill_catalog = skills
-                .list()
-                .into_iter()
-                .filter(|skill| {
-                    skill.enabled
-                        && !skill
-                            .disabled_bot_ids
-                            .iter()
-                            .any(|id| id == &request.bot_id)
-                })
-                .map(|skill| format!("/{0}: {1} ({2})", skill.name, skill.description, skill.path))
-                .collect::<Vec<_>>();
-            let tool_catalog = request.tools.clone().unwrap_or_default().join(", ");
-            if let Some(identity) = context.bot_identity.as_mut() {
-                let skill_text = if skill_catalog.is_empty() {
-                    "(none)".to_owned()
-                } else {
-                    skill_catalog.join("\n")
-                };
-                identity.push_str("\n可用技能目录（显式调用 /skill-name）：\n");
-                identity.push_str(&skill_text);
-                identity.push_str("\n可用工具：");
-                identity.push_str(if tool_catalog.is_empty() {
-                    "(none)"
-                } else {
-                    &tool_catalog
-                });
+        if !is_main {
+            if let Ok(skills) = self.feature_service.skill_registry.read() {
+                let skill_catalog = skills
+                    .list()
+                    .into_iter()
+                    .filter(|skill| {
+                        skill.enabled
+                            && !skill
+                                .disabled_bot_ids
+                                .iter()
+                                .any(|id| id == &request.bot_id)
+                    })
+                    .map(|skill| {
+                        format!("/{0}: {1} ({2})", skill.name, skill.description, skill.path)
+                    })
+                    .collect::<Vec<_>>();
+                let tool_catalog = request.tools.clone().unwrap_or_default().join(", ");
+                if let Some(identity) = context.bot_identity.as_mut() {
+                    let skill_text = if skill_catalog.is_empty() {
+                        "(none)".to_owned()
+                    } else {
+                        skill_catalog.join("\n")
+                    };
+                    identity.push_str("\n可用技能目录（显式调用 /skill-name）：\n");
+                    identity.push_str(&skill_text);
+                    identity.push_str("\n可用工具：");
+                    identity.push_str(if tool_catalog.is_empty() {
+                        "(none)"
+                    } else {
+                        &tool_catalog
+                    });
+                }
             }
         }
         if let Some((content, instruction)) = explicit_skill {
@@ -6375,6 +6491,7 @@ impl RuntimeExecution {
             assignment_id: request.assignment_id.clone(),
             project_id: request.project_id.clone(),
             is_main,
+            private: request.private,
         };
         let rpc = Arc::new(
             ProductionCoordinationRpc::new(self.backend.clone(), self.gateway_state.clone())
@@ -6662,7 +6779,7 @@ impl SubagentDispatchBridge for RuntimeSubagentDispatch {
             .unwrap_or_else(|| self.runtime.cwd_for(None, &request.bot_id));
         let child = ExecutionRequest {
             run_id: format!("subagent_{}", safe_component(&request.subagent_id)),
-            assignment_id: Some(request.assignment_id.clone()),
+            assignment_id: request.assignment_id.clone(),
             source_message_id: None,
             chat_id: request.chat_id.clone(),
             bot_id: request.bot_id.clone(),
@@ -6681,13 +6798,20 @@ impl SubagentDispatchBridge for RuntimeSubagentDispatch {
             price,
             resume_approved: false,
             subagent: true,
-            tools: Some(vec![
-                "read".into(),
-                "ls".into(),
-                "find".into(),
-                "grep".into(),
-                "skill".into(),
-            ]),
+            tools: Some(if request.assignment_id.is_none() {
+                MAIN_ANALYSIS_SUBAGENT_TOOLS
+                    .iter()
+                    .map(|name| (*name).to_owned())
+                    .collect()
+            } else {
+                vec![
+                    "read".into(),
+                    "ls".into(),
+                    "find".into(),
+                    "grep".into(),
+                    "skill".into(),
+                ]
+            }),
             phase: Some("subagent".into()),
             parent_run_id: Some(request.parent_run_id.clone()),
             subagent_task: Some(request.task.clone()),
@@ -7743,18 +7867,166 @@ mod model_resolution_tests {
     #[test]
     fn main_can_report_from_a_dm_but_never_acquires_worker_tools() {
         let bot = serde_json::json!({"tools":{
-            "files":true,"bash":true,"browser":true,"subagent":true
+            "files":true,"bash":true,"browser":true,"web":true,"subagent":true
         }});
-        let names = super::bot_tool_allowlist(Some(&bot), true, true, false).unwrap();
-        assert!(names.iter().any(|name| name == "send_msg"));
-        assert!(names.iter().any(|name| name == "create_project"));
-        for name in ["read", "write", "edit", "bash", "browser_open", "subagent"] {
-            assert!(!names.iter().any(|allowed| allowed == name), "{name}");
+        let names = super::bot_tool_allowlist(Some(&bot), true, true, false, true).unwrap();
+        assert_eq!(
+            names,
+            [
+                "question",
+                "list_bots",
+                "create_project",
+                "project_create",
+                "assign",
+                "delegate",
+                "project_status",
+                "get_status",
+                "request_review",
+                "finish_project",
+                "propose_bot",
+                "subagent",
+                "send_msg",
+            ]
+        );
+        for forbidden in [
+            "read",
+            "write",
+            "edit",
+            "bash",
+            "bash_job",
+            "browser_open",
+            "web_fetch",
+            "web_search",
+            "skill",
+            "skill_draft",
+            "memory",
+            "memory_search",
+            "session_search",
+            "project_find",
+            "chat_history",
+            "routine",
+            "update_announcement",
+            "notify_user",
+            "remind",
+        ] {
+            assert!(
+                !names.iter().any(|allowed| allowed == forbidden),
+                "{forbidden}"
+            );
         }
-        assert!(!names.iter().any(|name| name == "skill_draft"));
-        let worker_names = super::bot_tool_allowlist(Some(&bot), false, true, false).unwrap();
-        assert!(worker_names.iter().any(|name| name == "skill_draft"));
+        let group_main_names =
+            super::bot_tool_allowlist(Some(&bot), true, false, false, true).unwrap();
+        assert!(!group_main_names.iter().any(|name| name == "subagent"));
+        let assigned_private_main_names =
+            super::bot_tool_allowlist(Some(&bot), true, true, true, true).unwrap();
+        assert!(!assigned_private_main_names
+            .iter()
+            .any(|name| name == "subagent"));
+        let worker_names = super::bot_tool_allowlist(Some(&bot), false, true, false, true).unwrap();
+        for expected in [
+            "skill",
+            "memory",
+            "memory_search",
+            "session_search",
+            "project_find",
+            "chat_history",
+            "read",
+            "write",
+            "bash",
+            "bash_job",
+            "browser_open",
+            "web_fetch",
+            "web_search",
+            "skill_draft",
+            "subagent",
+            "send_msg",
+        ] {
+            assert!(
+                worker_names.iter().any(|name| name == expected),
+                "{expected}"
+            );
+        }
+        for main_only in ["list_bots", "create_project", "assign", "delegate"] {
+            assert!(
+                !worker_names.iter().any(|name| name == main_only),
+                "{main_only}"
+            );
+        }
     }
+
+    #[test]
+    fn legacy_main_waiting_request_recomputes_tools_before_continuation() {
+        let snapshot = json!({
+            "bots": {"main": {
+                "id":"main", "is_main":true, "dm_chat_id":"chat_main",
+                "tools":{"files":true,"bash":true,"browser":true,"web":true,"subagent":true}
+            }},
+            "projects": {},
+            "assignments": {}
+        });
+        let mut request: ExecutionRequest = serde_json::from_value(json!({
+            "run_id":"legacy-main-run", "chat_id":"chat_main", "bot_id":"main",
+            "model":"mock/model", "instruction":"continue",
+            "private":true, "phase":"coordinate", "routine":false,
+            "tools":["read","write","bash","browser_open","web_fetch","memory",
+                     "memory_search","project_find","chat_history","subagent","send_msg",
+                     "set_user_profile"]
+        }))
+        .unwrap();
+        assert!(super::tighten_request_tools_for_current_policy(
+            &snapshot,
+            &mut request,
+            true
+        ));
+        let names = request.tools.unwrap();
+        assert!(names.iter().any(|name| name == "question"));
+        assert!(names.iter().any(|name| name == "delegate"));
+        assert!(names.iter().any(|name| name == "subagent"));
+        assert!(names.iter().any(|name| name == "send_msg"));
+        assert!(names.iter().any(|name| name == "set_user_profile"));
+        for forbidden in [
+            "read",
+            "write",
+            "bash",
+            "browser_open",
+            "web_fetch",
+            "memory",
+            "memory_search",
+            "project_find",
+            "chat_history",
+        ] {
+            assert!(!names.iter().any(|name| name == forbidden), "{forbidden}");
+        }
+
+        let mut assigned = serde_json::from_value::<ExecutionRequest>(json!({
+            "run_id":"legacy-assigned-main-run", "chat_id":"chat_main", "bot_id":"main",
+            "model":"mock/model", "instruction":"continue",
+            "private":true, "assignment_id":"assignment-1", "phase":"coordinate",
+            "tools":["bash","subagent","set_user_profile"]
+        }))
+        .unwrap();
+        assert!(super::tighten_request_tools_for_current_policy(
+            &snapshot,
+            &mut assigned,
+            true
+        ));
+        let assigned_names = assigned.tools.unwrap();
+        assert!(!assigned_names.iter().any(|name| name == "subagent"));
+        assert!(!assigned_names.iter().any(|name| name == "set_user_profile"));
+
+        let mut child = serde_json::from_value::<ExecutionRequest>(json!({
+            "run_id":"legacy-main-child", "chat_id":"chat_main", "bot_id":"main",
+            "model":"mock/model", "instruction":"analyze",
+            "private":false, "subagent":true,
+            "tools":["read","ls","find","grep","skill","web_fetch","send_msg"]
+        }))
+        .unwrap();
+        assert!(super::tighten_request_tools_for_current_policy(
+            &snapshot, &mut child, true
+        ));
+        assert_eq!(child.tools.unwrap(), ["read", "ls", "find", "grep"]);
+    }
+
     use super::{
         answered_decision_answer, answered_decision_checkpoint_is_safe,
         answered_decision_request_matches, assignment_result_text,

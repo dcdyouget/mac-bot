@@ -1627,8 +1627,8 @@ fn ensure_mock_profile_greeting(state: &mut MockState) {
             "chat_main",
             "msg_profile_onboarding_greeting_v1",
             json!({"kind":"bot","bot_id":"bot_main"}),
-            json!([{"type":"text","markdown":"你好，我是总管。为了之后更好地配合你，想先了解你希望我怎么称呼你、使用什么语言，以及你的身份或角色；你也可以跳过。"}]),
-            "你好，我是总管。为了之后更好地配合你，想先了解你希望我怎么称呼你、使用什么语言，以及你的身份或角色；你也可以跳过。".into(),
+            json!([{"type":"text","markdown":"你好，我是秘书长。为了之后更好地配合你，想先了解你希望我怎么称呼你、使用什么语言，以及你的身份或角色；你也可以跳过。"}]),
+            "你好，我是秘书长。为了之后更好地配合你，想先了解你希望我怎么称呼你、使用什么语言，以及你的身份或角色；你也可以跳过。".into(),
             None,
         );
     }
@@ -2220,8 +2220,8 @@ fn ensure_message_block_scenarios(state: &mut MockState) {
         "chat_login",
         "msg_mock_system",
         json!({"kind":"system"}),
-        json!([{"type":"system","code":"announcement_updated","text":"总管 更新了公告"}]),
-        "总管 更新了公告".into(),
+        json!([{"type":"system","code":"announcement_updated","text":"秘书长 更新了公告"}]),
+        "秘书长 更新了公告".into(),
         None,
     );
 }

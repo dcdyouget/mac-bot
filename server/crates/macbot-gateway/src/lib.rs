@@ -485,15 +485,15 @@ impl MockState {
         let main_id = "bot_main";
         let chat_id = "chat_main";
         let bot = json!({
-            "id": main_id, "name": "总管", "label": "协调负责人", "description": "负责拆解和跟进任务",
+            "id": main_id, "name": "秘书长", "label": "协调负责人", "description": "只负责协调和派发任务，不直接执行工作",
             "avatar": {"kind":"bean", "color": 4}, "is_main": true, "model": null, "max_parallel": 8,
-            "tools": {"files":true,"bash":true,"browser":true,"subagent":true,"web":true,"mcp":true},
+            "tools": {"files":false,"bash":false,"browser":false,"subagent":true,"web":false,"mcp":false},
             "browser_mode":"headless", "pinned":true, "hidden":false, "notifications":true,
             "dm_chat_id": chat_id, "created_at":now, "updated_at":now,
             "status":{"summary":"idle","active":0,"queued":0,"waiting":0}
         });
         let chat = json!({
-            "id":chat_id,"kind":"main","title":"总管","bot_id":main_id,"project_id":null,
+            "id":chat_id,"kind":"main","title":"秘书长","bot_id":main_id,"project_id":null,
             "member_bot_ids":[],"last_message":null,"last_seq":0,"last_read_seq":0,"unread":0,
             "attention":"none","pinned":true,"muted":false,"updated_at":now
         });

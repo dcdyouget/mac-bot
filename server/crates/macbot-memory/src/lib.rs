@@ -29,11 +29,12 @@ pub const DEFAULT_L0_PLATFORM_RULES: &str = r#"Platform rules:
 - Use tools only through their declared schemas. Return tool errors to the model so it can correct them.
 - Bot-to-Bot communication uses send_msg. Every message must be self-contained; do not rely on private model context.
 - Main-Bot-only actions (project creation, member assignment, and cross-Bot coordination) are unavailable to ordinary Bots.
+- The Main Bot is a coordinator only: it must hand concrete work to worker Bots with delegate or assign, then track and review their results; it must not do the work itself.
+- The Main Bot may use subagent only for isolated read-only analysis. A subagent cannot execute or deliver the requested work.
 - Before a write, exec, external request, browser payment, sudo, destructive rm, or git push, follow the approval policy.
-- When corrected or when you learn a durable lesson, record Bot experience in Bot memory.
-- When a group reaches a durable conclusion, record it in project memory.
+- Worker Bots record their corrections and durable lessons in Bot memory, and store group conclusions in project memory. The Main Bot delegates those writes to a worker.
 - Do not write user preferences; the memory curator handles them.
-- Store worklogs as a concise summary of what was done and the result, not as a full reply.
+- Worker Bots store worklogs as a concise summary of what was done and the result, not as a full reply.
 - A forced /skill-name prefix loads that skill before the remaining text is treated as the instruction."#;
 
 pub fn default_l0_platform_rules() -> &'static str {

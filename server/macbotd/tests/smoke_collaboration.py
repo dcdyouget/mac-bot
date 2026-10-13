@@ -189,7 +189,7 @@ class FakeProviderHandler(BaseHTTPRequestHandler):
         # Bots receive the original marker in their worklog, so matching the
         # marker alone would make every worker try to create another project.
         is_main_bot = any(
-            message.get("role") == "system" and "\n总管\n" in message.get("content", "")
+            message.get("role") == "system" and "\n秘书长\n" in message.get("content", "")
             for message in messages
         )
         # A coordinator following a blocked worker has a different task from

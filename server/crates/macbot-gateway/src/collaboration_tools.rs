@@ -24,6 +24,7 @@ pub struct CollaborationIdentity {
     pub assignment_id: Option<String>,
     pub project_id: Option<String>,
     pub is_main: bool,
+    pub private: bool,
 }
 
 /// Durable coordination RPCs.  Production implements this with the gateway's
@@ -31,6 +32,20 @@ pub struct CollaborationIdentity {
 #[async_trait]
 pub trait CoordinationRpc: Send + Sync {
     async fn call(&self, method: &str, params: Value) -> Result<Value, String>;
+
+    async fn start_run_subagent(&self, run_id: &str, task: &str) -> Result<Value, String> {
+        self.call("subagent.start_run", json!({"run_id":run_id,"task":task}))
+            .await
+    }
+
+    async fn finish_run_subagent(&self, run_id: &str, subagent_id: &str) -> Result<(), String> {
+        self.call(
+            "subagent.finish_run",
+            json!({"run_id":run_id,"subagent_id":subagent_id}),
+        )
+        .await
+        .map(|_| ())
+    }
 }
 
 /// Lightweight bridge for tests and callers that intentionally operate on
@@ -47,6 +62,19 @@ impl CoordinationRpc for OrchestratorRpc {
         self.orchestrator
             .rpc(method, params)
             .await
+            .map_err(|error| error.to_string())
+    }
+
+    async fn start_run_subagent(&self, run_id: &str, task: &str) -> Result<Value, String> {
+        self.orchestrator
+            .start_run_subagent(run_id.to_owned(), task.to_owned())
+            .map(|handle| json!(handle))
+            .map_err(|error| error.to_string())
+    }
+
+    async fn finish_run_subagent(&self, run_id: &str, subagent_id: &str) -> Result<(), String> {
+        self.orchestrator
+            .finish_run_subagent(run_id, subagent_id)
             .map_err(|error| error.to_string())
     }
 }
@@ -77,7 +105,7 @@ pub trait WebToolBridge: Send + Sync {
 #[derive(Clone, Debug)]
 pub struct SubagentDispatchRequest {
     pub subagent_id: String,
-    pub assignment_id: String,
+    pub assignment_id: Option<String>,
     pub parent_run_id: String,
     pub bot_id: String,
     pub chat_id: String,
@@ -144,6 +172,21 @@ impl CoordinationRpc for ProductionCoordinationRpc {
             self.backend.call(method, params, &self.state).await
         };
         result.map_err(|error| error.to_string())
+    }
+
+    async fn start_run_subagent(&self, run_id: &str, task: &str) -> Result<Value, String> {
+        self.backend
+            .orchestrator
+            .start_run_subagent(run_id.to_owned(), task.to_owned())
+            .map(|handle| json!(handle))
+            .map_err(|error| error.to_string())
+    }
+
+    async fn finish_run_subagent(&self, run_id: &str, subagent_id: &str) -> Result<(), String> {
+        self.backend
+            .orchestrator
+            .finish_run_subagent(run_id, subagent_id)
+            .map_err(|error| error.to_string())
     }
 }
 
@@ -707,13 +750,7 @@ impl CollaborationTools {
     /// omitted: ExecutionEngine injects its built-in durable run_id+call_id
     /// implementation and forwards the admitted message to the group bridge.
     pub fn tools(&self) -> Vec<Arc<dyn Tool>> {
-        let mut names = vec![
-            "web_fetch",
-            "web_search",
-            "routine",
-            "question",
-            "update_announcement",
-        ];
+        let mut names = vec!["question"];
         if self.identity.is_main {
             names.extend([
                 "list_bots",
@@ -726,11 +763,16 @@ impl CollaborationTools {
                 "request_review",
                 "finish_project",
                 "propose_bot",
-                "notify_user",
-                "remind",
             ]);
+            if self.identity.private && self.identity.assignment_id.is_none() {
+                names.push("subagent");
+            }
         } else {
             names.extend([
+                "web_fetch",
+                "web_search",
+                "routine",
+                "update_announcement",
                 "browser_open",
                 "browser_snapshot",
                 "browser_act",
@@ -1004,20 +1046,62 @@ impl CollaborationTools {
             .remove("action")
             .and_then(|value| value.as_str().map(str::to_owned))
             .ok_or_else(|| "subagent.action is required".to_owned())?;
-        args.entry("assignment_id")
-            .or_insert_with(|| json!(self.identity.assignment_id));
-        args.entry("parent_run_id")
-            .or_insert_with(|| json!(context.run_id));
-        args.entry("bot_id")
-            .or_insert_with(|| json!(self.identity.bot_id));
-        args.entry("chat_id")
-            .or_insert_with(|| json!(self.identity.chat_id));
-        let method = match action.as_str() {
-            "start" => "subagent.start",
-            "finish" => "subagent.finish",
+        let run_scoped_main = self.identity.is_main && self.identity.assignment_id.is_none();
+        if self.identity.is_main
+            && (!self.identity.private || self.identity.assignment_id.is_some())
+        {
+            return Err(
+                "Main Bot subagents are available only in a private, unassigned run".into(),
+            );
+        }
+        if run_scoped_main {
+            args.remove("assignment_id");
+            args.insert("run_id".into(), json!(context.run_id));
+        } else {
+            let assignment_id = self
+                .identity
+                .assignment_id
+                .as_deref()
+                .ok_or_else(|| "subagent requires an active assignment".to_owned())?;
+            args.insert("assignment_id".into(), json!(assignment_id));
+        }
+        args.insert("parent_run_id".into(), json!(context.run_id));
+        args.insert("bot_id".into(), json!(self.identity.bot_id));
+        args.insert("chat_id".into(), json!(self.identity.chat_id));
+        if action == "start" && self.subagent.is_none() {
+            return Err("subagent dispatch is unavailable".into());
+        }
+        let result = match (action.as_str(), run_scoped_main) {
+            ("start", true) => {
+                let task = args
+                    .get("task")
+                    .and_then(Value::as_str)
+                    .filter(|task| !task.trim().is_empty())
+                    .ok_or_else(|| "subagent task must be a nonempty string".to_owned())?;
+                self.rpc.start_run_subagent(&context.run_id, task).await?
+            }
+            ("finish", true) => {
+                let subagent_id = args
+                    .get("subagent_id")
+                    .and_then(Value::as_str)
+                    .ok_or_else(|| "subagent_id is required".to_owned())?;
+                self.rpc
+                    .finish_run_subagent(&context.run_id, subagent_id)
+                    .await?;
+                json!({})
+            }
+            ("start", false) => {
+                self.rpc
+                    .call("subagent.start", Value::Object(args.clone()))
+                    .await?
+            }
+            ("finish", false) => {
+                self.rpc
+                    .call("subagent.finish", Value::Object(args.clone()))
+                    .await?
+            }
             _ => return Err("subagent.action must be start or finish".into()),
         };
-        let result = self.rpc.call(method, Value::Object(args.clone())).await?;
         if action == "start" {
             if let Some(dispatch) = &self.subagent {
                 let subagent_id = result
@@ -1028,15 +1112,12 @@ impl CollaborationTools {
                 let assignment_id = args
                     .get("assignment_id")
                     .and_then(Value::as_str)
-                    .ok_or_else(|| "subagent assignment_id is required".to_owned())?;
-                let task = args
-                    .get("task")
-                    .and_then(Value::as_str)
-                    .ok_or_else(|| "subagent task is required".to_owned())?;
-                let child = dispatch
+                    .map(str::to_owned);
+                let task = args.get("task").and_then(Value::as_str).unwrap_or_default();
+                let child_result = dispatch
                     .dispatch(SubagentDispatchRequest {
                         subagent_id: subagent_id.to_owned(),
-                        assignment_id: assignment_id.to_owned(),
+                        assignment_id: assignment_id.clone(),
                         parent_run_id: context.run_id.clone(),
                         bot_id: self.identity.bot_id.clone(),
                         chat_id: self.identity.chat_id.clone(),
@@ -1047,7 +1128,31 @@ impl CollaborationTools {
                             .unwrap_or(8)
                             .min(32) as u32,
                     })
-                    .await?;
+                    .await;
+                let finish_result = if run_scoped_main {
+                    self.rpc
+                        .finish_run_subagent(&context.run_id, subagent_id)
+                        .await
+                } else {
+                    let mut finish = Map::new();
+                    finish.insert(
+                        "assignment_id".into(),
+                        json!(assignment_id.as_deref().unwrap_or_default()),
+                    );
+                    finish.insert("subagent_id".into(), json!(subagent_id));
+                    self.rpc
+                        .call("subagent.finish", Value::Object(finish))
+                        .await
+                        .map(|_| ())
+                };
+                let child = match (child_result, finish_result) {
+                    (Ok(child), Ok(_)) => child,
+                    (Err(error), Ok(_)) => return Err(error),
+                    (Ok(_), Err(error)) => return Err(error),
+                    (Err(error), Err(cleanup)) => {
+                        return Err(format!("{error}; subagent quota cleanup failed: {cleanup}"))
+                    }
+                };
                 return Ok(json!({"subagent":result,"dispatch":child}));
             }
         }
@@ -1099,7 +1204,7 @@ fn description(name: &str) -> &'static str {
         "propose_bot" => "Propose a new Bot and wait for user approval.",
         "notify_user" | "remind" => "Send a coordination notice to the user chat.",
         "routine" => "Create, update, list, enable, or delete a routine.",
-        "subagent" => "Start or finish a bounded subagent task.",
+        "subagent" => "Run isolated read-only analysis only. The child cannot modify files, execute commands, access memory, send messages, or complete the requested work. Starting waits for the result and releases quota automatically; real work must be assigned to a worker Bot.",
         "request_takeover" => "Request that the user take over the browser.",
         "question" | "ask_user" => "Ask the user a question and wait for an answer.",
         "web_fetch" => "Fetch a web page and return readable content.",
@@ -1153,7 +1258,7 @@ fn schema(name: &str) -> Value {
             &["action"],
         ),
         "subagent" => object(
-            json!({"action":{"type":"string","enum":["start","finish"]},"task":{"type":"string"},"subagent_id":{"type":"string"}}),
+            json!({"action":{"type":"string","enum":["start","finish"]},"task":{"type":"string"},"subagent_id":{"type":"string"},"max_turns":{"type":"integer","minimum":1,"maximum":32}}),
             &["action"],
         ),
         "web_fetch" => object(
@@ -1227,6 +1332,7 @@ mod tests {
             rpc.clone(),
             CollaborationIdentity {
                 is_main: true,
+                private: true,
                 ..Default::default()
             },
             None,
@@ -1253,12 +1359,64 @@ mod tests {
             .map(|tool| tool.name().to_owned())
             .collect();
         assert!(main_names.iter().any(|name| name == "create_project"));
+        assert!(main_names.iter().any(|name| name == "subagent"));
         assert!(!main_names.iter().any(|name| name == "browser_open"));
-        assert!(!main_names.iter().any(|name| name == "subagent"));
+        for forbidden in [
+            "web_fetch",
+            "web_search",
+            "routine",
+            "update_announcement",
+            "notify_user",
+            "remind",
+        ] {
+            assert!(
+                !main_names.iter().any(|name| name == forbidden),
+                "{forbidden}"
+            );
+        }
         assert!(worker_names.iter().any(|name| name == "browser_open"));
+        assert!(worker_names.iter().any(|name| name == "routine"));
         assert!(!worker_names.iter().any(|name| name == "create_project"));
         assert!(worker_names.iter().any(|name| name == "subagent"));
         assert!(!worker_names.iter().any(|name| name == "send_msg"));
+
+        let group_main = CollaborationTools::new(
+            Arc::new(FakeRpc::default()),
+            CollaborationIdentity {
+                is_main: true,
+                private: false,
+                ..Default::default()
+            },
+            None,
+            None,
+        );
+        assert!(!group_main
+            .tools()
+            .iter()
+            .any(|tool| tool.name() == "subagent"));
+        let assigned_private_main = CollaborationTools::new(
+            Arc::new(FakeRpc::default()),
+            CollaborationIdentity {
+                is_main: true,
+                private: true,
+                assignment_id: Some("main-assignment".into()),
+                ..Default::default()
+            },
+            None,
+            None,
+        );
+        assert!(!assigned_private_main
+            .tools()
+            .iter()
+            .any(|tool| tool.name() == "subagent"));
+        let denied = group_main
+            .invoke(
+                "subagent",
+                &ToolContext::new("/tmp", "group-run", "/tmp/runs"),
+                json!({"action":"start","task":"inspect"}),
+            )
+            .await;
+        assert!(denied.is_error);
     }
 
     #[test]
@@ -1284,6 +1442,7 @@ mod tests {
                 assignment_id: Some("asg-1".into()),
                 project_id: Some("project-1".into()),
                 is_main: false,
+                private: true,
             },
             None,
             None,
@@ -1299,19 +1458,12 @@ mod tests {
         factory
             .invoke("routine", &context, json!({"action":"list"}))
             .await;
-        factory
-            .invoke(
-                "subagent",
-                &context,
-                json!({"action":"start","task":"inspect"}),
-            )
-            .await;
         let calls = rpc.0.lock().unwrap();
         assert_eq!(calls[0].0, "assignment.create");
         assert_eq!(calls[0].1["origin_chat_id"], "chat-1");
         assert_eq!(calls[0].1["project_id"], "project-1");
         assert_eq!(calls[1].1["bot_id"], "bot-1");
-        assert_eq!(calls[2].1["assignment_id"], "asg-1");
+        assert_eq!(calls.len(), 2);
     }
 
     #[tokio::test]
@@ -1574,10 +1726,12 @@ mod tests {
                 Ok(json!({"run_id":"child-run"}))
             }
         }
-        struct StartRpc;
+        #[derive(Default)]
+        struct StartRpc(Mutex<Vec<(String, Value)>>);
         #[async_trait]
         impl CoordinationRpc for StartRpc {
-            async fn call(&self, method: &str, _params: Value) -> Result<Value, String> {
+            async fn call(&self, method: &str, params: Value) -> Result<Value, String> {
+                self.0.lock().unwrap().push((method.into(), params));
                 if method == "subagent.start" {
                     Ok(json!({"id":"sub-1"}))
                 } else {
@@ -1586,8 +1740,9 @@ mod tests {
             }
         }
         let dispatch = Arc::new(Dispatch::default());
+        let rpc = Arc::new(StartRpc::default());
         let factory = CollaborationTools::new(
-            Arc::new(StartRpc),
+            rpc.clone(),
             CollaborationIdentity {
                 bot_id: "bot-1".into(),
                 chat_id: "chat-1".into(),
@@ -1610,6 +1765,84 @@ mod tests {
         let calls = dispatch.0.lock().unwrap();
         assert_eq!(calls[0].subagent_id, "sub-1");
         assert_eq!(calls[0].parent_run_id, "parent-run");
+        assert_eq!(calls[0].assignment_id.as_deref(), Some("assignment-1"));
         assert_eq!(calls[0].max_turns, 4);
+        drop(calls);
+        let rpc_calls = rpc.0.lock().unwrap();
+        assert_eq!(rpc_calls[0].0, "subagent.start");
+        assert_eq!(rpc_calls[0].1["assignment_id"], "assignment-1");
+        assert_eq!(rpc_calls[1].0, "subagent.finish");
+        assert_eq!(rpc_calls[1].1["subagent_id"], "sub-1");
+    }
+
+    #[tokio::test]
+    async fn main_private_subagent_uses_own_run_scope_and_ignores_model_scope_args() {
+        #[derive(Default)]
+        struct Dispatch(Mutex<Vec<SubagentDispatchRequest>>);
+        #[async_trait]
+        impl SubagentDispatchBridge for Dispatch {
+            async fn dispatch(&self, request: SubagentDispatchRequest) -> Result<Value, String> {
+                self.0.lock().unwrap().push(request);
+                Ok(json!({"status":"done","text":"read-only analysis"}))
+            }
+        }
+        #[derive(Default)]
+        struct RunScopeRpc(Mutex<Vec<(String, Value)>>);
+        #[async_trait]
+        impl CoordinationRpc for RunScopeRpc {
+            async fn call(&self, method: &str, params: Value) -> Result<Value, String> {
+                self.0.lock().unwrap().push((method.into(), params));
+                if method == "subagent.start_run" {
+                    Ok(json!({"id":"sub-run-1"}))
+                } else {
+                    Ok(json!({}))
+                }
+            }
+        }
+        let rpc = Arc::new(RunScopeRpc::default());
+        let dispatch = Arc::new(Dispatch::default());
+        let factory = CollaborationTools::new(
+            rpc.clone(),
+            CollaborationIdentity {
+                bot_id: "main".into(),
+                chat_id: "chat_main".into(),
+                assignment_id: None,
+                is_main: true,
+                private: true,
+                ..Default::default()
+            },
+            None,
+            None,
+        )
+        .with_subagent_dispatch(dispatch.clone());
+        let context = ToolContext::new("/tmp", "trusted-parent-run", "/tmp/runs");
+        let result = factory
+            .invoke(
+                "subagent",
+                &context,
+                json!({
+                    "action":"start",
+                    "task":"Compare these two plans",
+                    "assignment_id":"forged-assignment",
+                    "run_id":"forged-run",
+                    "max_turns":5
+                }),
+            )
+            .await;
+        assert!(!result.is_error);
+        let calls = rpc.0.lock().unwrap();
+        assert_eq!(calls.len(), 2);
+        assert_eq!(calls[0].0, "subagent.start_run");
+        assert_eq!(calls[0].1["run_id"], "trusted-parent-run");
+        assert_eq!(calls[0].1.get("assignment_id"), None);
+        assert_eq!(calls[1].0, "subagent.finish_run");
+        assert_eq!(calls[1].1["run_id"], "trusted-parent-run");
+        assert_eq!(calls[1].1["subagent_id"], "sub-run-1");
+        drop(calls);
+        let child = dispatch.0.lock().unwrap();
+        assert_eq!(child.len(), 1);
+        assert_eq!(child[0].assignment_id, None);
+        assert_eq!(child[0].parent_run_id, "trusted-parent-run");
+        assert_eq!(child[0].max_turns, 5);
     }
 }

@@ -246,7 +246,7 @@ python3 server/macbotd/tests/smoke_cancelled_approvals.py \
   --new-command '/path/to/new/macbotd --port 7796 --password dev'
 ```
 
-记忆开发场景：`--mock` 默认提供至少 6 条用户记忆，覆盖群整理、总管私聊整理、用户手动添加、旧 Bot 数据、版本冲突和接近配额上限的条目。第一次编辑 `mem_mock_conflict` 会先模拟其他设备将版本从 1 更新到 2，再返回 conflict；`memory.user.create` 默认返回带 entries 目录的 quota_full。可用 mock-only RPC `mock.set_memory_scenario({"quota_full":false,"conflict_once":false})` 关闭这两个场景，正常创建和编辑便可继续；`mock.use_complete_profile({})` 切换到「小明 / zh-CN / 产品经理」完整档案，默认 profile 为空并触发 onboarding。
+记忆开发场景：`--mock` 默认提供至少 6 条用户记忆，覆盖群整理、秘书长私聊整理、用户手动添加、旧 Bot 数据、版本冲突和接近配额上限的条目。第一次编辑 `mem_mock_conflict` 会先模拟其他设备将版本从 1 更新到 2，再返回 conflict；`memory.user.create` 默认返回带 entries 目录的 quota_full。可用 mock-only RPC `mock.set_memory_scenario({"quota_full":false,"conflict_once":false})` 关闭这两个场景，正常创建和编辑便可继续；`mock.use_complete_profile({})` 切换到「小明 / zh-CN / 产品经理」完整档案，默认 profile 为空并触发 onboarding。
 
 服务端记忆文件位于 `data/memory/state.json`、只追加修改日志 `data/memory/changelog.jsonl` 与段游标 `data/memory/segments/{run_id}.json`；段日志保留策略在服务启动维护时执行。记忆与网关测试及 lint：
 
