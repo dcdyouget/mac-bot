@@ -2723,7 +2723,7 @@ function App() {
     || (activeSearchSideTarget?.kind === 'bot' && Object.values(state.chats).some((chat) => chat.bot_id === activeSearchSideTarget.id))
     || Boolean(activeSearchSideTarget?.chat_id)
 
-  return <main className={`app-shell${showSettings ? ' settings-open' : ''}`}>
+  return <main className={`app-shell${showSettings ? ' settings-open' : ''}`} data-page={activePage}>
     {deepLinkNotice && <div className="deep-link-notice" role="alert"><span>{deepLinkNotice}</span><button type="button" aria-label={t('common.close')} onClick={() => setDeepLinkNotice(null)}><X size={14} /></button></div>}
     <button type="button" className="icon-button sidebar-overlay-toggle global-sidebar-toggle" aria-label={t(sidebarOverlayOpen ? 'sidebar.close' : 'sidebar.open')} aria-expanded={sidebarOverlayOpen} onClick={() => setSidebarOverlayOpen((open) => !open)}><Menu size={17} /></button>
     {sidebarOverlayOpen && <button type="button" className="sidebar-overlay-scrim" aria-label={t('sidebar.close')} onClick={() => setSidebarOverlayOpen(false)} />}
@@ -3205,7 +3205,7 @@ function App() {
         hostName={state.active_host?.name ?? hostName}
         connected={state.connection === 'connected'}
         settings={state.settings}
-        bots={Object.fromEntries(Object.values(state.bots).map((bot) => [bot.id, { id: bot.id, name: bot.name ?? bot.id }]))}
+        bots={Object.fromEntries(Object.values(state.bots).map((bot) => [bot.id, { id: bot.id, name: bot.name ?? bot.id, is_main: bot.is_main === true }]))}
         permissions={hostPermissions}
         appVersion={clientVersion}
         protocolVersion={(state as BridgeState & { protocol_version?: number | null }).protocol_version ?? null}
