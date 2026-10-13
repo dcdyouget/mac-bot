@@ -414,7 +414,7 @@ S.queue = (p) => S.group(p).replace("${BOT[k][0]} ", "${BOT[k][0]} ")
 S.queuetrace = (p) => S.trace(p).replace('<div class="card card-pad" style="margin-bottom:12px;font-size:14px;line-height:20px"><div class="t-foot" style="margin-bottom:2px">任务指令</div>', `<div class="row" style="height:28px;font-size:13px;font-weight:600;color:var(--text-tertiary)"><span class="grow">待看消息 2</span><span style="font-weight:400">交付前会一起查看</span></div>${MB.queueItem('me', '登录页文案统一用「您」', '10:33')}${MB.queueItem('T', '测试那边 10 点前要，来得及吗？', '10:33')}<div style="height:12px"></div><div class="card card-pad" style="margin-bottom:12px;font-size:14px;line-height:20px"><div class="t-foot" style="margin-bottom:2px">任务指令</div>`);
 
 // 04-mobile.md 记忆 + v1.1 §12 记忆整理
-// [content, source_kind, source_label, updated_at]
+// [content, source_kind, source_label, created_at]
 // source_kind: 'curator' (system) | 'user' | 'bot' (旧数据)
 const memSource = (kind, label) => {
   if (kind === 'user') return '你手动添加';
@@ -423,21 +423,31 @@ const memSource = (kind, label) => {
 };
 S.memory = (p) => sub(p, '记忆', '我的', { actions: ['plus'] }) + `
   <div class="content" style="padding:0 16px">
-    <div class="t-foot" style="margin:2px 4px 10px;line-height:19px">所有 Bot 共享的、关于你的习惯和偏好。<b>记忆整理</b>会根据你说的话自动记下，你也可以修改、删除、添加。</div>
+    <div class="t-foot" style="margin:2px 4px 10px;line-height:19px">这里是<b>用户记忆</b>：所有 Bot 共享的、关于你的习惯和偏好。<b>记忆整理</b>会根据你说的话自动记下，你也可以直接修改、删除或添加。修改后，所有 Bot 在下一次思考前就会知道。</div>
     <div class="card" style="padding:12px 14px;margin-bottom:12px">
       <div class="row" style="margin-bottom:8px"><span class="grow" style="font-size:15px;font-weight:600">关于你</span><span class="r badge" style="background:var(--accent-soft);color:var(--accent);font-size:11px;padding:1px 6px">未完成</span></div>
-      <div class="row gap10" style="margin-bottom:6px;align-items:center"><span class="t-foot" style="width:48px">称呼</span><div class="field grow" style="height:34px;font-size:14px"><span class="t3">想让我怎么称呼你</span></div></div>
-      <div class="row gap10" style="margin-bottom:6px;align-items:center"><span class="t-foot" style="width:48px">语言</span><div class="field grow" style="height:34px;font-size:14px"><span class="t3">跟随系统</span></div></div>
-      <div class="row gap10" style="margin-bottom:6px;align-items:center"><span class="t-foot" style="width:48px">身份</span><div class="field grow" style="height:34px;font-size:14px"><span class="t3">一句话描述你的角色（可选）</span></div></div>
+      <div class="row gap10" style="margin-bottom:6px;align-items:center"><span class="t-foot" style="width:48px">称呼</span><div class="field grow" style="height:34px;font-size:14px"><span class="t3 grow">Bot 怎么叫你</span><span class="t3">›</span></div></div>
+      <div class="row gap10" style="margin-bottom:6px;align-items:center"><span class="t-foot" style="width:48px">语言</span><div class="field grow" style="height:34px;font-size:14px"><span class="t3 grow">跟随系统</span><span class="t3">›</span></div></div>
+      <div class="row gap10" style="margin-bottom:6px;align-items:center"><span class="t-foot" style="width:48px">身份</span><div class="field grow" style="height:34px;font-size:14px;min-width:0"><span class="t3 grow" style="display:block;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">一句话介绍你，例如「独立开发者，主要做 Rust 和 Android」</span><span class="t3">›</span></div></div>
       <div class="row gap10" style="align-items:center"><span class="t-foot" style="width:48px">时区</span><span class="t-foot" style="color:var(--text-tertiary)">Asia/Shanghai · 跟随 Host</span></div>
     </div>
     <div class="card" style="padding:12px 14px;margin-bottom:12px"><div class="row" style="margin-bottom:8px"><span class="grow" style="font-size:15px">用量</span><span class="t-foot mono">1,186 / 1,500 字</span></div><div style="height:6px;border-radius:3px;background:var(--bg-active);overflow:hidden"><div style="width:79%;height:100%;background:var(--accent)"></div></div></div>
     <div class="field lg" style="height:40px;margin-bottom:12px">${I('search', 't3')}<span class="t3">搜索记忆</span></div>
-    <div class="card">${[['回复用中文，代码和注释用英文。', 'curator', '登录功能', '10/09'], ['不喜欢长篇报告：先给结论，细节放后面。', 'curator', '和总管的私聊', '10/08'], ['常用的技术栈：TypeScript、Rust。', 'curator', '官网改版', '10/07'], ['周末不要推送非紧急通知。', 'user', null, '10/06'], ['截图优先给移动端尺寸。', 'bot', 'P', '10/05']].map(([t, k, l, d], i) =>
+    <div class="card">${[['回复用中文，代码和注释用英文。', 'curator', '登录功能', '10/09 10:21'], ['不喜欢长篇报告：先给结论，细节放后面。', 'curator', '和总管的私聊', '10/08 21:40'], ['常用的技术栈：TypeScript、Rust。', 'curator', '官网改版', '10/07 15:02'], ['周末不要推送非紧急通知。', 'user', null, '10/06 09:15'], ['截图优先给移动端尺寸。', 'bot', 'P', '10/05 18:33']].map(([t, k, l, d], i) =>
       `<div style="padding:12px 14px;${i ? 'border-top:1px solid var(--border-subtle)' : ''}"><div style="font-size:16px;line-height:23px">${t}</div><div class="row gap6 t-foot" style="margin-top:6px">${memSource(k, l)} · ${d}</div></div>`).join('')}</div>
     <div class="t-foot" style="padding:10px 4px">左滑条目可以删除，点击条目编辑</div>
   </div>` + endPad(p);
-S.memoryonboarded = (p) => S.memory(p).replace('未完成</span>', '</span>').replace(/<span class="t3">想让我怎么称呼你<\/span>/g, '小明').replace(/<span class="t3">跟随系统<\/span>/g, 'zh-CN').replace(/<span class="t3">一句话描述你的角色（可选）<\/span>/g, '产品经理').replace('width:79%;height:100%;background:var(--accent)">', 'width:66%;height:100%;background:var(--accent)">').replace('1,186 / 1,500 字', '986 / 1,500 字');
+S.memoryonboarded = (p) => S.memory(p).replace('<span class="r badge" style="background:var(--accent-soft);color:var(--accent);font-size:11px;padding:1px 6px">未完成</span>', '').replace(/<span class="t3 grow">Bot 怎么叫你<\/span>/g, '<span class="grow">小明</span>').replace(/<span class="t3 grow">跟随系统<\/span>/g, '<span class="grow">zh-CN</span>').replace(/<span class="t3 grow"[^>]*>一句话介绍你，例如「独立开发者，主要做 Rust 和 Android」<\/span>/g, '<span class="grow">产品经理</span>').replace('width:79%;height:100%;background:var(--accent)">', 'width:66%;height:100%;background:var(--accent)">').replace('1,186 / 1,500 字', '986 / 1,500 字');
+S.memoryquota = (p) => S.memoryonboarded(p)
+  .replace('width:66%;height:100%;background:var(--accent)">', 'width:100%;height:100%;background:var(--danger)">')
+  .replace('986 / 1,500 字', '1,500 / 1,500 字')
+  .replace('<div class="field lg" style="height:40px;margin-bottom:12px">', '<div class="t-foot" style="color:var(--danger);margin:-4px 4px 10px">记忆已满，请先删除或合并几条</div><div class="field lg" style="height:40px;margin-bottom:12px">');
+S.memoryprofileedit = (p) => sub(p, '编辑称呼', '记忆', { actions: ['check'] }) + `
+  <div class="content" style="padding:0 16px">
+    <div class="t-foot" style="margin:4px 4px 8px">称呼</div>
+    <div class="field lg focus" style="height:44px">小明<span style="border-left:1.5px solid var(--accent)"></span></div>
+    <div class="t-foot" style="padding:8px 4px">保存后，所有 Bot 在下一次思考前就会知道。</div>
+  </div>` + endPad(p);
 S.memoryedit = (p) => sub(p, '编辑记忆', '记忆', { actions: ['check'] }) + `
   <div class="content" style="padding:0 16px">
     <div class="card" style="padding:12px 14px;font-size:16px;line-height:24px;min-height:140px;box-shadow:0 0 0 1px var(--accent),0 0 0 4px var(--accent-soft)">回复用中文，代码和注释用英文。<span style="border-left:1.5px solid var(--accent)"></span></div>
@@ -446,6 +456,8 @@ S.memoryedit = (p) => sub(p, '编辑记忆', '记忆', { actions: ['check'] }) +
   </div>` + endPad(p);
 
 const LIST = [['list', '消息列表（审批提醒挂在对应的群 / Bot 上）'], ['mainchat', '主 Bot 私聊（顶部：等你处理）'], ['follow', '主 Bot · 跟进（对应桌面右面板）'], ['botchat', 'Bot 私聊（顶部：待审批）'], ['botfollow', 'Bot · 跟进（正在干的活 + 群聊跳转）'], ['group', '群聊'], ['mention', '群聊 · @ 成员'], ['queue', '待看消息 · 发送（不打断）'], ['queuetrace', '待看消息 · 工作详情'], ['reply', '群聊 · 引用回复（右滑消息）'], ['decide1', '决策 · 多题堆叠'], ['decide2', '决策 · 答了 1 题'], ['decide3', '决策 · 全部答完'], ['slash', '群聊 · / 技能列表'], ['slash_q', '群聊 · / 技能筛选'], ['slash_picked', '群聊 · 已选中技能'], ['groupinfo', '群信息（Markdown 公告 · 成员 · 产物）'], ['artifact', '产物预览'], ['trace', '工作详情 / 运行轨迹'], ['work', '工作台（每个任务可跳转群聊）'], ['routines', '定时任务'], ['routine', '定时任务详情'], ['approve', '审批（底部弹层）'], ['notify', '通知'], ['newgroup', '新建群'], ['search', '搜索'], ['computer', 'Agent Computer'], ['dash', '仪表盘'], ['skills', '技能'], ['me', '我的'], ['memory', '记忆'], ['memoryonboarded', '记忆 · 档案已填'], ['memoryedit', '编辑记忆'], ['bots', 'Bot 管理'], ['botedit', 'Bot 编辑'], ['botdetail', 'Bot 详情'], ['longpress', '长按消息'], ['swipe', '左滑会话'], ['hostswitch', '切换 Host'], ['annedit', '编辑公告'], ['settings', '外观与通知'], ['connect', '首次连接'], ['offline', '断线重连']];
+const memoryEditIndex = LIST.findIndex(([key]) => key === 'memoryedit');
+LIST.splice(memoryEditIndex, 0, ['memoryquota', '记忆 · 配额已满'], ['memoryprofileedit', '编辑档案 · 称呼']);
 const nav = document.createElement('div'); nav.className = 'screens'; nav.style.cssText = 'display:flex;flex-wrap:wrap;gap:6px;justify-content:center;max-width:1000px;margin:-24px auto 32px';
 nav.innerHTML = LIST.map(([k, t]) => `<a href="#m-${k}" style="height:26px;line-height:26px;padding:0 12px;border-radius:13px;font-size:12px;color:var(--text-secondary);background:var(--bg-elevated);box-shadow:0 0 0 1px var(--border-subtle);text-decoration:none">${t.replace(/（.*）/, '')}</a>`).join('');
 document.getElementById('board').before(nav);

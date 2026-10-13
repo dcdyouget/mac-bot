@@ -90,6 +90,7 @@
 - **改了什么**：「设置 → 记忆」顶部新增「关于你」档案卡片（称呼、语言、身份可编辑；时区跟随 Host 只读）。用户记忆改由后台「记忆整理」写入，来源行显示「记忆整理 根据 · 会话名 · 时间」；旧数据仍显示 Bot。
 - **文件**：03 §6.7、04、07（`memory.profile.*`、`memory.source.curator`、`memory.desc`）；协议 PROTOCOL 5.10a（`UserProfile`、`memory.profile.*`）；DESIGN.md 4.12；PLAN 5.5.8、5.5.9；原型 `mac.html#set_memory` / `#set_memory_onboarded` / `#set_memory_profile_conflict`、`mobile.html?only=memory,memoryonboarded`。
 - **实现注意**：档案编辑走 `memory.profile.update` 走版本冲突；`onboarded = false` 时首次主 Bot 私聊用 `set_user_profile` 走一轮 init 流程；用户记忆改由 curator（PLAN 5.5.9）批量写，Bot 写 user scope 会被工具拒绝。
+- **2026-10-13 补充**：来源行显示 `created_at`（旧数据回退 `updated_at`），列表排序仍使用 `updated_at`；HTML 原型核验见 `design/progress/v11-v12-memory-prototype/REPORT.md`，该报告不替代客户端运行验收。
 
 ### 13. 其他
 - 主 Bot 头像从皇冠改为黑框眼镜（01 §10，token `avatar.glasses`）。

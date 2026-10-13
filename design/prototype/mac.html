@@ -704,14 +704,14 @@ V.queuepanel = () => V.detail().replace('<div class="psec"><div class="ph">工�
 V.queuedone = () => V.queue().replace(`<span style="color:var(--accent)">${I('clock', 's14')} 编码 交付前会看到</span>`, `<span style="color:var(--success)">编码 交付前已查看 ✓</span>`).replace(`工作中 25 分 <span class="qbadge">${I('clock', 's14')}2</span>`, '工作中 25 分');
 
 // Settings → 记忆 (user memory only; 03 §6.7 + v1.1 §11、§12)
-// [content, source_kind, source_chat, updated_at, version]
+// [content, source_kind, source_chat, created_at, version]
 // source_kind: 'curator' (system) | 'user' | 'bot' (旧数据)
 const MEMS = [
   ['回复用中文，代码和注释用英文。', 'curator', '登录功能', '10/09 10:21', 3],
   ['不喜欢长篇报告：先给结论，细节放后面。', 'curator', '和总管的私聊', '10/08 21:40', 1],
   ['常用的技术栈：TypeScript、Rust；数据库偏好 SQLite。', 'curator', '官网改版', '10/07 15:02', 2],
   ['周末不要推送非紧急通知。', 'user', null, '10/06 09:15', 1],
-  ['截图和原型优先给移动端尺寸。', 'bot', 'P', '竞品调研', '10/05 18:33', 1],
+  ['截图和原型优先给移动端尺寸。', 'bot', 'P', '10/05 18:33', 1],
 ];
 const memSource = (kind, chat) => {
   if (kind === 'user') return `${I('user', 's14')}你手动添加`;
@@ -727,9 +727,9 @@ const memRow = ([t, kind, chat, at], i, edit) => `<div class="mem-row ${edit ? '
 // 「关于你」档案卡片：03 §6.7 v1.1 §12
 const memProfile = (onboarded) => `<div class="card" style="padding:14px 16px;margin-bottom:16px">
   <div class="row" style="margin-bottom:10px"><b>关于你</b>${onboarded ? '' : '<span class="r badge" style="background:var(--accent-soft);color:var(--accent);font-size:11px;padding:1px 8px">未完成</span>'}</div>
-  <div class="row gap10" style="margin-bottom:8px;align-items:center"><span class="t-foot" style="width:64px">称呼</span><div class="field grow" style="height:30px;font-size:13px">${onboarded ? '小明' : ''}<span class="t3">想让我怎么称呼你</span></div></div>
-  <div class="row gap10" style="margin-bottom:8px;align-items:center"><span class="t-foot" style="width:64px">语言</span><div class="field grow" style="height:30px;font-size:13px">${onboarded ? 'zh-CN' : ''}<span class="t3">跟随系统</span></div></div>
-  <div class="row gap10" style="margin-bottom:8px;align-items:center"><span class="t-foot" style="width:64px">身份</span><div class="field grow" style="height:30px;font-size:13px">${onboarded ? '产品经理' : ''}<span class="t3">一句话描述你的角色（可选）</span></div></div>
+  <div class="row gap10" style="margin-bottom:8px;align-items:center"><span class="t-foot" style="width:64px">称呼</span><div class="field grow" style="height:30px;font-size:13px">${onboarded ? '小明' : '<span class="t3">Bot 怎么叫你</span>'}</div></div>
+  <div class="row gap10" style="margin-bottom:8px;align-items:center"><span class="t-foot" style="width:64px">语言</span><div class="field grow" style="height:30px;font-size:13px">${onboarded ? 'zh-CN' : '<span class="t3">跟随系统</span>'}</div></div>
+  <div class="row gap10" style="margin-bottom:8px;align-items:center"><span class="t-foot" style="width:64px">身份</span><div class="field grow" style="height:30px;font-size:13px">${onboarded ? '产品经理' : '<span class="t3">一句话介绍你，例如「独立开发者，主要做 Rust 和 Android」</span>'}</div></div>
   <div class="row gap10" style="align-items:center"><span class="t-foot" style="width:64px">时区</span><span class="t-foot" style="color:var(--text-tertiary)">Asia/Shanghai · 跟随 Host</span></div>
 </div>`;
 V.set_memory = () => settingsShell(1, '记忆', `
@@ -748,7 +748,7 @@ V.set_memory_onboarded = () => settingsShell(1, '记忆', `
     <div class="t-caption" style="margin-top:6px">接近上限时，Bot 会自己合并相近的条目；你也可以删掉不需要的。</div></div>
   <div class="row gap8" style="margin-bottom:12px"><div class="field grow">${I('search', 's14 t3')}<span class="t3">搜索记忆</span></div><button class="btn primary">${I('plus', 's14')}添加</button></div>
   <div class="card mem-list">${MEMS.map((m, i) => memRow(m, i, false)).join('')}</div>`);
-V.set_memory_quota_full = () => V.set_memory_onboarded().replace('<div style="width:66%;height:100%;background:var(--accent)"></div>', '<div style="width:100%;height:100%;background:var(--danger)"></div>').replace('986 / 1,500 字', '1,500 / 1,500 字').replace('<button class="btn primary">${I(\'plus\', \'s14\')}添加</button>', '<button class="btn primary" disabled>${I(\'plus\', \'s14\')}添加</button><span class="t-foot" style="color:var(--danger);margin-left:8px">记忆已满，请先删除或合并几条</span>');
+V.set_memory_quota_full = () => V.set_memory_onboarded().replace('<div style="width:66%;height:100%;background:var(--accent)"></div>', '<div style="width:100%;height:100%;background:var(--danger)"></div>').replace('986 / 1,500 字', '1,500 / 1,500 字').replace(/<button class="btn primary">[\s\S]*?添加<\/button>/, `<button class="btn primary" disabled>${I('plus', 's14')}添加</button><span class="t-foot" style="color:var(--danger);margin-left:8px">记忆已满，请先删除或合并几条</span>`);
 V.set_memory_edit = () => V.set_memory().replace(memRow(MEMS[0], 0, false), memRow(MEMS[0], 0, true));
 V.set_memory_conflict = () => V.set_memory_edit().replace('<div class="card mem-list">', `<div class="banner wait" style="margin-bottom:12px;font-size:12px">${I('alert')}<span class="grow">产品 刚刚也修改了这条记忆（版本 4）。<b>查看对方的版本</b> 后再决定保存哪一份</span></div><div class="card mem-list">`);
 V.set_memory_profile_conflict = () => V.set_memory_onboarded().replace(memProfile(true), `<div class="banner wait" style="margin-bottom:12px;font-size:12px">${I('alert')}<span class="grow">档案版本不一致（版本 3），<b>重新加载</b> 后再编辑</span></div>${memProfile(true)}`);

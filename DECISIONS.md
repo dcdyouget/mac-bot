@@ -11,6 +11,7 @@
 - [2026-10-09] 服务端使用 JSON 文件存储，不引入数据库（PLAN 5.2）。
 
 ## 记忆与上下文
+- [2026-10-13] 用户记忆来源行的时间表示该条记忆最初形成的时间，优先显示 `created_at`；后续编辑不会把来源时间改成 `updated_at`。旧数据没有 `created_at` 时回退 `updated_at`。
 - [2026-10-12] 用户记忆整理按会话持久游标批处理；记忆写入前保存可恢复操作收据，删除保护、事件与修改日志可幂等补齐；失败状态和退避在 `/admin/status.memory_curator` 查询。
 - [2026-10-12] `data/memory/changelog.jsonl` 启动裁剪：先按 operation receipt 补齐未完成写入，再清掉无法确认提交的尾部，最后按 seen_revision + 7 天保留历史增量。`macbot-memory::MemoryStore::prune_memory_changes` 负责这一步。
 - [2026-10-12] `memory.user.create/update/delete` 与 `memory.profile.update` 的错误响应统一为 `{ code, message, error.details.current? }`，`quota_full` 时 `details.current.entries` 带该范围的条目目录；`memory.user.list/create/update` 成功时返回 `{ entry, quota }`，方便客户端原地更新。
