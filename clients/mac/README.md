@@ -36,9 +36,9 @@ open /Applications/MacBot.app
 
 Tauri bridge 使用 `macbot-desktop-services` 读写 Host、凭据、本地偏好和待发 outbox；待发消息使用稳定 request ID，连接恢复后重试。React 已接入 Host 连接/管理、协议请求、通用设置（外观、字号、通知分类、提示音、登录启动、菜单栏驻留）、附件、电脑画面、轨迹及设置页的更新检查和诊断导出。主题和材质由 Rust 本地偏好恢复，但主题、材质及所选会话也会写入 WebView `localStorage`；所选会话目前仍以 WebView 存储为准。Tauri 通知按本机偏好和 `message.created` / `approval.requested` 筛选；已用打包 `.app` 验证后台 mock DM 可进入 Notification Center。系统通知首次请求 macOS 授权；无自定义签名身份时，打包脚本使用稳定的 bundle ID 作为 ad-hoc 签名 identifier。提示音以唯一音源 `design/sounds/04-bubble-pop.wav` 为准。
 
-兼容与数据位置：正式 Bundle ID 保持 `bot.mac.desktop`；`packaging/Info.plist` 注册 `macbot://` 消息链接 scheme。Keychain generic-password service 为 `bot.mac.desktop.host-password`，account 使用本机 `HostRecord.id`（不是服务端 `node_id`）；默认本地数据根为 `~/Library/Application Support/MacBot`，`MACBOT_CLIENT_DATA_DIR` 可用绝对路径覆盖。Host 元数据在 `hosts.json`，密码不写入该文件。Tauri 服务复用旧 GPUI 的存储格式与路径，因此可读取旧 Host、Keychain 密码、状态缓存、outbox 和 Rust 本地偏好；WebView 的所选会话仍单独存在 `localStorage`，并非旧 Rust 偏好的兼容数据。
+兼容与数据位置：正式 Bundle ID 保持 `bot.mac.desktop`；`packaging/Info.plist` 注册 `macbot://` 消息链接 scheme。默认本地数据根为 `~/Library/Application Support/MacBot`，`MACBOT_CLIENT_DATA_DIR` 可用绝对路径覆盖。Host 元数据在 `hosts.json`；连接密码存于 `host-passwords.enc`，由同目录中权限为 0600 的随机密钥文件 `host-passwords.key` 使用 AES-256-GCM 加密，父目录权限为 0700。Tauri 服务复用旧 GPUI 的 Host 元数据、状态缓存、outbox 和 Rust 本地偏好格式；Host 密码不再使用 Keychain，也不会迁移旧 Keychain 项目，因此升级后需重新连接并保存密码。WebView 的所选会话仍单独存在 `localStorage`，并非旧 Rust 偏好的兼容数据。
 
-仅开发或隔离 QA 时可使用 `MACBOT_SECRET_BACKEND=file`，把凭据写入数据根下权限受限的 `development-secrets.json`，避免共用正式 Keychain。QA 示例：`open -n --env MACBOT_CLIENT_DATA_DIR=/tmp/macbot-client-qa --env MACBOT_SECRET_BACKEND=file dist/MacBot.app`；该变量必须是绝对路径。不要把真实密码传入命令行、日志或截图。下文的 `packaging/package.sh`、`packaging/run.sh` 针对旧 GPUI 客户端。
+隔离 QA 只需设置独立数据目录：`open -n --env MACBOT_CLIENT_DATA_DIR=/tmp/macbot-client-qa dist/MacBot.app`；该变量必须是绝对路径。客户端始终使用上述加密 vault，无需选择凭据后端。不要把真实密码传入命令行、日志或截图。下文的 `packaging/package.sh`、`packaging/run.sh` 针对旧 GPUI 客户端。
 
 以下 Cargo workspace、`packaging/run.sh` 和 `packaging/package.sh` 命令针对保留的旧 GPUI 客户端；Tauri 使用独立 Cargo workspace 和 `packaging/package-tauri.sh`。
 
@@ -87,7 +87,7 @@ MACBOT_HOST=127.0.0.1:7789 MACBOT_PASSWORD=dev cargo run -p macbot-desktop
 macbotd --mock --port 7789 --password dev
 ```
 
-开发期凭据后端：默认使用 macOS Keychain。若本机开发环境无法使用 Keychain，可显式设置 `MACBOT_SECRET_BACKEND=file`；此时密码写入仓库外的 `~/Library/Application Support/MacBot/development-secrets.json`，若设置 `MACBOT_CLIENT_DATA_DIR` 则改写入该目录下的 `development-secrets.json`；文件权限 0600、父目录权限 0700，并通过原子替换更新。该开关只用于开发联调，日志、截图和 Git 产物都不得包含密码；未设置开关时不会写入该文件。
+连接密码始终写入本地加密 vault：`host-passwords.enc` 保存 AES-256-GCM 密文，`host-passwords.key` 保存由系统安全随机源生成的 32 字节本地密钥；两者及锁文件权限为 0600，数据目录权限为 0700。密文头包含格式版本和每次写入新生成的 12 字节 nonce，认证失败或未知版本会拒绝读取。更新通过同目录临时文件、同步和原子替换完成。该方案不调用 macOS Keychain，首次切换不会尝试迁移旧 Keychain 密码；清空或更换数据目录后需要重新连接 Host。
 
 ## 旧 GPUI 客户端打包和运行
 
@@ -151,7 +151,7 @@ packaging/screenshot-window.sh progress/S5/connect.png "Mac Bot" 12345
 MACBOT_UPDATE_URL=http://127.0.0.1:7789/update.json packaging/check-update.sh
 ```
 
-旧 GPUI 的 `UpdateClient::download_and_stage` 会先下载并校验 digest，再生成缓存目录中的可复核 `install-<version>.sh`。该客户端的设置页检查、下载和安装事件已接线；只有用户点击安装后才执行脚本。脚本会重新校验 SHA-256，以只读方式挂载 DMG，校验 `bot.mac.desktop` 和版本，使用 `ditto` 写入目标父目录，等待旧进程退出后原子替换，并在替换失败时恢复应用备份。备份只保留应用 bundle，不删除其他用户文件。重开 replacement 时只通过 `open --env` 透传已设置的 `MACBOT_CLIENT_DATA_DIR` 和 `MACBOT_SECRET_BACKEND`，因此 QA 数据根和显式 file 凭据后端会保留；不会透传密码、Host 或用户 API key。若程序是直接运行的 Rust binary 而不是 `.app`，不会生成替换脚本；应打开已校验的 DMG 手动安装。旧 GPUI manifest 尚未配置公开发布 URL；正式签名/notarization 也未配置；本机生成的实际 DMG 已完成独立目录内的替换验收。
+旧 GPUI 的 `UpdateClient::download_and_stage` 会先下载并校验 digest，再生成缓存目录中的可复核 `install-<version>.sh`。该客户端的设置页检查、下载和安装事件已接线；只有用户点击安装后才执行脚本。脚本会重新校验 SHA-256，以只读方式挂载 DMG，校验 `bot.mac.desktop` 和版本，使用 `ditto` 写入目标父目录，等待旧进程退出后原子替换，并在替换失败时恢复应用备份。备份只保留应用 bundle，不删除其他用户文件。重开 replacement 时只通过 `open --env` 透传已设置的 `MACBOT_CLIENT_DATA_DIR`；不会透传密码、Host 或用户 API key。若程序是直接运行的 Rust binary 而不是 `.app`，不会生成替换脚本；应打开已校验的 DMG 手动安装。旧 GPUI manifest 尚未配置公开发布 URL；正式签名/notarization 也未配置；本机生成的实际 DMG 已完成独立目录内的替换验收。
 
 更新比较使用运行中 `.app/Contents/Info.plist` 的 `CFBundleShortVersionString`；直接运行 target binary 时回退到 `CARGO_PKG_VERSION`。可对现有 DMG 做隔离替换验收（测试会在系统临时目录创建 `.app`、设置 `MACBOT_TEST_UPDATE_NO_OPEN=1`，不打开应用）：
 
@@ -178,11 +178,10 @@ MACBOT_TEST_UPDATE_DMG="$PWD/dist/MacBot.dmg" \
 
 ```sh
 open -n --env MACBOT_CLIENT_DATA_DIR=/tmp/macbot-client-qa-data \
-  --env MACBOT_SECRET_BACKEND=file \
   --env MACBOT_HOST=127.0.0.1:7790 --env MACBOT_PASSWORD=dev \
   dist/MacBotQA.app
 ```
 
-`MACBOT_CLIENT_DATA_DIR` 必须为绝对路径，覆盖 Host 列表与当前 Host 恢复所用记录、file 后端凭据、会话状态缓存、待发 outbox、本机偏好、更新配置和更新缓存。未设置时仍使用正常 Application Support 路径；`MACBOT_UPDATE_CACHE` 显式覆盖更新缓存时优先。QA 使用 `file` 后端，避免与安装版共享 Keychain；开机启动等系统设置仍由系统管理，QA 不应启用。仅修改测试 bundle 的 `CFBundleIdentifier` 为 `bot.mac.desktop.qa`，正式产物继续使用 `bot.mac.desktop`。
+`MACBOT_CLIENT_DATA_DIR` 必须为绝对路径，覆盖 Host 列表与当前 Host 恢复所用记录、加密连接凭据 vault 和密钥、会话状态缓存、待发 outbox、本机偏好、更新配置和更新缓存。未设置时仍使用正常 Application Support 路径；`MACBOT_UPDATE_CACHE` 显式覆盖更新缓存时优先。QA 使用独立数据目录，因此不会共享正式安装版的连接凭据；开机启动等系统设置仍由系统管理，QA 不应启用。仅修改测试 bundle 的 `CFBundleIdentifier` 为 `bot.mac.desktop.qa`，正式产物继续使用 `bot.mac.desktop`。
 
 独立 QA bundle 同时将 `CFBundleName` 和 `CFBundleDisplayName` 设为 `MacBotQA`，这样 CoreGraphics 窗口 owner 与正式安装版可区分；截图时使用 `packaging/screenshot-window.sh progress/S5/qa.png MacBotQA <PID>`，或通过 `MACBOT_WINDOW_PID=<PID>` 过滤该进程。

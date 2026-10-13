@@ -1,10 +1,10 @@
 //! Persistent multi-host connection metadata for the macOS client.
 //!
 //! Host metadata is kept in `~/Library/Application Support/MacBot/hosts.json`.
-//! Passwords are deliberately kept out of that file and stored in the macOS
-//! login keychain as generic passwords. A keychain failure is returned to the
-//! caller; there is no implicit plaintext fallback. Developers may explicitly
-//! opt into the private, 0600 file backend with `MACBOT_SECRET_BACKEND=file`.
+//! Passwords are deliberately kept out of that file and stored in an encrypted
+//! local vault. The vault uses a random per-installation key file and AES-GCM;
+//! both files are private to the current user (0600) in a private directory
+//! (0700).
 
 use std::{
     collections::BTreeMap,
@@ -15,39 +15,27 @@ use std::{
 };
 
 use anyhow::{Context, Result, anyhow};
-use core_foundation::{
-    base::{CFGetTypeID, CFRelease, CFType, CFTypeRef, TCFType},
-    data::CFData,
-    dictionary::{CFDictionary, CFMutableDictionary},
-    string::{CFString, CFStringRef},
-};
-use security_framework::base::Error as SecurityError;
-use security_framework_sys::{
-    base::{errSecDuplicateItem, errSecItemNotFound, errSecSuccess},
-    item::{
-        kSecAttrAccount, kSecAttrService, kSecClass, kSecClassGenericPassword, kSecReturnData,
-        kSecUseAuthenticationUI, kSecValueData,
-    },
-    keychain_item::{SecItemAdd, SecItemCopyMatching, SecItemDelete, SecItemUpdate},
+use ring::{
+    aead::{AES_256_GCM, Aad, LessSafeKey, Nonce, UnboundKey},
+    rand::{SecureRandom, SystemRandom},
 };
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-#[link(name = "Security", kind = "framework")]
-unsafe extern "C" {
-    static kSecUseAuthenticationUIFail: CFStringRef;
-}
-
-const KEYCHAIN_SERVICE: &str = "bot.mac.desktop.host-password";
-const SECRET_BACKEND_ENV: &str = "MACBOT_SECRET_BACKEND";
-const DEVELOPMENT_SECRET_FILE: &str = "development-secrets.json";
+const VAULT_FILE: &str = "host-passwords.enc";
+const VAULT_KEY_FILE: &str = "host-passwords.key";
+const VAULT_LOCK_FILE: &str = "host-passwords.lock";
+const VAULT_VERSION: u8 = 1;
+const VAULT_AAD: &[u8] = b"macbot-host-password-v1";
+const VAULT_KEY_LEN: usize = 32;
+const VAULT_NONCE_LEN: usize = 12;
 const STORE_FILE: &str = "hosts.json";
 const LOCK_FILE: &str = "hosts.lock";
 
 /// Non-secret information needed to reconnect to one Mac Bot host.
 ///
-/// `id` is the local stable identifier used as the keychain account. The
-/// server's `node_id` may be absent before the first successful handshake.
+/// `id` is the local stable identifier used as the encrypted-vault account.
+/// The server's `node_id` may be absent before the first successful handshake.
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 pub struct HostRecord {
     pub id: String,
@@ -197,11 +185,11 @@ impl HostStore {
         write_result
     }
 
-    /// Remember or update a host, storing its password in the login keychain.
+    /// Remember or update a host, storing its password in the encrypted vault.
     ///
     /// Existing records are matched by server `node_id`, then by their first
     /// address. Password storage succeeds before metadata is written. If the
-    /// keychain rejects the operation, the JSON file is left untouched.
+    /// encrypted-vault storage fails, the metadata file is left untouched.
     pub fn remember(
         &mut self,
         name: impl Into<String>,
@@ -240,9 +228,9 @@ impl HostStore {
             .map(|index| self.hosts[index].id.clone())
             .unwrap_or_else(|| Uuid::new_v4().to_string());
 
-        // The password never enters HostRecord or the serialized buffer.
+        // The password never enters HostRecord or the metadata JSON buffer.
         store_password(&id, password.as_bytes())
-            .with_context(|| format!("store password for host {id}"))?;
+            .with_context(|| format!("store encrypted password for host {id}"))?;
 
         let record = HostRecord {
             id: id.clone(),
@@ -264,19 +252,19 @@ impl HostStore {
                     self.hosts.retain(|host| host.id != id);
                 }
             }
-            return Err(error).context("persist host metadata after keychain update");
+            return Err(error).context("persist host metadata after vault update");
         }
         Ok(record)
     }
 
-    /// Read the password for a record from the macOS login keychain.
+    /// Read the password for a record from the encrypted local vault.
     pub fn password(&self, record: &HostRecord) -> Result<String> {
         let password = read_password(&record.id)
             .with_context(|| format!("read password for host {}", record.id))?;
         String::from_utf8(password).context("host password is not valid UTF-8")
     }
 
-    /// Remove metadata and its keychain password. Missing records are a no-op.
+    /// Remove metadata and its encrypted password. Missing records are a no-op.
     pub fn remove(&mut self, id: &str) -> Result<()> {
         let Some(index) = self.hosts.iter().position(|host| host.id == id) else {
             return Ok(());
@@ -285,7 +273,7 @@ impl HostStore {
         let removed = self.hosts.remove(index);
         if let Err(error) = self.save() {
             self.hosts.insert(index, removed);
-            return Err(error).context("persist host metadata after keychain removal");
+            return Err(error).context("persist host metadata after vault removal");
         }
         Ok(())
     }
@@ -295,65 +283,194 @@ fn default_store_path() -> Result<PathBuf> {
     crate::storage_paths::data_file(STORE_FILE)
 }
 
-fn default_secret_path() -> Result<PathBuf> {
+fn default_vault_path() -> Result<PathBuf> {
     Ok(default_store_path()?
         .parent()
         .ok_or_else(|| anyhow!("host store has no parent directory"))?
-        .join(DEVELOPMENT_SECRET_FILE))
-}
-
-fn file_backend_enabled() -> bool {
-    file_backend_requested(std::env::var(SECRET_BACKEND_ENV).ok().as_deref())
-}
-
-fn file_backend_requested(value: Option<&str>) -> bool {
-    value == Some("file")
+        .join(VAULT_FILE))
 }
 
 #[derive(Default, Deserialize, Serialize)]
-struct DevelopmentSecrets {
+struct SecretVault {
     passwords: BTreeMap<String, String>,
 }
 
-fn load_development_secrets(path: &Path) -> Result<DevelopmentSecrets> {
+fn vault_key_path(vault_path: &Path) -> Result<PathBuf> {
+    let parent = vault_path
+        .parent()
+        .ok_or_else(|| anyhow!("password vault has no parent directory"))?;
+    Ok(parent.join(VAULT_KEY_FILE))
+}
+
+fn vault_lock_path(vault_path: &Path) -> Result<PathBuf> {
+    let parent = vault_path
+        .parent()
+        .ok_or_else(|| anyhow!("password vault has no parent directory"))?;
+    Ok(parent.join(VAULT_LOCK_FILE))
+}
+
+fn with_encrypted_vault_at<T, F>(path: &Path, mutation: F) -> Result<T>
+where
+    F: FnOnce(&mut SecretVault) -> Result<T>,
+{
+    let parent = path
+        .parent()
+        .ok_or_else(|| anyhow!("password vault has no parent directory"))?;
+    fs::create_dir_all(parent)
+        .with_context(|| format!("create password vault directory {}", parent.display()))?;
+    set_mode(parent, 0o700)?;
+
+    let lock_path = vault_lock_path(path)?;
+    let lock = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .mode(0o600)
+        .open(&lock_path)
+        .with_context(|| format!("open password vault lock {}", lock_path.display()))?;
+    set_mode(&lock_path, 0o600)?;
+    lock.lock()
+        .with_context(|| format!("lock password vault {}", lock_path.display()))?;
+
+    let key_path = vault_key_path(path)?;
+    let key = load_or_create_vault_key(&key_path)?;
+    let mut vault = load_encrypted_vault(path, &key)?;
+    let result = mutation(&mut vault)?;
+    save_encrypted_vault(path, &key, &vault)?;
+    Ok(result)
+}
+
+fn load_or_create_vault_key(path: &Path) -> Result<[u8; VAULT_KEY_LEN]> {
     match fs::read(path) {
-        Ok(bytes) => serde_json::from_slice(&bytes)
-            .with_context(|| format!("decode development secrets {}", path.display())),
-        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(DevelopmentSecrets::default()),
+        Ok(bytes) => {
+            ensure_private_regular_file(path)?;
+            let key: [u8; VAULT_KEY_LEN] = bytes
+                .try_into()
+                .map_err(|_| anyhow!("password vault key has an invalid length"))?;
+            Ok(key)
+        }
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {
+            let mut key = [0; VAULT_KEY_LEN];
+            SystemRandom::new()
+                .fill(&mut key)
+                .map_err(|_| anyhow!("generate random password vault key"))?;
+            write_private_atomic(path, &key)?;
+            Ok(key)
+        }
         Err(error) => {
-            Err(error).with_context(|| format!("read development secrets {}", path.display()))
+            Err(error).with_context(|| format!("read password vault key {}", path.display()))
         }
     }
 }
 
-fn save_development_secrets(path: &Path, secrets: &DevelopmentSecrets) -> Result<()> {
+fn load_encrypted_vault(path: &Path, key: &[u8; VAULT_KEY_LEN]) -> Result<SecretVault> {
+    let bytes = match fs::read(path) {
+        Ok(bytes) => {
+            ensure_private_regular_file(path)?;
+            bytes
+        }
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(SecretVault::default()),
+        Err(error) => {
+            return Err(error).with_context(|| format!("read password vault {}", path.display()));
+        }
+    };
+    let plaintext = decrypt_vault(key, &bytes)?;
+    serde_json::from_slice(&plaintext)
+        .with_context(|| format!("decode encrypted password vault {}", path.display()))
+}
+
+fn save_encrypted_vault(path: &Path, key: &[u8; VAULT_KEY_LEN], vault: &SecretVault) -> Result<()> {
+    let plaintext = serde_json::to_vec(vault).context("encode password vault")?;
+    let ciphertext = encrypt_vault(key, &plaintext)?;
+    write_private_atomic(path, &ciphertext)
+}
+
+fn encrypt_vault(key: &[u8; VAULT_KEY_LEN], plaintext: &[u8]) -> Result<Vec<u8>> {
+    let mut nonce_bytes = [0; VAULT_NONCE_LEN];
+    SystemRandom::new()
+        .fill(&mut nonce_bytes)
+        .map_err(|_| anyhow!("generate random password vault nonce"))?;
+
+    let cipher_key = UnboundKey::new(&AES_256_GCM, key)
+        .map(LessSafeKey::new)
+        .map_err(|_| anyhow!("initialize password vault encryption"))?;
+    let mut ciphertext = plaintext.to_vec();
+    cipher_key
+        .seal_in_place_append_tag(
+            Nonce::assume_unique_for_key(nonce_bytes),
+            Aad::from(VAULT_AAD),
+            &mut ciphertext,
+        )
+        .map_err(|_| anyhow!("encrypt password vault"))?;
+
+    let mut envelope = Vec::with_capacity(1 + VAULT_NONCE_LEN + ciphertext.len());
+    envelope.push(VAULT_VERSION);
+    envelope.extend_from_slice(&nonce_bytes);
+    envelope.extend_from_slice(&ciphertext);
+    Ok(envelope)
+}
+
+fn decrypt_vault(key: &[u8; VAULT_KEY_LEN], envelope: &[u8]) -> Result<Vec<u8>> {
+    if envelope.len() < 1 + VAULT_NONCE_LEN + AES_256_GCM.tag_len() {
+        return Err(anyhow!("password vault ciphertext is truncated"));
+    }
+    if envelope[0] != VAULT_VERSION {
+        return Err(anyhow!(
+            "unsupported password vault version {}",
+            envelope[0]
+        ));
+    }
+    let nonce_bytes: [u8; VAULT_NONCE_LEN] = envelope[1..1 + VAULT_NONCE_LEN]
+        .try_into()
+        .expect("nonce slice length is checked");
+    let cipher_key = UnboundKey::new(&AES_256_GCM, key)
+        .map(LessSafeKey::new)
+        .map_err(|_| anyhow!("initialize password vault decryption"))?;
+    let mut ciphertext = envelope[1 + VAULT_NONCE_LEN..].to_vec();
+    let plaintext = cipher_key
+        .open_in_place(
+            Nonce::assume_unique_for_key(nonce_bytes),
+            Aad::from(VAULT_AAD),
+            &mut ciphertext,
+        )
+        .map_err(|_| anyhow!("password vault authentication failed"))?;
+    Ok(plaintext.to_vec())
+}
+
+fn ensure_private_regular_file(path: &Path) -> Result<()> {
+    let metadata = fs::symlink_metadata(path)
+        .with_context(|| format!("inspect private file {}", path.display()))?;
+    if !metadata.file_type().is_file() {
+        return Err(anyhow!(
+            "private file is not a regular file: {}",
+            path.display()
+        ));
+    }
+    set_mode(path, 0o600)
+}
+
+fn write_private_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
     let parent = path
         .parent()
-        .ok_or_else(|| anyhow!("development secrets has no parent directory"))?;
+        .ok_or_else(|| anyhow!("private file has no parent directory"))?;
     fs::create_dir_all(parent)
-        .with_context(|| format!("create development secrets directory {}", parent.display()))?;
+        .with_context(|| format!("create private file directory {}", parent.display()))?;
     set_mode(parent, 0o700)?;
 
     let temp_path = temporary_path(path);
-    let bytes = serde_json::to_vec_pretty(secrets).context("encode development secrets")?;
     let write_result = (|| -> Result<()> {
         let mut file = OpenOptions::new()
             .write(true)
             .create_new(true)
             .mode(0o600)
             .open(&temp_path)
-            .with_context(|| {
-                format!(
-                    "create temporary development secrets {}",
-                    temp_path.display()
-                )
-            })?;
-        file.write_all(&bytes)
-            .context("write development secrets")?;
-        file.sync_all().context("sync development secrets")?;
+            .with_context(|| format!("create private temporary file {}", temp_path.display()))?;
+        file.write_all(bytes).context("write private file")?;
+        file.sync_all().context("sync private file")?;
         set_mode(&temp_path, 0o600)?;
         fs::rename(&temp_path, path)
-            .with_context(|| format!("replace development secrets {}", path.display()))?;
+            .with_context(|| format!("replace private file {}", path.display()))?;
         set_mode(path, 0o600)?;
         sync_directory(parent)
     })();
@@ -364,53 +481,42 @@ fn save_development_secrets(path: &Path, secrets: &DevelopmentSecrets) -> Result
 }
 
 fn set_file_password_at(path: &Path, account: &str, password: &[u8]) -> Result<()> {
-    let mut secrets = load_development_secrets(path)?;
     let password =
-        String::from_utf8(password.to_vec()).context("development password is not valid UTF-8")?;
-    secrets.passwords.insert(account.to_owned(), password);
-    save_development_secrets(path, &secrets)
+        String::from_utf8(password.to_vec()).context("host password is not valid UTF-8")?;
+    with_encrypted_vault_at(path, |vault| {
+        vault.passwords.insert(account.to_owned(), password);
+        Ok(())
+    })
 }
 
 fn file_password_at(path: &Path, account: &str) -> Result<Vec<u8>> {
-    let secrets = load_development_secrets(path)?;
-    secrets
-        .passwords
-        .get(account)
-        .cloned()
-        .ok_or_else(|| anyhow!("development password not found for host {account}"))
-        .map(String::into_bytes)
+    with_encrypted_vault_at(path, |vault| {
+        vault
+            .passwords
+            .get(account)
+            .cloned()
+            .ok_or_else(|| anyhow!("password not found for host {account}"))
+            .map(String::into_bytes)
+    })
 }
 
 fn delete_file_password_at(path: &Path, account: &str) -> Result<()> {
-    let mut secrets = load_development_secrets(path)?;
-    if secrets.passwords.remove(account).is_some() {
-        save_development_secrets(path, &secrets)?;
-    }
-    Ok(())
+    with_encrypted_vault_at(path, |vault| {
+        vault.passwords.remove(account);
+        Ok(())
+    })
 }
 
 fn store_password(account: &str, password: &[u8]) -> Result<()> {
-    if file_backend_enabled() {
-        set_file_password_at(&default_secret_path()?, account, password)
-    } else {
-        set_keychain_password(account, password)
-    }
+    set_file_password_at(&default_vault_path()?, account, password)
 }
 
 fn read_password(account: &str) -> Result<Vec<u8>> {
-    if file_backend_enabled() {
-        file_password_at(&default_secret_path()?, account)
-    } else {
-        keychain_password(account)
-    }
+    file_password_at(&default_vault_path()?, account)
 }
 
 fn delete_password(account: &str) -> Result<()> {
-    if file_backend_enabled() {
-        delete_file_password_at(&default_secret_path()?, account)
-    } else {
-        delete_keychain_password(account)
-    }
+    delete_file_password_at(&default_vault_path()?, account)
 }
 
 fn temporary_path(path: &Path) -> PathBuf {
@@ -435,138 +541,9 @@ fn sync_directory(path: &Path) -> Result<()> {
         .with_context(|| format!("sync directory {}", path.display()))
 }
 
-fn set_keychain_password(account: &str, password: &[u8]) -> Result<()> {
-    // Use the modern SecItem APIs directly. The authentication UI value is
-    // deliberately noninteractive: a locked/protected item returns an error instead
-    // of synchronously presenting a Keychain dialog on the GPUI thread.
-    let add = keychain_attributes(account, Some(password), false);
-    let status = unsafe { SecItemAdd(add.as_concrete_TypeRef(), std::ptr::null_mut()) };
-    if status == errSecDuplicateItem {
-        let search = keychain_attributes(account, None, false);
-        let update = keychain_update(password);
-        let status =
-            unsafe { SecItemUpdate(search.as_concrete_TypeRef(), update.as_concrete_TypeRef()) };
-        security_status(status)
-    } else {
-        security_status(status)
-    }
-}
-
-fn keychain_password(account: &str) -> Result<Vec<u8>> {
-    let query = keychain_attributes(account, None, true);
-    let mut result: CFTypeRef = std::ptr::null();
-    security_status(unsafe { SecItemCopyMatching(query.as_concrete_TypeRef(), &mut result) })?;
-    if result.is_null() {
-        return Err(anyhow!("Keychain returned no password data"));
-    }
-    if unsafe { CFGetTypeID(result) } != CFData::type_id() {
-        unsafe {
-            CFRelease(result);
-        }
-        return Err(anyhow!("Keychain returned a non-data password item"));
-    }
-    let data = unsafe { CFData::wrap_under_create_rule(result as _) };
-    Ok(data.bytes().to_vec())
-}
-
-fn keychain_update(password: &[u8]) -> CFDictionary<CFType, CFType> {
-    let mut update = CFMutableDictionary::<CFType, CFType>::from_CFType_pairs(&[]);
-    let key = unsafe { CFString::wrap_under_get_rule(kSecValueData) }.into_CFType();
-    let value = CFData::from_buffer(password).into_CFType();
-    update.add(&key, &value);
-    update.to_immutable()
-}
-
-fn delete_keychain_password(account: &str) -> Result<()> {
-    let query = keychain_attributes(account, None, false);
-    let status = unsafe { SecItemDelete(query.as_concrete_TypeRef()) };
-    if status == errSecItemNotFound {
-        Ok(())
-    } else {
-        security_status(status)
-    }
-}
-
-fn keychain_attributes(
-    account: &str,
-    password: Option<&[u8]>,
-    return_data: bool,
-) -> CFDictionary<CFType, CFType> {
-    let mut query = CFMutableDictionary::<CFType, CFType>::from_CFType_pairs(&[]);
-    unsafe {
-        add_static_string(&mut query, kSecClass, kSecClassGenericPassword);
-        add_string(&mut query, kSecAttrService, KEYCHAIN_SERVICE);
-    }
-    if !account.is_empty() {
-        unsafe {
-            add_string(&mut query, kSecAttrAccount, account);
-        }
-    }
-    if let Some(password) = password {
-        let key = unsafe { CFString::wrap_under_get_rule(kSecValueData) }.into_CFType();
-        let value = CFData::from_buffer(password).into_CFType();
-        query.add(&key, &value);
-    }
-    if return_data {
-        unsafe {
-            add_static_boolean_true(&mut query, kSecReturnData);
-        }
-    }
-    // Bind Apple's exported constant, which is absent from security-framework-sys 2.17.
-    unsafe {
-        add_static_string(
-            &mut query,
-            kSecUseAuthenticationUI,
-            kSecUseAuthenticationUIFail,
-        );
-    }
-    query.to_immutable()
-}
-
-fn add_static_string(
-    query: &mut CFMutableDictionary<CFType, CFType>,
-    key_ref: CFStringRef,
-    value_ref: CFStringRef,
-) {
-    let key = unsafe { CFString::wrap_under_get_rule(key_ref) }.into_CFType();
-    let value = unsafe { CFString::wrap_under_get_rule(value_ref) }.into_CFType();
-    query.add(&key, &value);
-}
-
-fn add_string(query: &mut CFMutableDictionary<CFType, CFType>, key_ref: CFStringRef, value: &str) {
-    let key = unsafe { CFString::wrap_under_get_rule(key_ref) }.into_CFType();
-    let value = CFString::from(value).into_CFType();
-    query.add(&key, &value);
-}
-
-fn add_static_boolean_true(query: &mut CFMutableDictionary<CFType, CFType>, key_ref: CFStringRef) {
-    let key = unsafe { CFString::wrap_under_get_rule(key_ref) }.into_CFType();
-    let value = core_foundation::boolean::CFBoolean::true_value().into_CFType();
-    query.add(&key, &value);
-}
-
-fn security_status(status: i32) -> Result<()> {
-    if status == errSecSuccess {
-        Ok(())
-    } else {
-        Err(SecurityError::from_code(status).into())
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn keychain_queries_disable_authentication_ui() {
-        let query = keychain_attributes("host-test", None, false);
-        let key = unsafe { CFString::wrap_under_get_rule(kSecUseAuthenticationUI) }.into_CFType();
-        let expected =
-            unsafe { CFString::wrap_under_get_rule(kSecUseAuthenticationUIFail) }.into_CFType();
-        assert_eq!(*query.find(&key).unwrap(), expected);
-        let return_key = unsafe { CFString::wrap_under_get_rule(kSecReturnData) }.into_CFType();
-        assert!(query.find(&return_key).is_none());
-    }
 
     #[test]
     fn serialized_records_never_contain_password() {
@@ -672,38 +649,99 @@ mod tests {
     }
 
     #[test]
-    fn development_file_backend_round_trips_with_private_permissions() {
-        let root = std::env::temp_dir().join(format!("macbot-dev-secrets-{}", Uuid::new_v4()));
-        let path = root.join("development-secrets.json");
+    fn vault_ciphertext_round_trips_with_version_and_fresh_nonce() {
+        let key = [9; VAULT_KEY_LEN];
+        let plaintext = br#"{"passwords":{"host-id":"correct horse battery staple"}}"#;
+        let first = encrypt_vault(&key, plaintext).unwrap();
+        let second = encrypt_vault(&key, plaintext).unwrap();
 
-        set_file_password_at(&path, "host-id", b"dev-password").unwrap();
-        assert_eq!(
-            fs::metadata(&root).unwrap().permissions().mode() & 0o777,
-            0o700
+        assert_eq!(first[0], VAULT_VERSION);
+        assert_ne!(
+            &first[1..1 + VAULT_NONCE_LEN],
+            &second[1..1 + VAULT_NONCE_LEN]
         );
-        assert_eq!(
-            fs::metadata(&path).unwrap().permissions().mode() & 0o777,
-            0o600
+        assert_ne!(first, second);
+        assert!(
+            !first
+                .windows(b"correct horse battery staple".len())
+                .any(|window| window == b"correct horse battery staple")
         );
-        assert_eq!(file_password_at(&path, "host-id").unwrap(), b"dev-password");
+        assert_eq!(decrypt_vault(&key, &first).unwrap(), plaintext);
+    }
 
+    #[test]
+    fn vault_rejects_tampering_wrong_key_and_unknown_version() {
+        let key = [5; VAULT_KEY_LEN];
+        let mut ciphertext = encrypt_vault(&key, b"secret").unwrap();
+        let last = ciphertext.len() - 1;
+        ciphertext[last] ^= 0x80;
+        assert!(decrypt_vault(&key, &ciphertext).is_err());
+
+        let ciphertext = encrypt_vault(&key, b"secret").unwrap();
+        assert!(decrypt_vault(&[6; VAULT_KEY_LEN], &ciphertext).is_err());
+        assert!(decrypt_vault(&key, &[0; 1 + VAULT_NONCE_LEN]).is_err());
+
+        let mut future_version = encrypt_vault(&key, b"secret").unwrap();
+        future_version[0] = VAULT_VERSION + 1;
+        assert!(decrypt_vault(&key, &future_version).is_err());
+    }
+
+    #[test]
+    fn encrypted_password_vault_round_trips_updates_and_deletes_privately() {
+        let root = std::env::temp_dir().join(format!("macbot-secret-vault-{}", Uuid::new_v4()));
+        let path = root.join(VAULT_FILE);
+        let key_path = vault_key_path(&path).unwrap();
+        let lock_path = vault_lock_path(&path).unwrap();
+
+        set_file_password_at(&path, "host-id", b"first-password").unwrap();
+        assert_eq!(
+            file_password_at(&path, "host-id").unwrap(),
+            b"first-password"
+        );
         set_file_password_at(&path, "host-id", b"updated-password").unwrap();
         assert_eq!(
             file_password_at(&path, "host-id").unwrap(),
             b"updated-password"
         );
+
+        assert_eq!(path.file_name().unwrap(), VAULT_FILE);
+        assert_eq!(key_path, root.join(VAULT_KEY_FILE));
+        assert_eq!(lock_path, root.join(VAULT_LOCK_FILE));
+        assert_eq!(
+            fs::metadata(&root).unwrap().permissions().mode() & 0o777,
+            0o700
+        );
+        for private_path in [&path, &key_path, &lock_path] {
+            assert_eq!(
+                fs::metadata(private_path).unwrap().permissions().mode() & 0o777,
+                0o600,
+                "{} must be private",
+                private_path.display()
+            );
+        }
+        let ciphertext = fs::read(&path).unwrap();
+        assert_eq!(ciphertext[0], VAULT_VERSION);
+        assert!(
+            !ciphertext
+                .windows(b"updated-password".len())
+                .any(|window| window == b"updated-password")
+        );
+        assert_eq!(fs::read(&key_path).unwrap().len(), VAULT_KEY_LEN);
+
         delete_file_password_at(&path, "host-id").unwrap();
         assert!(file_password_at(&path, "host-id").is_err());
-
-        let _ = fs::remove_file(&path);
-        let _ = fs::remove_dir(&root);
+        let _ = fs::remove_dir_all(&root);
     }
 
     #[test]
-    fn file_backend_requires_explicit_development_switch() {
-        assert!(file_backend_requested(Some("file")));
-        assert!(!file_backend_requested(None));
-        assert!(!file_backend_requested(Some("keychain")));
-        assert!(!file_backend_requested(Some("FILE")));
+    fn invalid_existing_vault_key_is_not_replaced() {
+        let root = std::env::temp_dir().join(format!("macbot-secret-key-{}", Uuid::new_v4()));
+        fs::create_dir_all(&root).unwrap();
+        let key_path = root.join(VAULT_KEY_FILE);
+        fs::write(&key_path, [7; 4]).unwrap();
+
+        assert!(load_or_create_vault_key(&key_path).is_err());
+        assert_eq!(fs::read(&key_path).unwrap(), [7; 4]);
+        let _ = fs::remove_dir_all(&root);
     }
 }

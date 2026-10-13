@@ -10,7 +10,7 @@ use anyhow::{Result, anyhow};
 const DATA_DIR_ENV: &str = "MACBOT_CLIENT_DATA_DIR";
 const DEFAULT_RELATIVE_DIR: &str = "Library/Application Support/MacBot";
 
-/// Return the root for all client-local, non-keychain data.
+/// Return the root for all client-local data files.
 ///
 /// A configured override must be absolute so a QA run cannot accidentally
 /// resolve its data relative to an arbitrary process working directory.
