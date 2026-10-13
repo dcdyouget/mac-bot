@@ -2961,7 +2961,7 @@ function App() {
           </div>}
         </div>
           : currentMessages.length ? <div className="message-list">
-          {buildMessageTimeline(currentMessages).map((entry, index) => <Fragment key={entry.message.id}>
+          {buildMessageTimeline(currentMessages, state.assignments).map((entry, index) => <Fragment key={entry.message.id}>
           {entry.dayLabel && <div className="day-separator">{entry.dayLabel}</div>}
           <div id={`message-${entry.message.id}`} data-message-id={entry.message.id} className={`timeline-fragment ${messageMenu?.message.id === entry.message.id ? 'message-context-selected' : ''}`} tabIndex={focusedMessageId ? (focusedMessageId === entry.message.id ? 0 : -1) : (index === 0 ? 0 : -1)} role="group" aria-label={t('chat.message.keyboard_actions')} onFocus={() => setFocusedMessageId(entry.message.id)} onKeyDown={(event) => {
             if (event.target !== event.currentTarget || messageMenu || (entry.message as Message & { deleted?: boolean }).deleted) return
@@ -3615,7 +3615,7 @@ function PendingApprovalRow({ action, onDecide }: { action: Extract<PendingChatA
 
 type TimelineEntry = { message: Message; dayLabel?: string; timeSeparator?: string; exactTime: string; headerTime: string; groupStart: boolean; groupEnd: boolean; showAvatar: boolean }
 
-function buildMessageTimeline(messages: Message[]): TimelineEntry[] {
+function buildMessageTimeline(messages: Message[], assignments: BridgeState['assignments']): TimelineEntry[] {
   const result: TimelineEntry[] = []
   let previous: Message | undefined
   let previousTime: Date | undefined
@@ -3640,7 +3640,7 @@ function buildMessageTimeline(messages: Message[]): TimelineEntry[] {
       last.showAvatar = false
     }
     const suppressHeaderTime = groupable || Boolean(timeSeparator)
-    const taskCardRow = taskCardOwnsFollowingAvatar(previous, message)
+    const taskCardRow = taskCardOwnsFollowingAvatar(previous, message, assignments)
     if (taskCardRow && last) last.showAvatar = false
     result.push({ message, dayLabel, timeSeparator, exactTime, headerTime: suppressHeaderTime ? '' : exactTime, groupStart: !groupable, groupEnd: true, showAvatar: true })
     previous = message

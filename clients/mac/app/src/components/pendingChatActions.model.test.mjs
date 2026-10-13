@@ -33,5 +33,12 @@ test('moves the bot avatar onto its immediately following task-card row', () => 
   const task = { id: 'message-2', sender: { kind: 'bot', bot_id: 'bot-main' }, blocks: [{ type: 'task_card', assignment_id: 'assignment-1' }] }
   assert.equal(taskCardOwnsFollowingAvatar(previous, task), true)
   assert.equal(taskCardOwnsFollowingAvatar(previous, { ...task, sender: { kind: 'bot', bot_id: 'bot-other' } }), false)
-  assert.equal(taskCardOwnsFollowingAvatar(previous, { ...task, sender: { kind: 'user' } }), false)
+  assert.equal(taskCardOwnsFollowingAvatar({ ...previous, sender: { kind: 'user' } }, task), false)
+})
+
+test('uses the linked assignment bot when a standalone task-card message has system sender', () => {
+  const previous = { id: 'message-1', sender: { kind: 'bot', bot_id: 'bot-main' }, blocks: [{ type: 'text', text: '我会开始处理。' }] }
+  const task = { id: 'message-2', sender: { kind: 'system' }, assignment_id: 'assignment-1', blocks: [{ type: 'task_card', assignment_id: 'assignment-1' }] }
+  assert.equal(taskCardOwnsFollowingAvatar(previous, task, { 'assignment-1': { bot_id: 'bot-main' } }), true)
+  assert.equal(taskCardOwnsFollowingAvatar(previous, task, { 'assignment-1': { bot_id: 'bot-other' } }), false)
 })

@@ -62,8 +62,17 @@ export function collectPendingChatActions(
   return actions
 }
 
-export function taskCardOwnsFollowingAvatar(previous: Message | undefined, current: Message): boolean {
-  if (!previous || current.sender?.kind === 'user' || current.blocks?.length !== 1 || current.blocks[0]?.type !== 'task_card') return false
-  const botId = current.sender?.bot_id
-  return Boolean(botId && previous.sender?.kind !== 'user' && previous.sender?.bot_id === botId)
+export function taskCardOwnsFollowingAvatar(
+  previous: Message | undefined,
+  current: Message,
+  assignments: Record<string, { bot_id?: unknown }> = {},
+): boolean {
+  if (!previous || previous.sender?.kind !== 'bot' || current.blocks?.length !== 1 || current.blocks[0]?.type !== 'task_card') return false
+  const blockAssignmentId = current.blocks[0].assignment_id
+  const assignmentId = typeof current.assignment_id === 'string'
+    ? current.assignment_id
+    : typeof blockAssignmentId === 'string' ? blockAssignmentId : undefined
+  const assignedBotId = assignmentId ? assignments[assignmentId]?.bot_id : undefined
+  const botId = typeof assignedBotId === 'string' ? assignedBotId : current.sender?.bot_id
+  return Boolean(botId && previous.sender.bot_id === botId)
 }
