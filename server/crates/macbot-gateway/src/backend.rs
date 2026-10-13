@@ -103,6 +103,21 @@ fn reply_language_instruction(language: &str) -> String {
     format!("本轮回复请使用 {language}。用户档案中明确设置的语言优先于客户端系统语言。")
 }
 
+fn idle_bot_memory_targets(snapshot: &Value, active_bots: &HashSet<String>) -> Vec<MemoryTarget> {
+    snapshot
+        .get("bots")
+        .and_then(Value::as_object)
+        .into_iter()
+        .flat_map(|bots| bots.values())
+        .filter(|bot| bot.get("is_main").and_then(Value::as_bool) != Some(true))
+        .filter_map(|bot| bot.get("id").and_then(Value::as_str))
+        // Older snapshots may not have the explicit is_main marker. The
+        // runtime treats the canonical id as main in that case as well.
+        .filter(|bot_id| *bot_id != "main" && !active_bots.contains(*bot_id))
+        .map(MemoryTarget::bot)
+        .collect()
+}
+
 #[cfg(test)]
 type StartupDispatchGate = Arc<Notify>;
 #[cfg(not(test))]
@@ -1436,15 +1451,7 @@ impl ComposedBackend {
         for request in active_requests {
             active_bots.insert(request.bot_id);
         }
-        let targets = snapshot
-            .get("bots")
-            .and_then(Value::as_object)
-            .into_iter()
-            .flat_map(|bots| bots.values())
-            .filter_map(|bot| bot.get("id").and_then(Value::as_str))
-            .filter(|bot_id| !active_bots.contains(*bot_id))
-            .map(MemoryTarget::bot)
-            .collect::<Vec<_>>();
+        let targets = idle_bot_memory_targets(&snapshot, &active_bots);
         let (committed, maintenance_error) = if let Some(error) = configure_error {
             (0, Some(error))
         } else {
@@ -8623,8 +8630,9 @@ mod model_resolution_tests {
 #[cfg(test)]
 mod persistence_tests {
     use super::{
-        host_default_locale, ComposedBackend, ExecutionEvent, ExecutionRequest, FeatureRunContext,
-        FeatureToolRuntime, ProductionBackend, ProjectFindToolBridge, RuntimeExecution,
+        host_default_locale, idle_bot_memory_targets, ComposedBackend, ExecutionEvent,
+        ExecutionRequest, FeatureRunContext, FeatureToolRuntime, ProductionBackend,
+        ProjectFindToolBridge, RuntimeExecution,
     };
     use crate::execution::ExecutionSink;
     use crate::features::FeatureService;
@@ -8650,6 +8658,28 @@ mod persistence_tests {
         async fn summarize(&self, _: &str) -> Result<String, MemoryError> {
             Ok("maintenance summary".into())
         }
+    }
+
+    #[test]
+    fn idle_memory_maintenance_excludes_main_bots_but_keeps_idle_workers() {
+        let snapshot = json!({
+            "bots": {
+                "canonical-main": {"id":"main","is_main":true},
+                "renamed-main": {"id":"secretary","is_main":true},
+                "worker-idle": {"id":"worker-idle","is_main":false},
+                "worker-active": {"id":"worker-active","is_main":false}
+            }
+        });
+        let targets = idle_bot_memory_targets(
+            &snapshot,
+            &std::collections::HashSet::from(["worker-active".to_owned()]),
+        );
+        assert_eq!(targets, [MemoryTarget::bot("worker-idle")]);
+
+        // A pre-marker persisted Bot with the canonical id follows the same
+        // main-Bot fallback as engine construction.
+        let legacy = json!({"bots":{"main":{"id":"main"}}});
+        assert!(idle_bot_memory_targets(&legacy, &std::collections::HashSet::new()).is_empty());
     }
 
     #[derive(Default)]

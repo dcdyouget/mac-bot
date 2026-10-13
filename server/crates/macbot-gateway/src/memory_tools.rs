@@ -398,6 +398,7 @@ impl FeatureExecutionSink {
     }
 
     fn context_request(&self, request: &crate::execution::ExecutionRequest) -> ContextRequest {
+        let is_main = self.runtime.run.actor.is_main();
         let kind = if request.private {
             macbot_memory::ConversationKind::Private
         } else if request.project_id.is_some() {
@@ -409,8 +410,14 @@ impl FeatureExecutionSink {
         if let Some(user_id) = &self.runtime.run.access.user_id {
             targets.push(MemoryTarget::user(user_id.clone()));
         }
-        targets.push(MemoryTarget::bot(request.bot_id.clone()));
-        if request.private {
+        // The main Bot is a coordinator. Its prompt may use the user's profile
+        // and preferences, but should not inherit its own work history or any
+        // project context that can pull the coordination thread into doing
+        // the underlying work itself.
+        if !is_main {
+            targets.push(MemoryTarget::bot(request.bot_id.clone()));
+        }
+        if !is_main && request.private {
             if let Some(project_id) = self
                 .runtime
                 .selected_project_id
@@ -421,17 +428,18 @@ impl FeatureExecutionSink {
                 targets.push(MemoryTarget::project(project_id));
             }
         }
-        if let Some(project_id) = &request.project_id {
-            if self.runtime.run.actor.is_main()
-                || self
+        if !is_main {
+            if let Some(project_id) = &request.project_id {
+                if self
                     .runtime
                     .run
                     .access
                     .project_member_bot_ids
                     .iter()
                     .any(|id| id == &request.bot_id)
-            {
-                targets.push(MemoryTarget::project(project_id.clone()));
+                {
+                    targets.push(MemoryTarget::project(project_id.clone()));
+                }
             }
         }
         let recent_messages: Vec<String> = request
@@ -651,7 +659,7 @@ impl crate::execution::ExecutionSink for FeatureExecutionSink {
                 run_id: Some(request.run_id.clone()),
                 session_id: Some(request.chat_id.clone()),
             };
-            if had_segment || context_window {
+            if !self.runtime.run.actor.is_main() && (had_segment || context_window) {
                 let targets = context_request
                     .memory_targets
                     .iter()
@@ -682,20 +690,22 @@ impl crate::execution::ExecutionSink for FeatureExecutionSink {
                 .summarize_segment(&transcript)
                 .await
                 .map_err(|error| format!("context summarization failed: {error}"))?;
-            let events = self
-                .runtime
-                .service
-                .persist_context_summary_immediate(
-                    &self.runtime.run.actor,
-                    &self.runtime.run.access,
-                    &request.run_id,
-                    MemoryTarget::bot(request.bot_id.clone()),
-                    &summary,
-                    source,
-                )
-                .map_err(|error| format!("context summary persistence failed: {error}"))?;
-            for event in events {
-                self.delegate.publish_persisted(event).await;
+            if !self.runtime.run.actor.is_main() {
+                let events = self
+                    .runtime
+                    .service
+                    .persist_context_summary_immediate(
+                        &self.runtime.run.actor,
+                        &self.runtime.run.access,
+                        &request.run_id,
+                        MemoryTarget::bot(request.bot_id.clone()),
+                        &summary,
+                        source,
+                    )
+                    .map_err(|error| format!("context summary persistence failed: {error}"))?;
+                for event in events {
+                    self.delegate.publish_persisted(event).await;
+                }
             }
             segment_id = self
                 .runtime
@@ -801,7 +811,7 @@ impl crate::execution::ExecutionSink for FeatureExecutionSink {
     }
 
     async fn commit_succeeded(&self, request: &crate::execution::ExecutionRequest, data: Value) {
-        if request.subagent {
+        if request.subagent || self.runtime.run.actor.is_main() {
             return;
         }
         let text = data.get("text").and_then(Value::as_str).unwrap_or_default();
@@ -1709,7 +1719,10 @@ mod tests {
     use super::*;
     use crate::execution::ExecutionSink;
     use chrono::Utc;
-    use macbot_memory::{ConversationKind, MemoryKind, MemoryScope};
+    use macbot_memory::{
+        ConversationKind, MemoryAction, MemoryKind, MemoryRequest, MemoryScope, MemorySource,
+        MemoryTarget,
+    };
     use macbot_providers::{Completion, ModelEvent, ModelProvider, ModelRequest, ToolCall};
     use macbot_tools::{Risk, Tool, ToolContext, ToolResult};
     use std::fs;
@@ -2310,6 +2323,184 @@ mod tests {
             .tools()
             .into_iter()
             .all(|tool| tool.name() != "skill_draft"));
+    }
+
+    #[tokio::test]
+    async fn main_context_ignores_legacy_bot_and_project_memory_without_blocking_run() {
+        let home = tempdir().unwrap().keep();
+        let service = Arc::new(FeatureService::open(home, Vec::new()).unwrap());
+        service
+            .user_memory_rpc("memory.profile.get", json!({}), "Asia/Shanghai")
+            .unwrap();
+        service
+            .user_memory_rpc(
+                "memory.profile.update",
+                json!({"name":"Ari","language":"中文","expected_version":1}),
+                "UTC",
+            )
+            .unwrap();
+        service
+            .user_memory_rpc(
+                "memory.user.create",
+                json!({"content":"偏好简洁、直接的答复"}),
+                "UTC",
+            )
+            .unwrap();
+
+        let seed_memory = |target, kind, content: String| {
+            service
+                .shared_memory
+                .add(MemoryRequest {
+                    target,
+                    action: MemoryAction::Add,
+                    content,
+                    id: None,
+                    kind: Some(kind),
+                    source: MemorySource::default(),
+                })
+                .unwrap();
+        };
+        // Reproduce the legacy state that previously made every main run
+        // exceed the worklog quota when it tried to append another summary.
+        seed_memory(
+            MemoryTarget::bot("main"),
+            MemoryKind::BotWorklog,
+            format!("MAIN_BOT_WORKLOG_MUST_STAY_PRIVATE {}", "w".repeat(1_340)),
+        );
+        seed_memory(
+            MemoryTarget::bot("main"),
+            MemoryKind::BotExperience,
+            "MAIN_BOT_EXPERIENCE_MUST_STAY_PRIVATE".into(),
+        );
+        seed_memory(
+            MemoryTarget::project("project-private"),
+            MemoryKind::Project,
+            "PROJECT_WORK_MUST_STAY_OUT_OF_MAIN_CONTEXT".into(),
+        );
+
+        let calls = Arc::new(StdMutex::new(Vec::new()));
+        let summarized = Arc::new(StdMutex::new(String::new()));
+        service
+            .set_maintenance_provider(Some(Arc::new(OrderedMaintenance {
+                calls: calls.clone(),
+                summarized,
+            })))
+            .unwrap();
+        let mut main_context = FeatureRunContext::main("main", "local-user");
+        main_context.model_context_window = 2;
+        main_context.run_id = Some("main-quota-run".into());
+        main_context.chat_id = Some("main-chat".into());
+        main_context.session_id = Some("main-chat".into());
+        let main_sink = FeatureExecutionSink::new(
+            Arc::new(EventRecordingSink::default()),
+            FeatureToolRuntime::new(service.clone(), main_context),
+        );
+        let main_request = serde_json::from_value::<crate::execution::ExecutionRequest>(json!({
+            "run_id":"main-quota-run",
+            "chat_id":"main-chat",
+            "bot_id":"main",
+            "model":"mock/model",
+            "instruction":"coordinate this request",
+            "private":true,
+            "project_id":"project-private"
+        }))
+        .unwrap();
+
+        let context = main_sink
+            .prepare_model_context(&main_request)
+            .await
+            .expect("legacy main memory must not prevent context assembly")
+            .unwrap();
+        let system = context["system_blocks"][0]["content"].as_str().unwrap();
+        assert!(system.contains("称呼：Ari"));
+        assert!(system.contains("语言：中文"));
+        assert!(system.contains("偏好简洁、直接的答复"));
+        assert!(!system.contains("MAIN_BOT_EXPERIENCE_MUST_STAY_PRIVATE"));
+        assert!(!system.contains("MAIN_BOT_WORKLOG_MUST_STAY_PRIVATE"));
+        assert!(!system.contains("PROJECT_WORK_MUST_STAY_OUT_OF_MAIN_CONTEXT"));
+        assert!(!system.contains("project-private"));
+        assert_eq!(*calls.lock().unwrap(), vec!["summarize"]);
+
+        // A completed main run must not try to append another worklog to the
+        // already-full legacy bot:main scope.
+        main_sink
+            .commit_succeeded(&main_request, json!({"text":"x".repeat(1_146)}))
+            .await;
+        assert_eq!(
+            service
+                .shared_memory
+                .entries()
+                .unwrap()
+                .iter()
+                .filter(|entry| {
+                    entry.target == MemoryTarget::bot("main")
+                        && entry.kind == MemoryKind::BotWorklog
+                })
+                .map(|entry| entry.content.chars().count())
+                .sum::<usize>(),
+            1_375
+        );
+
+        // Worker Bots still receive their own experience and large-memory
+        // directory, and keep the normal successful-run worklog behavior.
+        seed_memory(
+            MemoryTarget::bot("worker-a"),
+            MemoryKind::BotExperience,
+            "WORKER_EXPERIENCE_REMAINS_AVAILABLE".into(),
+        );
+        seed_memory(
+            MemoryTarget::bot("worker-a"),
+            MemoryKind::BotWorklog,
+            "worker prior work: shipped the search screen".into(),
+        );
+        let mut worker_context = FeatureRunContext::bot("worker-a", "local-user");
+        worker_context.run_id = Some("worker-quota-run".into());
+        worker_context.chat_id = Some("worker-chat".into());
+        let worker_runtime = FeatureToolRuntime::new(service.clone(), worker_context);
+        worker_runtime
+            .select_project_id("project-private".into())
+            .unwrap();
+        let worker_sink =
+            FeatureExecutionSink::new(Arc::new(EventRecordingSink::default()), worker_runtime);
+        let worker_request = serde_json::from_value::<crate::execution::ExecutionRequest>(json!({
+            "run_id":"worker-quota-run",
+            "chat_id":"worker-chat",
+            "bot_id":"worker-a",
+            "model":"mock/model",
+            "instruction":"continue the implementation",
+            "private":true
+        }))
+        .unwrap();
+        let worker_prepared = worker_sink
+            .prepare_model_context(&worker_request)
+            .await
+            .unwrap()
+            .unwrap();
+        let worker_system = worker_prepared["system_blocks"][0]["content"]
+            .as_str()
+            .unwrap();
+        assert!(worker_system.contains("WORKER_EXPERIENCE_REMAINS_AVAILABLE"));
+        assert!(worker_system.contains("worker prior work: shipped the search screen"));
+        assert!(worker_system.contains("PROJECT_WORK_MUST_STAY_OUT_OF_MAIN_CONTEXT"));
+        worker_sink
+            .commit_succeeded(
+                &worker_request,
+                json!({"text":"worker finished the requested implementation"}),
+            )
+            .await;
+        assert_eq!(
+            service
+                .shared_memory
+                .entries()
+                .unwrap()
+                .iter()
+                .filter(|entry| {
+                    entry.target == MemoryTarget::bot("worker-a")
+                        && entry.kind == MemoryKind::BotWorklog
+                })
+                .count(),
+            2
+        );
     }
 
     #[derive(Default)]
