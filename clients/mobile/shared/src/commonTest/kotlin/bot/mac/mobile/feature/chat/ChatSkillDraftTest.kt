@@ -103,6 +103,15 @@ class ChatSkillDraftTest {
     }
 
     @Test
+    fun onlyCtrlOrMetaEnterOnKeyDownSendsTheComposer() {
+        assertTrue(shouldSendChatShortcut(isEnter = true, isKeyDown = true, ctrlPressed = true, metaPressed = false))
+        assertTrue(shouldSendChatShortcut(isEnter = true, isKeyDown = true, ctrlPressed = false, metaPressed = true))
+        assertFalse(shouldSendChatShortcut(isEnter = true, isKeyDown = true, ctrlPressed = false, metaPressed = false))
+        assertFalse(shouldSendChatShortcut(isEnter = true, isKeyDown = false, ctrlPressed = true, metaPressed = false))
+        assertFalse(shouldSendChatShortcut(isEnter = false, isKeyDown = true, ctrlPressed = true, metaPressed = false))
+    }
+
+    @Test
     fun loadedSkillsAreOptionalTolerantAndGroupedByNameAcrossBots() {
         val message = Json.parseToJsonElement(
             """{"loaded_skills":[

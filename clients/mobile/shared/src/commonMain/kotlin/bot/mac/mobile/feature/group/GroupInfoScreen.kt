@@ -26,6 +26,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -37,9 +38,15 @@ import bot.mac.mobile.core.protocol.boolean
 import bot.mac.mobile.core.design.FontScaleToolbar
 import bot.mac.mobile.core.protocol.obj
 import bot.mac.mobile.core.protocol.str
+import bot.mac.mobile.core.protocol.objects
 import bot.mac.mobile.core.design.BotAvatar
 import bot.mac.mobile.core.state.MobileRepository
 import bot.mac.mobile.core.ui.MarkdownText
+import bot.mac.mobile.feature.mainbot.PendingDecisionContext
+import bot.mac.mobile.feature.mainbot.PendingDecisionKind
+import bot.mac.mobile.feature.mainbot.PendingDecisionSection
+import bot.mac.mobile.feature.mainbot.findPendingDecisionMessageId
+import bot.mac.mobile.feature.mainbot.pendingDecisionsForContext
 import bot.mac.mobile.core.ui.LucideIcon
 import bot.mac.mobile.core.ui.LucideIconKind
 import bot.mac.mobile.feature.chat.StatusLabel
@@ -68,6 +75,7 @@ import bot.mac.mobile.resources.search_filter_bots
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
+import kotlinx.coroutines.launch
 import org.jetbrains.compose.resources.stringResource
 
 /** Group information page backed by the project, announcement, bot, and artifact snapshots. */
@@ -80,13 +88,18 @@ fun GroupInfoScreen(
     onOpenHome: (path: String) -> Unit,
     onCopyHome: (path: String) -> Unit,
     onOpenArtifact: (artifactId: String, pathOrUrl: String, projectId: String?) -> Unit,
+    onOpenDecisionChat: (chatId: String, messageId: String?) -> Unit = { _, _ -> },
+    onOpenApproval: (approvalId: String) -> Unit = {},
+    onOpenQuestion: (questionId: String) -> Unit = {},
 ) {
     val state by repository.state.collectAsState()
+    val scope = rememberCoroutineScope()
     val project = state.projects.firstOrNull { it.str("id") == projectId }
     val announcement = state.announcements[projectId]
     val botsById = state.bots.associateBy { it.str("id") }
     val homePath = project?.str("home_path").orEmpty()
     val projectChat = state.chats.firstOrNull { it.str("id") == project?.str("chat_id") }
+        ?: state.chats.firstOrNull { it.str("project_id") == projectId }
     val chatMemberIds = projectChat?.arr("member_bot_ids").orEmpty()
         .mapNotNull { (it as? JsonPrimitive)?.content?.takeIf(String::isNotBlank) }
     val groupMembers = announcement?.arr("members")?.takeIf { it.isNotEmpty() }
@@ -103,6 +116,26 @@ fun GroupInfoScreen(
         }
     val artifacts = announcement?.arr("artifacts").orEmpty()
         .mapNotNull { it as? kotlinx.serialization.json.JsonObject }
+    val groupChatId = projectChat?.str("id").orEmpty()
+    val approvalReferenceBlocks = state.messages[groupChatId].orEmpty()
+        .flatMap { it.objects("blocks") }
+        .filter { it.str("type") == "approval_ref" }
+    val referencedApprovalIds = approvalReferenceBlocks.map { it.str("approval_id") }.filter(String::isNotBlank).toSet()
+    val referencedApprovalChats = approvalReferenceBlocks.mapNotNull { block ->
+        val approvalId = block.str("approval_id")
+        val referencedChatId = block.str("chat_id")
+        if (approvalId.isNotBlank() && referencedChatId.isNotBlank()) approvalId to referencedChatId else null
+    }.toMap()
+    val pendingDecisions = pendingDecisionsForContext(
+        approvals = state.approvals,
+        questions = state.questions,
+        projects = state.projects,
+        chats = state.chats,
+        assignments = state.assignments,
+        context = PendingDecisionContext(chatId = groupChatId, projectId = projectId),
+        referencedApprovalIds = referencedApprovalIds,
+        referencedApprovalChats = referencedApprovalChats,
+    )
 
     Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         FontScaleToolbar {
@@ -192,6 +225,25 @@ fun GroupInfoScreen(
                 }
                 Text(stringResource(Res.string.feature_home_value, homePath), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
+
+            PendingDecisionSection(
+                decisions = pendingDecisions,
+                state = state,
+                onClick = { decision ->
+                    scope.launch {
+                        val messageId = runCatching { findPendingDecisionMessageId(repository, decision) }.getOrNull()
+                        if (!messageId.isNullOrBlank()) {
+                            onOpenDecisionChat(decision.chatId, messageId)
+                        } else {
+                            when (decision.kind) {
+                                PendingDecisionKind.APPROVAL -> onOpenApproval(decision.id)
+                                PendingDecisionKind.QUESTION -> onOpenQuestion(decision.id)
+                                PendingDecisionKind.REVIEW -> onOpenDecisionChat(decision.chatId, null)
+                            }
+                        }
+                    }
+                },
+            )
 
             InfoSection(
                 title = stringResource(Res.string.group_members),

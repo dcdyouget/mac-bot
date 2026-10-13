@@ -7,8 +7,27 @@ internal data class ChatScrollState(
     val followLatest: Boolean = true,
 )
 
-internal fun ChatScrollState.afterInitialPosition(): ChatScrollState =
-    copy(initialPositioned = true, followLatest = true)
+internal data class ChatMessageScrollAnchor(val messageId: String, val offsetPx: Int)
+
+internal enum class InitialChatPositionKind { MESSAGE_LINK, TRACE_RETURN }
+
+internal data class InitialChatPosition(val messageId: String, val kind: InitialChatPositionKind)
+
+/** A saved trace-return position wins over an older route/deep-link target. */
+internal fun resolveInitialChatPosition(
+    initialMessageId: String?,
+    traceAnchorMessageId: String?,
+): InitialChatPosition? = when {
+    !traceAnchorMessageId.isNullOrBlank() -> InitialChatPosition(traceAnchorMessageId, InitialChatPositionKind.TRACE_RETURN)
+    !initialMessageId.isNullOrBlank() -> InitialChatPosition(initialMessageId, InitialChatPositionKind.MESSAGE_LINK)
+    else -> null
+}
+
+internal fun captureChatMessageAnchor(messageId: String, viewportStartOffset: Int, itemOffset: Int): ChatMessageScrollAnchor =
+    ChatMessageScrollAnchor(messageId, viewportStartOffset - itemOffset)
+
+internal fun ChatScrollState.afterInitialPosition(followLatest: Boolean = true): ChatScrollState =
+    copy(initialPositioned = true, followLatest = followLatest)
 
 internal fun ChatScrollState.onViewportChanged(atBottom: Boolean): ChatScrollState =
     if (!initialPositioned) this else copy(followLatest = atBottom)

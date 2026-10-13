@@ -29,6 +29,26 @@ class ChatScrollLogicTest {
     }
 
     @Test
+    fun explicitMessagePositionDoesNotFollowLatestAfterJump() {
+        val positioned = ChatScrollState().afterInitialPosition(followLatest = false)
+
+        assertFalse(positioned.shouldScrollToLatest(messageCount = 20))
+        assertFalse(positioned.followLatest)
+    }
+
+    @Test
+    fun traceReturnPositionWinsOverAnUnconsumedDeepLink() {
+        assertEquals(
+            InitialChatPosition("trace-message", InitialChatPositionKind.TRACE_RETURN),
+            resolveInitialChatPosition("old-deep-link", "trace-message"),
+        )
+        assertEquals(
+            InitialChatPosition("deep-link", InitialChatPositionKind.MESSAGE_LINK),
+            resolveInitialChatPosition("deep-link", null),
+        )
+    }
+
+    @Test
     fun latestIndexAccountsForOlderMessagesSentinel() {
         val messages = (0 until 4).map { buildJsonObject { put("created_at", "2026-10-12T10:00:00Z") } }
         assertEquals(4, latestChatItemIndex(messages, historyHasMore = false))
@@ -71,5 +91,11 @@ class ChatScrollLogicTest {
         }
 
         assertEquals(102, chatMessageLazyIndex(expandedHistory, 100, historyHasMore = true))
+    }
+
+    @Test
+    fun traceReturnAnchorKeepsTheVisibleMessageAndItsSignedOffset() {
+        assertEquals(ChatMessageScrollAnchor("msg-1", 18), captureChatMessageAnchor("msg-1", 0, -18))
+        assertEquals(ChatMessageScrollAnchor("msg-2", -12), captureChatMessageAnchor("msg-2", 0, 12))
     }
 }

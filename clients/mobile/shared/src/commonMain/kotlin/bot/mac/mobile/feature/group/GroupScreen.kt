@@ -62,6 +62,11 @@ fun GroupScreen(
     repository: MobileRepository,
     projectId: String,
     initialMessageId: String? = null,
+    initialScrollAnchorMessageId: String? = null,
+    initialScrollAnchorOffsetPx: Int = 0,
+    onRememberTraceAnchor: (chatId: String, messageId: String, offsetPx: Int) -> Unit = { _, _, _ -> },
+    onTraceAnchorRestored: (chatId: String) -> Unit = {},
+    onInitialMessageConsumed: (chatId: String, messageId: String) -> Unit = { _, _ -> },
     onOpenTrace: (String) -> Unit = {},
     onBack: () -> Unit = {},
     onOpenProject: (String) -> Unit = {},
@@ -80,6 +85,8 @@ fun GroupScreen(
     val state by repository.state.collectAsState()
     val project = state.projects.firstOrNull { it.str("id") == projectId }
     val chatId = project?.str("chat_id")?.takeIf { it.isNotBlank() }
+        ?: state.chats.firstOrNull { it.str("kind") == "project" && it.str("project_id") == projectId }
+            ?.str("id")?.takeIf { it.isNotBlank() }
     val announcement = state.announcements[projectId]
     var showGroupActions by remember { mutableStateOf(false) }
     var changeText by remember { mutableStateOf("") }
@@ -89,7 +96,6 @@ fun GroupScreen(
     var showAnnouncementEditor by remember { mutableStateOf(false) }
     var announcementText by remember(projectId) { mutableStateOf(TextFieldValue(announcement?.str("text").orEmpty())) }
     val announcementEditorFocus = remember(projectId) { FocusRequester() }
-    var announcementQuoteToAppend by remember(projectId) { mutableStateOf<String?>(null) }
     var announcementBaseVersion by remember(projectId) { mutableStateOf(announcement?.get("version")?.toString()?.trim('"')?.toLongOrNull() ?: 0L) }
     var announcementConflict by remember { mutableStateOf<JsonObject?>(null) }
     var announcementSaving by remember { mutableStateOf(false) }
@@ -100,13 +106,6 @@ fun GroupScreen(
     LaunchedEffect(announcement?.str("version"), showAnnouncementEditor) {
         if (!showAnnouncementEditor) {
             announcementText = TextFieldValue(announcement?.str("text").orEmpty())
-        } else {
-            announcementQuoteToAppend?.let { quote ->
-                val current = announcement?.str("text").orEmpty()
-                val text = listOf(current, quote).filter(String::isNotBlank).joinToString("\n\n")
-                announcementText = TextFieldValue(text, TextRange(text.length))
-                announcementQuoteToAppend = null
-            }
         }
     }
 
@@ -337,6 +336,11 @@ fun GroupScreen(
                     repository = repository,
                     chatId = id,
                     initialMessageId = initialMessageId,
+                    initialScrollAnchorMessageId = initialScrollAnchorMessageId,
+                    initialScrollAnchorOffsetPx = initialScrollAnchorOffsetPx,
+                    onRememberTraceAnchor = onRememberTraceAnchor,
+                    onTraceAnchorRestored = onTraceAnchorRestored,
+                    onInitialMessageConsumed = onInitialMessageConsumed,
                     onOpenTrace = { assignment, _ -> assignment?.let(onOpenTrace) },
                     onOpenProject = onOpenProject,
                     onOpenArtifact = onOpenArtifact,
@@ -356,15 +360,6 @@ fun GroupScreen(
                     },
                     onOpenScreen = onOpenScreen,
                     onOpenChat = onOpenChat,
-                    onQuoteAnnouncement = { quote ->
-                        if (showAnnouncementEditor) {
-                            val text = listOf(announcementText.text, quote).filter(String::isNotBlank).joinToString("\n\n")
-                            announcementText = TextFieldValue(text, TextRange(text.length))
-                        } else {
-                            announcementQuoteToAppend = quote
-                            showAnnouncementEditor = true
-                        }
-                    },
                     onCreateSkill = onCreateSkill,
                     onLoopAction = onLoopAction,
                     onTakeover = onTakeover,

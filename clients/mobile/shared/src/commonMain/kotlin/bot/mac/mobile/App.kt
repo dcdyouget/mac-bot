@@ -76,6 +76,10 @@ import org.jetbrains.compose.resources.stringResource
     var page by rememberSaveable { mutableStateOf("home") }
     var target by rememberSaveable { mutableStateOf("") }
     var secondTarget by rememberSaveable { mutableStateOf("") }
+    var traceReturnHostId by rememberSaveable { mutableStateOf("") }
+    var traceReturnChatId by rememberSaveable { mutableStateOf("") }
+    var traceReturnMessageId by rememberSaveable { mutableStateOf("") }
+    var traceReturnOffsetPx by rememberSaveable { mutableStateOf(0) }
     var routeHistory by rememberSaveable { mutableStateOf(listOf<String>()) }
     var computerTakeoverOwnerHostId by rememberSaveable { mutableStateOf<String?>(null) }
     var computerExitInFlight by remember { mutableStateOf(false) }
@@ -299,10 +303,34 @@ import org.jetbrains.compose.resources.stringResource
                                 secondTarget = ""
                             },
                         )
-                        page == "chat" -> MainBotScreen(repository = repository, chatId = target, initialMessageId = secondTarget, onOpenTrace = { assignment, chat -> open("trace", assignment.orEmpty(), chat.orEmpty()) }, onOpenProject = { open("group", it) }, onBack = back, onProjectAction = { projectId, action -> if (action == "confirm_done") scope.launch { runCatching { repository.call("project.confirm_done",jsonParams("project_id" to projectId)) }.onFailure { actionError=it.message } } else { changesProject=projectId;changesText="" } }, onOpenScreen={bot,tabId->open("computer",bot,tabId.orEmpty())},onOpenChat={openChat(it)},onLoopAction={id,action->scope.launch{runCatching{repository.call("loop.resolve",jsonParams("root_message_id" to id,"action" to action))}.onFailure{actionError=it.message}}},onTakeover={open("computer",it)},onOpenArtifact=openArtifact,onOpenHistory={open("history",it)},onOpenFollowup={open("followup",it)},onCreateSkill={ open("skills", "", it) })
-                        page == "group" -> GroupScreen(repository = repository, projectId = target, initialMessageId = secondTarget.takeIf { it != "edit_announcement" }, onOpenTrace = { open("trace", it) }, onBack = back,onOpenScreen={bot,tabId->open("computer",bot,tabId.orEmpty())},onOpenChat={openChat(it)},onLoopAction={id,action->scope.launch{runCatching{repository.call("loop.resolve",jsonParams("root_message_id" to id,"action" to action))}.onFailure{actionError=it.message}}},onTakeover={open("computer",it)},onOpenProject={open("group",it)},onOpenArtifact=openArtifact,onOpenHistory={open("history",it)},onOpenHome={open("file",target,"")},onCopyHome={clipboard.setText(AnnotatedString(it))},onOpenGroupInfo={open("groupinfo",it)},onCreateSkill={ open("skills", "", it) },editAnnouncementOnOpen=secondTarget=="edit_announcement")
-                        page == "groupinfo" -> GroupInfoScreen(repository, target, back, onEditAnnouncement = { open("group", it, "edit_announcement") }, onOpenHome = { open("file", target, it) }, onCopyHome = { clipboard.setText(AnnotatedString(it)) }, onOpenArtifact = openArtifact)
-                        page == "followup" -> FollowupScreen(repository, target, onBack = back, onOpenProject = { open("group", it) }, onOpenChat = { openChat(it) }, onOpenTrace = { assignment, chat -> open("trace", assignment, chat.orEmpty()) }, onOpenApproval = { open("approvals") }, onOpenQuestion = { id ->
+                        page == "chat" -> MainBotScreen(repository = repository, chatId = target, initialMessageId = secondTarget,
+                            initialScrollAnchorMessageId = traceReturnMessageId.takeIf { traceReturnHostId == active?.id && traceReturnChatId == target },
+                            initialScrollAnchorOffsetPx = traceReturnOffsetPx,
+                            onRememberTraceAnchor = { chatId, messageId, offsetPx -> active?.id?.let { hostId -> traceReturnHostId = hostId; traceReturnChatId = chatId; traceReturnMessageId = messageId; traceReturnOffsetPx = offsetPx } },
+                            onTraceAnchorRestored = { chatId -> if (traceReturnHostId == active?.id && traceReturnChatId == chatId) { traceReturnHostId = ""; traceReturnChatId = ""; traceReturnMessageId = ""; traceReturnOffsetPx = 0 } },
+                            onInitialMessageConsumed = { chatId, messageId -> if (page == "chat" && target == chatId && secondTarget == messageId) secondTarget = "" },
+                            onOpenTrace = { assignment, chat -> open("trace", assignment.orEmpty(), chat.orEmpty()) }, onOpenProject = { open("group", it) }, onBack = back, onProjectAction = { projectId, action -> if (action == "confirm_done") scope.launch { runCatching { repository.call("project.confirm_done",jsonParams("project_id" to projectId)) }.onFailure { actionError=it.message } } else { changesProject=projectId;changesText="" } }, onOpenScreen={bot,tabId->open("computer",bot,tabId.orEmpty())},onOpenChat={openChat(it)},onLoopAction={id,action->scope.launch{runCatching{repository.call("loop.resolve",jsonParams("root_message_id" to id,"action" to action))}.onFailure{actionError=it.message}}},onTakeover={open("computer",it)},onOpenArtifact=openArtifact,onOpenHistory={open("history",it)},onOpenFollowup={open("followup",it)},onCreateSkill={ open("skills", "", it) })
+                        page == "group" -> GroupScreen(repository = repository, projectId = target, initialMessageId = secondTarget.takeIf { it != "edit_announcement" },
+                            initialScrollAnchorMessageId = traceReturnMessageId.takeIf {
+                                traceReturnHostId == active?.id && traceReturnChatId == (
+                                    repository.state.value.projects.firstOrNull { it.str("id") == target }?.str("chat_id")
+                                        ?.takeIf(String::isNotBlank)
+                                        ?: repository.state.value.chats.firstOrNull { it.str("kind") == "project" && it.str("project_id") == target }?.str("id")
+                                )
+                            },
+                            initialScrollAnchorOffsetPx = traceReturnOffsetPx,
+                            onRememberTraceAnchor = { chatId, messageId, offsetPx -> active?.id?.let { hostId -> traceReturnHostId = hostId; traceReturnChatId = chatId; traceReturnMessageId = messageId; traceReturnOffsetPx = offsetPx } },
+                            onTraceAnchorRestored = { chatId -> if (traceReturnHostId == active?.id && traceReturnChatId == chatId) { traceReturnHostId = ""; traceReturnChatId = ""; traceReturnMessageId = ""; traceReturnOffsetPx = 0 } },
+                            onInitialMessageConsumed = { chatId, messageId ->
+                                val groupChatId = repository.state.value.projects.firstOrNull { it.str("id") == target }?.str("chat_id")
+                                    ?.takeIf(String::isNotBlank)
+                                    ?: repository.state.value.chats.firstOrNull { it.str("kind") == "project" && it.str("project_id") == target }?.str("id")
+                                if (page == "group" && chatId == groupChatId && secondTarget == messageId) secondTarget = ""
+                            },
+                            onOpenTrace = { open("trace", it) }, onBack = back,onOpenScreen={bot,tabId->open("computer",bot,tabId.orEmpty())},onOpenChat={openChat(it)},onLoopAction={id,action->scope.launch{runCatching{repository.call("loop.resolve",jsonParams("root_message_id" to id,"action" to action))}.onFailure{actionError=it.message}}},onTakeover={open("computer",it)},onOpenProject={open("group",it)},onOpenArtifact=openArtifact,onOpenHistory={open("history",it)},onOpenHome={open("file",target,"")},onCopyHome={clipboard.setText(AnnotatedString(it))},onOpenGroupInfo={open("groupinfo",it)},onCreateSkill={ open("skills", "", it) },editAnnouncementOnOpen=secondTarget=="edit_announcement")
+                        page == "groupinfo" -> GroupInfoScreen(repository, target, back, onEditAnnouncement = { open("group", it, "edit_announcement") }, onOpenHome = { open("file", target, it) }, onCopyHome = { clipboard.setText(AnnotatedString(it)) }, onOpenArtifact = openArtifact,
+                            onOpenDecisionChat = { chatId, messageId -> openChat(chatId, messageId) }, onOpenApproval = { open("approvals", it) }, onOpenQuestion = { id -> repository.state.value.questions.firstOrNull { it.str("id") == id }?.str("chat_id")?.takeIf(String::isNotBlank)?.let { openChat(it) } ?: open("approvals") })
+                        page == "followup" -> FollowupScreen(repository, target, onBack = back, onOpenProject = { open("group", it) }, onOpenChat = { chatId, messageId -> openChat(chatId, messageId) }, onOpenTrace = { assignment, chat -> open("trace", assignment, chat.orEmpty()) }, onOpenApproval = { open("approvals", it) }, onOpenQuestion = { id ->
                             val question = repository.state.value.questions.firstOrNull { it.str("id") == id }
                             question?.str("chat_id")?.takeIf(String::isNotBlank)?.let { openChat(it) } ?: open("approvals")
                         })
@@ -327,7 +355,7 @@ import org.jetbrains.compose.resources.stringResource
                             onBack = back,
                         )
                         page == "bot_editor" -> BotEditorScreen(repository, target.ifBlank { null }, { open("bots") }, back)
-                        page == "settings" -> SettingsScreen(repository, back)
+                        page == "settings" -> SettingsScreen(repository, back, onManageHosts = { open("connect") })
                         page == "memory" -> MemoryScreen(repository, back, { open("memory_edit", it) }, { open("profile_edit", it) }, { chatId, messageId -> openChat(chatId, messageId) })
                         page == "memory_edit" -> MemoryEntryEditorScreen(repository, target, back) { chatId, messageId -> openChat(chatId, messageId) }
                         page == "profile_edit" -> MemoryProfileEditScreen(repository, target, back)

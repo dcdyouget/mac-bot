@@ -88,6 +88,9 @@ internal fun filterSlashSkills(skills: List<JsonObject>, query: String): List<Js
 internal fun chatMessageDeepLink(hostId: String, chatId: String, messageId: String): String =
     "macbot://chat/${encodeUriComponent(chatId)}?host_id=${encodeUriComponent(hostId)}&message_id=${encodeUriComponent(messageId)}"
 
+internal fun shouldSendChatShortcut(isEnter: Boolean, isKeyDown: Boolean, ctrlPressed: Boolean, metaPressed: Boolean): Boolean =
+    isEnter && isKeyDown && (ctrlPressed || metaPressed)
+
 private fun encodeUriComponent(value: String): String = buildString {
     value.encodeToByteArray().forEach { byte ->
         val unsigned = byte.toInt() and 0xff

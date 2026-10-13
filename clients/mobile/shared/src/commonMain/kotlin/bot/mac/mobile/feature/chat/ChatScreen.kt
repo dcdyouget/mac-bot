@@ -22,6 +22,8 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.OutlinedButton
@@ -55,15 +57,16 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.isCtrlPressed
+import androidx.compose.ui.input.key.isMetaPressed
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.key.type
-import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
-import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.isTraversalGroup
@@ -133,6 +136,11 @@ fun ChatScreen(
     repository: MobileRepository,
     chatId: String,
     initialMessageId: String? = null,
+    initialScrollAnchorMessageId: String? = null,
+    initialScrollAnchorOffsetPx: Int = 0,
+    onRememberTraceAnchor: (chatId: String, messageId: String, offsetPx: Int) -> Unit = { _, _, _ -> },
+    onTraceAnchorRestored: (chatId: String) -> Unit = {},
+    onInitialMessageConsumed: (chatId: String, messageId: String) -> Unit = { _, _ -> },
     onOpenTrace: (assignmentId: String?, chatId: String?) -> Unit = { _, _ -> },
     onOpenProject: (String) -> Unit = {},
     onBack: () -> Unit = {},
@@ -145,7 +153,6 @@ fun ChatScreen(
     onOpenHistory: (chatId: String) -> Unit = {},
     onOpenGroupInfo: (projectId: String) -> Unit = {},
     onOpenFollowup: (chatId: String) -> Unit = {},
-    onQuoteAnnouncement: (String) -> Unit = {},
     onCreateSkill: (String) -> Unit = {},
     artifactProjectId: String? = null,
     showHeader: Boolean = true,
@@ -154,8 +161,10 @@ fun ChatScreen(
     val hostId = repository.activeHost.collectAsState().value?.id ?: "active"
     val animationsEnabled = LocalSystemAnimationsEnabled.current
     val messages = state.messages[chatId].orEmpty()
-    val lastOwnMessageIndex = messages.indexOfLast { it.obj("sender").str("kind") == "user" }
     val chat = state.chats.firstOrNull { it.str("id") == chatId }
+    val displayMessages = visibleMessagesForChat(messages, chat, state.bots)
+    val initialChatPosition = resolveInitialChatPosition(initialMessageId, initialScrollAnchorMessageId)
+    val lastOwnMessageIndex = displayMessages.indexOfLast { it.obj("sender").str("kind") == "user" }
     var draft by remember(hostId, chatId) { mutableStateOf("") }
     var selectedSkill by remember(hostId, chatId) { mutableStateOf<String?>(null) }
     var slashSkills by remember(hostId, chatId) { mutableStateOf(emptyList<JsonObject>()) }
@@ -179,12 +188,34 @@ fun ChatScreen(
     var historyLoaded by remember(hostId, chatId) { mutableStateOf(false) }
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
+    var traceAnchorHandled by remember(hostId, chatId, initialScrollAnchorMessageId) {
+        mutableStateOf(initialChatPosition?.kind != InitialChatPositionKind.TRACE_RETURN)
+    }
+    val openTraceFromChat: (String?, String?) -> Unit = { assignmentId, traceChatId ->
+        val messageByKey = displayMessages.associateBy { "$hostId:$chatId:${it.str("id")}" }
+        val anchorItem = listState.layoutInfo.visibleItemsInfo
+            .sortedBy { it.offset }
+            .firstNotNullOfOrNull { item ->
+                (item.key as? String)?.let(messageByKey::get)?.let { message -> item to message }
+            }
+        anchorItem?.let { (item, message) ->
+            val anchor = captureChatMessageAnchor(
+                messageId = message.str("id"),
+                viewportStartOffset = listState.layoutInfo.viewportStartOffset,
+                itemOffset = item.offset,
+            )
+            onRememberTraceAnchor(chatId, anchor.messageId, anchor.offsetPx)
+        }
+        onOpenTrace(assignmentId, traceChatId)
+    }
     val composerFocusRequester = remember(hostId, chatId) { FocusRequester() }
     var composerFocused by remember(hostId, chatId) { mutableStateOf(false) }
     var composerStackHeightPx by remember(hostId, chatId) { mutableStateOf(0) }
     val mentionButtonFocusRequester = remember(hostId, chatId) { FocusRequester() }
     var mentionOpenedByButton by remember(hostId, chatId) { mutableStateOf(false) }
-    var initialJumpHandled by remember(hostId, chatId, initialMessageId) { mutableStateOf(initialMessageId.isNullOrBlank()) }
+    var initialJumpHandled by remember(hostId, chatId, initialMessageId, initialScrollAnchorMessageId) {
+        mutableStateOf(initialChatPosition?.kind != InitialChatPositionKind.MESSAGE_LINK)
+    }
     val readOnly = chat?.str("kind") == "bot_dm"
     val memberIds = chat?.arr("member_bot_ids").orEmpty().map { it.toString().trim('"') }
     val mentionCandidates = state.bots.filter { it.str("id") in memberIds || memberIds.isEmpty() }
@@ -197,15 +228,12 @@ fun ChatScreen(
     } else {
         chat?.str("title").orEmpty()
     }
-    val showMainChatEmptyState = mainBotChat && messages.isEmpty() && historyLoaded
+    val showMainChatEmptyState = mainBotChat && displayMessages.isEmpty() && historyLoaded
+    val showConversationEmptyState = chat?.str("kind") in setOf("project", "direct", "bot_dm") &&
+        displayMessages.isEmpty() && historyLoaded
     val activeBotAssignments = state.assignments.count {
         it.str("bot_id") == chat?.str("bot_id") && it.str("status") in setOf("working", "queued")
     }
-    val waitingApproval = state.approvals.firstOrNull { it.str("chat_id") == chatId && it.str("state") == "pending" }
-    val waitingQuestion = state.questions.firstOrNull { it.str("chat_id") == chatId && it.str("state") == "pending" }
-    val waitingReviewProject = if (chat?.str("kind") == "main") state.projects.firstOrNull {
-        it.str("status") in setOf("review", "pending_review")
-    } else null
     val workingProjectBots = if (groupChat) {
         state.assignments.asSequence()
             .filter { it.str("project_id") == chat?.str("project_id") && it.str("status") == "working" }
@@ -245,6 +273,41 @@ fun ChatScreen(
         "direct", "bot_dm" -> botChatSubtitle
         "project" -> stringResource(Res.string.chat_group_subtitle, memberIds.size)
         else -> chat?.str("attention").orEmpty()
+    }
+    fun sendDraftMessage() {
+        val text = serializeChatMessageText(selectedSkill, draft)
+        val readyAttachments = attachments
+        if (!canSendChatMessage(text, readyAttachments, readOnly)) return
+        val uploadIds = readyAttachments.mapNotNull { it.uploadId }
+        val sendHostId = hostId
+        scope.launch {
+            runCatching {
+                repository.callOnHost(sendHostId, "chat.send", buildJsonObject {
+                    put("chat_id", chatId)
+                    put("text", text)
+                    put("mentions", buildJsonArray {
+                        mentionBots.forEach { botId ->
+                            if (botId == "__everyone__") add(buildJsonObject { put("kind", "everyone") })
+                            else add(buildJsonObject { put("kind", "bot"); put("bot_id", botId); put("instruction", JsonNull) })
+                        }
+                    })
+                    put("attachments", buildJsonArray { uploadIds.forEach { add(JsonPrimitive(it)) } })
+                    replyTo?.let { put("quote", it); put("quote_mode", quoteMode) }
+                }.withClientLocale(platformLocaleTag()))
+            }.onSuccess {
+                if (isCurrentUploadHost(sendHostId, repository.activeHost.value?.id)) {
+                    draft = ""
+                    selectedSkill = null
+                    replyTo = null
+                    quoteMode = "reply"
+                    mentionBots = emptySet()
+                    attachments = emptyList()
+                    error = null
+                }
+            }.onFailure {
+                if (isCurrentUploadHost(sendHostId, repository.activeHost.value?.id)) error = it.message ?: sendError
+            }
+        }
     }
     fun updateAttachment(localId: String, transform: (ChatAttachmentItem) -> ChatAttachmentItem) {
         attachments = attachments.map { item -> if (item.localId == localId) transform(item) else item }
@@ -323,8 +386,8 @@ fun ChatScreen(
         attachments = runCatching { decodeAttachmentDraft(store.read(chatAttachmentsDraftKey(hostId, chatId))) }.getOrDefault(emptyList())
         draftLoaded = true
     }
-    LaunchedEffect(chatId, draftLoaded, showHeader, readOnly, historyLoaded, messages.isNotEmpty(), mainBotChat) {
-        val canAutoFocus = !mainBotChat || (historyLoaded && messages.isNotEmpty())
+    LaunchedEffect(chatId, draftLoaded, showHeader, readOnly, historyLoaded, displayMessages.isNotEmpty(), mainBotChat) {
+        val canAutoFocus = !mainBotChat || (historyLoaded && displayMessages.isNotEmpty())
         if (draftLoaded && showHeader && !readOnly && canAutoFocus) {
             withFrameNanos { }
             runCatching { composerFocusRequester.requestFocus() }
@@ -367,13 +430,23 @@ fun ChatScreen(
             repository.callOnHost(hostId, "question.list", buildJsonObject { put("chat_id", chatId) })
         }
     }
-    LaunchedEffect(hostId, chatId, initialMessageId, historyLoaded) {
+    LaunchedEffect(hostId, chatId, initialMessageId, initialScrollAnchorMessageId, historyLoaded) {
         val targetId = initialMessageId?.takeIf(String::isNotBlank) ?: return@LaunchedEffect
+        if (initialChatPosition?.kind == InitialChatPositionKind.TRACE_RETURN) {
+            initialJumpHandled = true
+            onInitialMessageConsumed(chatId, targetId)
+            return@LaunchedEffect
+        }
         if (!historyLoaded || initialJumpHandled) return@LaunchedEffect
         var hasMore = historyHasMore
         var beforeSeq = historyBeforeSeq
         var pages = 0
-        while (repository.state.value.messages[chatId].orEmpty().none { it.str("id") == targetId } && hasMore && beforeSeq != null && pages < 100) {
+        fun currentVisibleMessages(): List<JsonObject> {
+            val currentState = repository.state.value
+            val currentChat = currentState.chats.firstOrNull { it.str("id") == chatId }
+            return visibleMessagesForChat(currentState.messages[chatId].orEmpty(), currentChat, currentState.bots)
+        }
+        while (currentVisibleMessages().none { it.str("id") == targetId } && hasMore && beforeSeq != null && pages < 100) {
             val result = runCatching {
                 repository.callOnHost(hostId, "chat.history", buildJsonObject {
                     put("chat_id", chatId)
@@ -391,12 +464,12 @@ fun ChatScreen(
             historyBeforeSeq = beforeSeq
             pages++
         }
-        val currentMessages = repository.state.value.messages[chatId].orEmpty()
+        val currentMessages = currentVisibleMessages()
         val index = currentMessages.indexOfFirst { it.str("id") == targetId }
         if (index >= 0) {
             withFrameNanos { }
             listState.scrollToItem(chatMessageLazyIndex(currentMessages, index, historyHasMore))
-            scrollState = scrollState.afterInitialPosition()
+            scrollState = scrollState.afterInitialPosition(followLatest = false)
             highlightedMessageId = targetId
             kotlinx.coroutines.delay(900)
             if (highlightedMessageId == targetId) highlightedMessageId = null
@@ -404,6 +477,46 @@ fun ChatScreen(
             error = quoteOriginalUnloaded
         }
         initialJumpHandled = true
+        onInitialMessageConsumed(chatId, targetId)
+    }
+    LaunchedEffect(hostId, chatId, initialScrollAnchorMessageId, initialScrollAnchorOffsetPx, historyLoaded, initialJumpHandled) {
+        val anchorId = initialScrollAnchorMessageId?.takeIf(String::isNotBlank) ?: return@LaunchedEffect
+        if (!historyLoaded || !initialJumpHandled || traceAnchorHandled) return@LaunchedEffect
+        var hasMore = historyHasMore
+        var beforeSeq = historyBeforeSeq
+        var pages = 0
+        fun currentVisibleMessages(): List<JsonObject> {
+            val currentState = repository.state.value
+            val currentChat = currentState.chats.firstOrNull { it.str("id") == chatId }
+            return visibleMessagesForChat(currentState.messages[chatId].orEmpty(), currentChat, currentState.bots)
+        }
+        while (currentVisibleMessages().none { it.str("id") == anchorId } && hasMore && beforeSeq != null && pages < 100) {
+            val result = runCatching {
+                repository.callOnHost(hostId, "chat.history", buildJsonObject {
+                    put("chat_id", chatId)
+                    put("before_seq", beforeSeq!!)
+                    put("limit", 100)
+                })
+            }.getOrElse { failure ->
+                error = failure.message ?: loadingError
+                break
+            }
+            hasMore = result.boolean("has_more")
+            beforeSeq = result.objects("messages").minOfOrNull { it.longValue("seq") ?: Long.MAX_VALUE }
+                ?.takeIf { it != Long.MAX_VALUE }
+            historyHasMore = hasMore
+            historyBeforeSeq = beforeSeq
+            pages++
+        }
+        val visible = currentVisibleMessages()
+        val index = visible.indexOfFirst { it.str("id") == anchorId }
+        if (index >= 0) {
+            withFrameNanos { }
+            listState.scrollToItem(chatMessageLazyIndex(visible, index, hasMore), initialScrollAnchorOffsetPx)
+            scrollState = scrollState.afterInitialPosition(followLatest = false).onViewportChanged(atBottom = false)
+        }
+        traceAnchorHandled = true
+        onTraceAnchorRestored(chatId)
     }
     val slashPickerOpen = isSlashSkillQuery(draft, selectedSkill)
     val canLoadSlashSkills = shouldLoadSlashSkills(draft, selectedSkill, state.connected)
@@ -417,13 +530,13 @@ fun ChatScreen(
         }
     }
 
-    LaunchedEffect(messages.size, messages.lastOrNull()?.toString(), pendingAnchor) {
+    LaunchedEffect(displayMessages.size, displayMessages.lastOrNull()?.toString(), pendingAnchor) {
         pendingAnchor?.let { anchor ->
-            if (messages.firstOrNull()?.str("id") != anchor.id) {
-                val index = messages.indexOfFirst { it.str("id") == anchor.id }
+            if (displayMessages.firstOrNull()?.str("id") != anchor.id) {
+                val index = displayMessages.indexOfFirst { it.str("id") == anchor.id }
                 if (index >= 0) {
                     withFrameNanos { }
-                    listState.scrollToItem(chatMessageLazyIndex(messages, index, historyHasMore), anchor.offset)
+                    listState.scrollToItem(chatMessageLazyIndex(displayMessages, index, historyHasMore), anchor.offset)
                 }
                 pendingAnchor = null
             }
@@ -438,19 +551,20 @@ fun ChatScreen(
         }.collect { scrollState = scrollState.onViewportChanged(it) }
     }
 
-    LaunchedEffect(chatId, historyLoaded, messages.size, historyHasMore) {
+    LaunchedEffect(chatId, historyLoaded, displayMessages.size, historyHasMore, traceAnchorHandled) {
         if (initialMessageId != null && !initialJumpHandled) return@LaunchedEffect
+        if (!traceAnchorHandled) return@LaunchedEffect
         if (!historyLoaded || scrollState.initialPositioned) return@LaunchedEffect
-        val lastIndex = latestChatItemIndex(messages, historyHasMore) ?: return@LaunchedEffect
+        val lastIndex = latestChatItemIndex(displayMessages, historyHasMore) ?: return@LaunchedEffect
         withFrameNanos { }
         listState.scrollToItem(lastIndex)
         scrollState = scrollState.afterInitialPosition()
     }
 
-    LaunchedEffect(messages.size, messages.lastOrNull()?.toString(), historyHasMore, scrollState) {
+    LaunchedEffect(displayMessages.size, displayMessages.lastOrNull()?.toString(), historyHasMore, scrollState, traceAnchorHandled) {
         if (initialMessageId != null && !initialJumpHandled) return@LaunchedEffect
-        if (!scrollState.shouldScrollToLatest(messages.size)) return@LaunchedEffect
-        val lastIndex = latestChatItemIndex(messages, historyHasMore) ?: return@LaunchedEffect
+        if (!traceAnchorHandled || !scrollState.shouldScrollToLatest(displayMessages.size)) return@LaunchedEffect
+        val lastIndex = latestChatItemIndex(displayMessages, historyHasMore) ?: return@LaunchedEffect
         withFrameNanos { }
         listState.scrollToItem(lastIndex)
     }
@@ -492,48 +606,6 @@ fun ChatScreen(
             }
             HorizontalDivider()
         }
-        val pinTitle = when {
-            waitingApproval != null -> stringResource(Res.string.chat_pin_pending_approval, 1)
-            waitingQuestion != null -> stringResource(Res.string.chat_pin_waiting_you, 1)
-            waitingReviewProject != null -> stringResource(Res.string.chat_pin_waiting_you, 1)
-            else -> null
-        }
-        val pinSummary = when {
-            waitingApproval != null -> "${waitingApproval.str("tool").ifBlank { waitingApproval.str("summary") }} · ${waitingApproval.str("summary")}"
-            waitingQuestion != null -> waitingQuestion.str("text")
-            waitingReviewProject != null -> "${waitingReviewProject.str("name")} · ${stringResource(Res.string.status_review_you)}"
-            else -> null
-        }
-        LaunchedEffect(pinTitle != null, scrollState.initialPositioned) {
-            if (pinTitle != null && scrollState.initialPositioned) {
-                // A pending banner can arrive after chat history has already scrolled. The
-                // reduced viewport then leaves the first visible message clipped at its top.
-                // Keep the same message in view, but align its top below the banner.
-                withFrameNanos { }
-                listState.scrollToItem(listState.firstVisibleItemIndex)
-            }
-        }
-        if (pinTitle != null && pinSummary != null) {
-            Row(
-                Modifier.fillMaxWidth().heightIn(min = 48.dp)
-                    .background(if (waitingApproval != null || waitingQuestion != null) LocalMobilePalette.current.warningSoft else LocalMobilePalette.current.reviewSoft)
-                    .clickable { onOpenFollowup(chatId) }
-                    .padding(horizontal = 14.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                LucideIcon(
-                    if (waitingApproval != null || waitingQuestion != null) LucideIconKind.ShieldAlert else LucideIconKind.Target,
-                    Modifier.size(20.dp),
-                    tint = if (waitingApproval != null || waitingQuestion != null) LocalMobilePalette.current.warning else LocalMobilePalette.current.review,
-                )
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
-                    Text(pinTitle, style = MaterialTheme.typography.labelLarge, maxLines = 1)
-                    Text(pinSummary, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                }
-                LucideIcon(LucideIconKind.ChevronRight, Modifier.size(18.dp), tint = LocalMobilePalette.current.textSecondary)
-            }
-        }
         Box(Modifier.weight(1f).fillMaxWidth()) {
         FontScaleLimit(2.0f) {
         LazyColumn(
@@ -564,6 +636,11 @@ fun ChatScreen(
                     )
                 }
             }
+            if (showConversationEmptyState) {
+                item(key = "conversation-empty-state") {
+                    ConversationEmptyState(chat?.str("kind").orEmpty())
+                }
+            }
             if (historyHasMore) {
                 item(key = "load-older") {
                     Button(
@@ -572,7 +649,7 @@ fun ChatScreen(
                             val beforeSeq = historyBeforeSeq ?: messages.minOfOrNull { it.longValue("seq") ?: Long.MAX_VALUE }
                                 ?.takeIf { it != Long.MAX_VALUE }
                             if (beforeSeq != null) {
-                                val anchor = messages.firstOrNull()?.str("id")?.takeIf { it.isNotBlank() }?.let {
+            val anchor = displayMessages.firstOrNull()?.str("id")?.takeIf { it.isNotBlank() }?.let {
                                     ScrollAnchor(it, listState.firstVisibleItemScrollOffset)
                                 }
                                 loadingOlder = true
@@ -598,9 +675,9 @@ fun ChatScreen(
                     ) { Text(if (loadingOlder) stringResource(Res.string.feature_loading) else stringResource(Res.string.chat_loading_older)) }
                 }
             }
-            messages.forEachIndexed { messageIndex, message ->
-                val previousMessage = messages.getOrNull(messageIndex - 1)
-                val nextMessage = messages.getOrNull(messageIndex + 1)
+            displayMessages.forEachIndexed { messageIndex, message ->
+                val previousMessage = displayMessages.getOrNull(messageIndex - 1)
+                val nextMessage = displayMessages.getOrNull(messageIndex + 1)
                 val startsNewDay = previousMessage == null || !sameChatDay(previousMessage, message)
                 val hasTimeSeparator = previousMessage != null && hasChatTimeSeparator(previousMessage, message)
                 if (startsNewDay) stickyHeader(key = "$hostId:$chatId:day:${chatDayKey(message.str("created_at"))}") {
@@ -622,7 +699,6 @@ fun ChatScreen(
                     hostId = hostId,
                     chatId = chatId,
                     repository = repository,
-                    onQuoteAnnouncement = onQuoteAnnouncement,
                     showSender = !followsSameAuthor,
                     showAvatar = !continuesSameAuthor,
                     followsSameAuthor = followsSameAuthor,
@@ -637,10 +713,10 @@ fun ChatScreen(
                     lastOwnMessage = messageIndex == lastOwnMessageIndex,
                     topSpacing = messageTopSpacing,
                     onJumpToMessage = { quotedId ->
-                        val index = messages.indexOfFirst { it.str("id") == quotedId }
+                        val index = displayMessages.indexOfFirst { it.str("id") == quotedId }
                         if (index >= 0) {
                             scope.launch {
-                                val targetIndex = chatMessageLazyIndex(messages, index, historyHasMore)
+                                val targetIndex = chatMessageLazyIndex(displayMessages, index, historyHasMore)
                                 if (animationsEnabled) {
                                     listState.animateScrollToItem(targetIndex)
                                     highlightedMessageId = quotedId
@@ -656,7 +732,7 @@ fun ChatScreen(
                     onReply = { replyTo = it },
                     onQuote = { id, mode -> quoteMode = mode; replyTo = id },
                     onReact = { id, emoji, enabled -> scope.launch { runCatching { repository.call("chat.react", buildJsonObject { put("message_id", id); put("emoji", emoji); put("on", enabled) }) }.onFailure { error = it.message ?: sendError } } },
-                    onOpenTrace = onOpenTrace,
+                    onOpenTrace = openTraceFromChat,
                     onApproval = { id, decision -> scope.launch { runCatching { repository.call("approval.decide", buildJsonObject { put("approval_id", id); put("decision", decision) }) }.onFailure { error = it.message ?: sendError } } },
                     onQuestion = { id, index, indexes, text -> scope.launch { runCatching { repository.call("question.answer", buildJsonObject {
                         put("question_id", id)
@@ -719,7 +795,7 @@ fun ChatScreen(
         replyTo?.let { id ->
             Surface(Modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.surfaceContainerHigh) {
                 Row(Modifier.padding(horizontal = 12.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                    val quoted = messages.firstOrNull { it.str("id") == id }
+                    val quoted = displayMessages.firstOrNull { it.str("id") == id }
                     val sender = quoted?.obj("sender")?.str("bot_id")?.let { botId -> state.bots.firstOrNull { it.str("id") == botId }?.str("name") }
                         ?.takeIf(String::isNotBlank) ?: stringResource(Res.string.common_you)
                     Spacer(Modifier.width(2.dp).heightIn(min = 36.dp).background(MaterialTheme.colorScheme.primary))
@@ -916,13 +992,24 @@ fun ChatScreen(
                 value = draft,
                 onValueChange = { draft = it; if (it.endsWith("@")) showMentions = true },
                 modifier = Modifier.fillMaxWidth().focusRequester(composerFocusRequester).onFocusChanged { composerFocused = it.isFocused }.onPreviewKeyEvent { event ->
-                    if (event.type == KeyEventType.KeyDown && event.key == Key.Backspace && draft.isEmpty() && selectedSkill != null) {
+                    if (shouldSendChatShortcut(
+                            isEnter = event.key == Key.Enter,
+                            isKeyDown = event.type == KeyEventType.KeyDown,
+                            ctrlPressed = event.isCtrlPressed,
+                            metaPressed = event.isMetaPressed,
+                        )
+                    ) {
+                        sendDraftMessage()
+                        true
+                    } else if (event.type == KeyEventType.KeyDown && event.key == Key.Backspace && draft.isEmpty() && selectedSkill != null) {
                         selectedSkill = null
                         true
                     } else false
                 },
                 placeholder = { Text(composerPlaceholder) },
                 maxLines = 4,
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+                keyboardActions = KeyboardActions(onSend = { sendDraftMessage() }),
                 colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
                     focusedBorderColor = androidx.compose.ui.graphics.Color.Transparent,
                     unfocusedBorderColor = androidx.compose.ui.graphics.Color.Transparent,
@@ -940,39 +1027,7 @@ fun ChatScreen(
                 enabled = canSendDraft,
                 interactionSource = sendInteractionSource,
                 modifier = Modifier.graphicsLayer { scaleX = sendScale * sendPressScale; scaleY = sendScale * sendPressScale },
-                onClick = {
-                    val text = serializeChatMessageText(selectedSkill, draft)
-                    val uploadIds = attachments.mapNotNull { it.uploadId }
-                    val sendHostId = hostId
-                    scope.launch {
-                        runCatching {
-                            repository.callOnHost(sendHostId, "chat.send", buildJsonObject {
-                                put("chat_id", chatId)
-                                put("text", text)
-                                put("mentions", buildJsonArray {
-                                    mentionBots.forEach { botId ->
-                                        if (botId == "__everyone__") add(buildJsonObject { put("kind", "everyone") })
-                                        else add(buildJsonObject { put("kind", "bot"); put("bot_id", botId); put("instruction", JsonNull) })
-                                    }
-                                })
-                                put("attachments", buildJsonArray { uploadIds.forEach { add(JsonPrimitive(it)) } })
-                                replyTo?.let { put("quote", it); put("quote_mode", quoteMode) }
-                            }.withClientLocale(platformLocaleTag()))
-                        }.onSuccess {
-                            if (isCurrentUploadHost(sendHostId, repository.activeHost.value?.id)) {
-                                draft = ""
-                                selectedSkill = null
-                                replyTo = null
-                                quoteMode = "reply"
-                                mentionBots = emptySet()
-                                attachments = emptyList()
-                                error = null
-                            }
-                        }.onFailure {
-                            if (isCurrentUploadHost(sendHostId, repository.activeHost.value?.id)) error = it.message ?: sendError
-                        }
-                    }
-                },
+                onClick = { sendDraftMessage() },
             ) { Text(if (readOnly) stringResource(Res.string.feature_readonly) else stringResource(Res.string.common_send)) }
         }
         }
@@ -1143,7 +1198,6 @@ internal fun ChatMessageRow(
     hostId: String,
     chatId: String,
     repository: MobileRepository,
-    onQuoteAnnouncement: (String) -> Unit,
     showSender: Boolean,
     showAvatar: Boolean,
     followsSameAuthor: Boolean,
@@ -1177,9 +1231,9 @@ internal fun ChatMessageRow(
     artifactProjectId: String?,
 ) {
     val palette = LocalMobilePalette.current
+    val closeActionsLabel = stringResource(Res.string.common_close)
     val messageIdentity = "$hostId:$chatId:${message.str("id")}"
     var showMessageActions by remember(messageIdentity) { mutableStateOf(false) }
-    var messageActionError by remember(messageIdentity) { mutableStateOf(false) }
     val messageFocusRequester = remember(messageIdentity) { FocusRequester() }
     val messageInteractionSource = remember(messageIdentity) { MutableInteractionSource() }
     val messagePressed by messageInteractionSource.collectIsPressedAsState()
@@ -1198,7 +1252,6 @@ internal fun ChatMessageRow(
         }
     }
     val haptics = LocalHapticFeedback.current
-    val clipboard = LocalClipboardManager.current
     val swipeThreshold = with(androidx.compose.ui.platform.LocalDensity.current) { 56.dp.toPx() }
     var didSwipeReply by remember(messageIdentity) { mutableStateOf(false) }
     var exactTimeOffsetPx by remember(messageIdentity) { mutableStateOf(0f) }
@@ -1258,9 +1311,6 @@ internal fun ChatMessageRow(
         (entry as? JsonObject)?.takeIf { it.str("type") == "text" }?.str("markdown")?.takeIf(String::isNotBlank)
     }.joinToString(" ")
     val messageBody = blockText.ifBlank { message.str("fallback_text") }
-    val messageCopyText = blocks.mapNotNull { entry ->
-        (entry as? JsonObject)?.takeIf { it.str("type") == "text" }?.str("markdown")?.takeIf(String::isNotBlank)
-    }.joinToString("\n\n").ifBlank { message.str("fallback_text") }
     val loadedNames = if (isUser) loadedSkillNames(message) else emptyList()
     val enabledSkillNames = state.skills.asSequence()
         .filter { it.boolean("enabled") }
@@ -1281,7 +1331,6 @@ internal fun ChatMessageRow(
     val spokenBody = messageBody.ifBlank { if (blocks.isNotEmpty()) stringResource(Res.string.chat_message_accessibility_card) else "" }
     val messageDescription = stringResource(Res.string.chat_message_accessibility, if (isUser) stringResource(Res.string.common_you) else senderLabel, spokenTime, spokenBody)
     val standaloneTask = blocks.singleOrNull()?.let { it as? JsonObject }?.takeIf { it.str("type") == "task_card" }
-    val actionAssignmentId = assignmentId.ifBlank { standaloneTask?.str("assignment_id").orEmpty() }
     Column(
         Modifier.fillMaxWidth().padding(top = topSpacing).graphicsLayer {
             val progress = entranceProgress.value
@@ -1512,16 +1561,13 @@ internal fun ChatMessageRow(
             dismissMessageActions()
         }) {
             Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(stringResource(Res.string.feature_message_actions), style = MaterialTheme.typography.titleMedium)
-                if (messageActionError) Text(stringResource(Res.string.chat_delete_failed), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
-                runCatching { Instant.parse(message.str("created_at")).toLocalDateTime(TimeZone.currentSystemDefault()) }
-                    .getOrNull()?.let { timestamp ->
-                        Text(
-                            stringResource(Res.string.chat_time_full, timestamp.year, padChatTimePart(timestamp.month.ordinal + 1), padChatTimePart(timestamp.day), padChatTimePart(timestamp.hour), padChatTimePart(timestamp.minute), padChatTimePart(timestamp.second)),
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text(stringResource(Res.string.feature_message_actions), Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
+                    androidx.compose.material3.IconButton(
+                        onClick = { dismissMessageActions() },
+                        modifier = Modifier.semantics { contentDescription = closeActionsLabel },
+                    ) { LucideIcon(LucideIconKind.X, Modifier.size(18.dp)) }
+                }
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
                     listOf("👍", "❤️", "😂", "🎉", "🤔", "👀").forEach { emoji ->
                         TextButton(onClick = { if (id.isNotBlank()) onReact(id, emoji, !reactionPills.any { it.emoji == emoji && it.mine }); dismissMessageActions() }) { Text(emoji, style = MaterialTheme.typography.titleLarge) }
@@ -1529,30 +1575,6 @@ internal fun ChatMessageRow(
                 }
                 TextButton(onClick = { if (id.isNotBlank()) onQuote(id, "reply"); dismissMessageActions() }) { Text(stringResource(Res.string.chat_menu_reply)) }
                 TextButton(onClick = { if (id.isNotBlank()) onQuote(id, "reference"); dismissMessageActions() }) { Text(stringResource(Res.string.chat_menu_quote)) }
-                if (actionAssignmentId.isNotBlank()) TextButton(onClick = { onOpenTrace(actionAssignmentId, null); dismissMessageActions() }) {
-                    Text(stringResource(Res.string.chat_menu_view_trace))
-                }
-                val projectId = artifactProjectId.orEmpty()
-                val quoteBody = blocks.mapNotNull { entry -> (entry as? JsonObject)?.takeIf { it.str("type") == "text" }?.str("markdown")?.takeIf(String::isNotBlank) }
-                    .joinToString("\n\n").ifBlank { message.str("fallback_text") }
-                if (projectId.isNotBlank() && quoteBody.isNotBlank()) TextButton(onClick = {
-                    val quoted = quoteBody.lines().joinToString("\n") { "> $it" }
-                    onQuoteAnnouncement("**$senderLabel**\n$quoted")
-                    dismissMessageActions()
-                }) { Text(stringResource(Res.string.chat_menu_quote_to_announcement)) }
-                TextButton(onClick = { clipboard.setText(AnnotatedString(messageCopyText)); dismissMessageActions() }) { Text(stringResource(Res.string.chat_menu_copy_text)) }
-                if (id.isNotBlank() && chatId.isNotBlank()) TextButton(onClick = {
-                    clipboard.setText(AnnotatedString(chatMessageDeepLink(hostId, chatId, id)))
-                    dismissMessageActions()
-                }) { Text(stringResource(Res.string.chat_menu_copy_link)) }
-                if (isUser && id.isNotBlank()) TextButton(onClick = {
-                    messageActionError = false
-                    actionScope.launch {
-                        runCatching { repository.callOnHost(hostId, "message.delete", buildJsonObject { put("message_id", id) }) }
-                            .onSuccess { dismissMessageActions() }
-                            .onFailure { messageActionError = true }
-                    }
-                }) { Text(stringResource(Res.string.chat_menu_delete), color = MaterialTheme.colorScheme.error) }
             }
         }
     }

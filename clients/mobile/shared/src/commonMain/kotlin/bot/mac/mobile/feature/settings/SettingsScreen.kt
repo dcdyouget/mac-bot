@@ -46,7 +46,7 @@ import kotlinx.serialization.json.put
 import org.jetbrains.compose.resources.stringResource
 
 @Composable
-fun SettingsScreen(repository: MobileRepository, onBack: () -> Unit = {}) {
+fun SettingsScreen(repository: MobileRepository, onBack: () -> Unit = {}, onManageHosts: () -> Unit = {}) {
     val state by repository.state.collectAsState()
     val scope = rememberCoroutineScope()
     val clientRepository = repository as? ClientRepository
@@ -176,9 +176,14 @@ fun SettingsScreen(repository: MobileRepository, onBack: () -> Unit = {}) {
             }
             item {
                 HorizontalDivider(Modifier.padding(vertical = 8.dp))
-                Text(stringResource(Res.string.feature_host), style = MaterialTheme.typography.titleMedium)
-                Text("${state.settings.str("host_name")} · ${state.settings.str("timezone")}")
-                Text(stringResource(Res.string.feature_currency, state.settings.str("currency")), style = MaterialTheme.typography.bodySmall)
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text(stringResource(Res.string.feature_host), style = MaterialTheme.typography.titleMedium)
+                        Text("${state.settings.str("host_name")} · ${state.settings.str("timezone")}")
+                        Text(stringResource(Res.string.feature_currency, state.settings.str("currency")), style = MaterialTheme.typography.bodySmall)
+                    }
+                    TextButton(onClick = onManageHosts) { Text(stringResource(Res.string.host_add)) }
+                }
             }
             hostPermissions?.let { permissions ->
                 item {

@@ -27,6 +27,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -87,6 +88,7 @@ import bot.mac.mobile.resources.feature_status_waiting_user
 import bot.mac.mobile.resources.feature_status_working
 import bot.mac.mobile.resources.feature_status_unknown
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import org.jetbrains.compose.resources.stringResource
@@ -103,12 +105,13 @@ fun FollowupScreen(
     botId: String? = null,
     onBack: () -> Unit = {},
     onOpenProject: (String) -> Unit = {},
-    onOpenChat: (String) -> Unit = {},
+    onOpenChat: (chatId: String, messageId: String?) -> Unit = { _, _ -> },
     onOpenTrace: (assignmentId: String, chatId: String?) -> Unit = { _, _ -> },
     onOpenApproval: (String) -> Unit = {},
     onOpenQuestion: (String) -> Unit = {},
 ) {
     val state by repository.state.collectAsState()
+    val scope = rememberCoroutineScope()
     var loading by remember(chatId, botId) { mutableStateOf(true) }
     var error by remember(chatId, botId) { mutableStateOf<String?>(null) }
     val chat = state.chats.firstOrNull { it.str("id") == chatId }
@@ -152,9 +155,26 @@ fun FollowupScreen(
     }
     val queued = currentAssignments.filter { it.str("status") == "queued" }
     val activeTasks = currentAssignments.filter { it.str("status") != "queued" }
-    val pendingApprovals = state.approvals.filter { it.str("state") == "pending" && it.str("chat_id") == chatId }
-    val pendingQuestions = state.questions.filter { it.str("state") == "pending" && it.str("chat_id") == chatId }
-    val reviewProjects = state.projects.filter { it.str("status") == "review" }
+    val currentProjectId = chat?.str("project_id")?.takeIf(String::isNotBlank)
+    val approvalReferenceBlocks = state.messages[chatId].orEmpty()
+        .flatMap { it.objects("blocks") }
+        .filter { it.str("type") == "approval_ref" }
+    val referencedApprovalIds = approvalReferenceBlocks.map { it.str("approval_id") }.filter(String::isNotBlank).toSet()
+    val referencedApprovalChats = approvalReferenceBlocks.mapNotNull { block ->
+        val approvalId = block.str("approval_id")
+        val referencedChatId = block.str("chat_id")
+        if (approvalId.isNotBlank() && referencedChatId.isNotBlank()) approvalId to referencedChatId else null
+    }.toMap()
+    val pendingDecisions = pendingDecisionsForContext(
+        approvals = state.approvals,
+        questions = state.questions,
+        projects = state.projects,
+        chats = state.chats,
+        assignments = allAssignments,
+        context = PendingDecisionContext(chatId, contextBotId, currentProjectId, isMainBot),
+        referencedApprovalIds = referencedApprovalIds,
+        referencedApprovalChats = referencedApprovalChats,
+    )
     val relatedProjects = remember(state.projects, currentAssignments, state.workbench) {
         val projectIds = currentAssignments.map { it.str("project_id") }.filter(String::isNotBlank).toSet()
         val waitingIds = state.workbench.objects("waiting").filter { it.str("kind") == "review" }
@@ -195,44 +215,25 @@ fun FollowupScreen(
                 Modifier.fillMaxSize().padding(horizontal = 16.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                item {
-                    SectionHeading(stringResource(Res.string.followup_current_pending), pendingApprovals.size + pendingQuestions.size + if (isMainBot) reviewProjects.size else 0)
-                }
-                if (isMainBot) {
-                    items(reviewProjects, key = { "review:${it.str("id")}" }) { project ->
-                        PendingCard(
-                            title = project.str("name").ifBlank { project.str("id") },
-                            detail = stringResource(Res.string.follow_go_review),
-                            tint = MaterialTheme.colorScheme.tertiaryContainer,
-                            icon = LucideIconKind.Target,
-                            action = stringResource(Res.string.follow_go_review),
-                        ) { onOpenProject(project.str("id")) }
-                    }
-                } else {
-                    items(pendingApprovals, key = { "approval:${it.str("id")}" }) { approval ->
-                        PendingCard(
-                            title = approval.str("summary").ifBlank { approval.str("tool") },
-                            detail = listOfNotNull(
-                                projectName(state, approval.str("assignment_id"), currentAssignments),
-                                approval.str("tool").takeIf(String::isNotBlank),
-                            ).joinToString(" · "),
-                            tint = MaterialTheme.colorScheme.errorContainer,
-                            icon = LucideIconKind.ShieldAlert,
-                            action = stringResource(Res.string.follow_handle),
-                        ) { onOpenApproval(approval.str("id")) }
-                    }
-                    items(pendingQuestions, key = { "question:${it.str("id")}" }) { question ->
-                        PendingCard(
-                            title = question.str("text"),
-                            detail = question.str("assignment_id").takeIf(String::isNotBlank).orEmpty(),
-                            tint = MaterialTheme.colorScheme.tertiaryContainer,
-                            icon = LucideIconKind.MessageCircle,
-                            action = stringResource(Res.string.follow_handle),
-                        ) { onOpenQuestion(question.str("id")) }
-                    }
-                }
-                if (pendingApprovals.isEmpty() && pendingQuestions.isEmpty() && (!isMainBot || reviewProjects.isEmpty())) {
-                    item { EmptyCard(stringResource(Res.string.followup_no_pending)) }
+                item(key = "pending-decisions") {
+                    PendingDecisionSection(
+                        decisions = pendingDecisions,
+                        state = state,
+                        onClick = { decision ->
+                            scope.launch {
+                                val messageId = runCatching { findPendingDecisionMessageId(repository, decision) }.getOrNull()
+                                if (!messageId.isNullOrBlank()) {
+                                    onOpenChat(decision.chatId, messageId)
+                                } else {
+                                    when (decision.kind) {
+                                        PendingDecisionKind.APPROVAL -> onOpenApproval(decision.id)
+                                        PendingDecisionKind.QUESTION -> onOpenQuestion(decision.id)
+                                        PendingDecisionKind.REVIEW -> onOpenChat(decision.chatId, null)
+                                    }
+                                }
+                            }
+                        },
+                    )
                 }
 
                 if (isMainBot) {
@@ -248,7 +249,7 @@ fun FollowupScreen(
                             title = project.str("name").ifBlank { project.str("id") },
                             status = statusLabel(status),
                             working = status == "active",
-                            onClick = { projectChat?.str("id")?.takeIf(String::isNotBlank)?.let(onOpenChat) ?: onOpenProject(project.str("id")) },
+                            onClick = { projectChat?.str("id")?.takeIf(String::isNotBlank)?.let { onOpenChat(it, null) } ?: onOpenProject(project.str("id")) },
                         )
                     }
                 }
@@ -261,7 +262,7 @@ fun FollowupScreen(
                         project = state.projects.firstOrNull { it.str("id") == assignment.str("project_id") },
                         onOpenChat = {
                             val projectChatId = state.chats.firstOrNull { it.str("kind") == "project" && it.str("project_id") == assignment.str("project_id") }?.str("id")
-                            if (!projectChatId.isNullOrBlank()) onOpenChat(projectChatId)
+                            if (!projectChatId.isNullOrBlank()) onOpenChat(projectChatId, null)
                             else assignment.str("project_id").takeIf(String::isNotBlank)?.let(onOpenProject)
                         },
                         onOpenTrace = { onOpenTrace(assignment.str("id"), assignment.str("origin_chat_id").ifBlank { chatId }) },
