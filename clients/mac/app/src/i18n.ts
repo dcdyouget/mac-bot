@@ -313,6 +313,8 @@ const copy = {
   'settings.models.delete_provider': '删除服务商',
   'settings.models.provider_empty': '尚未添加服务商',
   'settings.models.model_empty': '暂无可用模型',
+  'settings.models.fetch': '拉取模型',
+  'settings.models.test': '测试连接',
   'settings.models.edit_model': '编辑',
   'settings.models.model_name': '模型名称',
   'settings.models.model_id': '模型 ID',

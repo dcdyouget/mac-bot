@@ -644,21 +644,6 @@ button.protocol-status-block:hover { border-color: var(--accent); background: va
   from { opacity: 1; transform: translateX(0); }
   to { opacity: 0; transform: translateX(24px); }
 }
-@media (max-width: 1099px) {
-  .app-shell { position: relative; }
-  .app-shell > .context-panel-scrim { position: absolute; z-index: 7; inset: 0; display: block; border: 0; background: transparent; }
-  .app-shell > .context-panel.context-panel-open { position: absolute; z-index: 8; inset: 0 0 0 auto; display: flex; width: 280px; box-shadow: var(--elevation-4); animation: context-panel-enter 200ms var(--ease-standard) both; }
-  .app-shell > .context-panel.context-panel-open.context-panel-closing { animation: context-panel-exit 200ms var(--ease-standard) both; }
-  .app-shell > .context-panel-collapsed { display: none; }
-}
-@media (max-width: 520px) {
-  .app-shell > .context-panel.context-panel-open { width: min(320px, calc(100vw - 48px)); }
-}
-@media (prefers-reduced-motion: reduce) {
-  .app-shell > .context-panel.context-panel-open,
-  .app-shell > .context-panel.context-panel-closing,
-  .app-shell > .context-panel.context-panel-open.context-panel-closing { animation: none; transition: none; }
-}
 
 /* v1.2 §1 — adapt the prototype bubble treatment to the desktop message DOM. */
 .message-group .bubble {
@@ -898,12 +883,10 @@ button.protocol-status-block:hover { border-color: var(--accent); background: va
 .chat-entry-overlay,
 .host-dialog-backdrop,
 .review-dialog-backdrop { animation: fade var(--duration-normal) var(--ease-standard) both; }
-@keyframes contextPanelSpringIn { from { opacity: 0; transform: translateX(24px); } to { opacity: 1; transform: translateX(0); } }
-@keyframes contextPanelSpringOut { from { opacity: 1; transform: translateX(0); } to { opacity: 0; transform: translateX(24px); } }
-@media (max-width: 1099px) {
-  .app-shell > .context-panel.context-panel-open { animation: contextPanelSpringIn var(--duration-spring) var(--ease-spring-soft) both; }
-  .app-shell > .context-panel.context-panel-open.context-panel-closing { animation: contextPanelSpringOut var(--duration-spring) var(--ease-spring-soft) both; }
-}
+@keyframes contextPanelWindowEnter { from { opacity: 0; transform: translateX(12px); } to { opacity: 1; transform: translateX(0); } }
+@keyframes contextPanelWindowExit { from { opacity: 1; transform: translateX(0); } to { opacity: 0; transform: translateX(12px); } }
+.app-shell > .context-panel.context-panel-open { animation: contextPanelWindowEnter 200ms var(--ease-standard) both; }
+.app-shell > .context-panel.context-panel-open.context-panel-closing { animation: contextPanelWindowExit 200ms var(--ease-standard) both; }
 @keyframes typing-wave { 0%, 60%, 100% { transform: translateY(0); opacity: .35; } 30% { transform: translateY(-4px); opacity: 1; } }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }

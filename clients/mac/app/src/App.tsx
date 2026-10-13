@@ -1,5 +1,6 @@
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { Channel, invoke } from '@tauri-apps/api/core'
+import { Channel, invoke, isTauri } from '@tauri-apps/api/core'
+import { currentMonitor, getCurrentWindow, PhysicalPosition, PhysicalSize, primaryMonitor } from '@tauri-apps/api/window'
 import { getVersion } from '@tauri-apps/api/app'
 import { listen } from '@tauri-apps/api/event'
 import { AlertCircle, AtSign, Check, ChevronDown, ChevronRight, Command, Menu, MessageCircle, Monitor, PanelRight, Plus, Search, Send, Settings, Shield, Sparkles, Workflow, Clock3, Trash2, Edit3, Users, Folder, X, Paperclip, Zap } from 'lucide-react'
@@ -25,6 +26,7 @@ import { welcomeTemplateRetryAction, type WelcomeTemplateChoice } from './compon
 import { buildMainEmptySuggestionAction, splitSidebarGroups } from './components/sidebarGroups.model'
 import { classifyDeepLink, type PendingDeepLink } from './components/deepLinkRouting.model'
 import { CONTEXT_PANEL_TRANSITION_MS, transitionContextPanel, type ContextPanelPhase } from './components/contextPanelMotion.model'
+import { CLOSED_CONTEXT_PANEL_WINDOW, planContextPanelWindow, type ContextPanelWindowState, type SavedWindowFrame } from './components/contextPanelWindow.model'
 import { isLatestLocalPreferenceSave, mergeLocalPreferences, rollbackLocalPreferencePatch } from './components/localPreferences.model'
 import { CreateGroupDialog, MessageContextMenu, type ChatEntryMessage, type QuoteTarget } from './components/ChatEntry'
 import './components/ChatEntry.css'
@@ -38,7 +40,7 @@ import { findForcedSkillTextBlockIndex, getRenderableSkillNames, getValidLoadedS
 type ThemeMode = 'light' | 'dark' | 'system'
 type ContextPanelPage = 'context' | 'group-settings'
 type PendingContextAction = { id: string; messageId: string; title: string; kind: 'question' | 'review' }
-type SettingsNavigationSection = 'general' | 'memory' | 'models' | 'runtime' | 'tools' | 'skills' | 'computer' | 'hosts' | 'about'
+type SettingsNavigationSection = 'general' | 'memory' | 'models' | 'runtime' | 'tools' | 'computer' | 'hosts' | 'about'
 type AppPage = 'chat' | 'workbench' | 'dashboard' | 'routines' | 'skills' | 'memory' | 'trace' | 'computer' | 'artifact'
 type TraceReturnPage = Exclude<AppPage, 'trace' | 'computer' | 'artifact'>
 type TraceRoute = { assignmentId: string; hostScope: string; returnPage: TraceReturnPage; returnChatId: string; returnSelectedAssignment: string | null }
@@ -60,6 +62,7 @@ const THEME_STORAGE_KEY = 'macbot.appearance.theme'
 const MATERIAL_STORAGE_KEY = 'macbot.appearance.translucent'
 const SELECTED_CHAT_STORAGE_KEY = 'macbot.chat.selected'
 const MAX_CHAT_ATTACHMENT_BYTES = 100 * 1024 * 1024
+const CONTEXT_PANEL_WIDTH = 280
 
 function mergeMessages(...groups: Message[][]): Message[] {
   const byId = new Map<string, Message>()
@@ -259,6 +262,8 @@ function App() {
   const contextPanelOpen = contextPanelPhase === 'open'
   const contextPanelRetained = contextPanelPhase !== 'closed'
   const contextPanelCloseTimerRef = useRef<number | null>(null)
+  const nativeContextPanelWindowRef = useRef<ContextPanelWindowState>(CLOSED_CONTEXT_PANEL_WINDOW)
+  const nativeContextPanelWindowQueueRef = useRef<Promise<void>>(Promise.resolve())
   const contextPanelIdentityRef = useRef(`${hostScope}:${activePage}`)
   const hostScopeRef = useRef(hostScope)
   const stateRef = useRef(state)
@@ -287,11 +292,68 @@ function App() {
   computerFrameScopeRef.current = computerFrameScope
   computerFrameRef.current = computerFrame
 
+  const resizeContextPanelWindow = useCallback((open: boolean) => {
+    if (!isTauri()) return Promise.resolve()
+
+    const applyFrame = async (saved: SavedWindowFrame, width: number) => {
+      const appWindow = getCurrentWindow()
+      await appWindow.setPosition(new PhysicalPosition(saved.outer.x, saved.outer.y))
+      await appWindow.setSize(new PhysicalSize(width, saved.inner.height))
+    }
+
+    const run = async () => {
+      const currentState = nativeContextPanelWindowRef.current
+      if (open && currentState.saved) return
+      if (!open && !currentState.saved) return
+
+      const appWindow = getCurrentWindow()
+      if (open) {
+        if (await appWindow.isFullscreen()) return
+        const [position, outerSize, innerSize, scaleFactor, activeMonitor] = await Promise.all([
+          appWindow.outerPosition(), appWindow.outerSize(), appWindow.innerSize(), appWindow.scaleFactor(), currentMonitor(),
+        ])
+        const monitor = activeMonitor ?? await primaryMonitor()
+        if (!monitor) return
+        const original: SavedWindowFrame = {
+          outer: { x: position.x, y: position.y, width: outerSize.width, height: outerSize.height },
+          inner: { width: innerSize.width, height: innerSize.height },
+        }
+        const plan = planContextPanelWindow(currentState, true, original, {
+          x: monitor.workArea.position.x,
+          y: monitor.workArea.position.y,
+          width: monitor.workArea.size.width,
+        }, CONTEXT_PANEL_WIDTH * scaleFactor)
+        if (!plan.outer || !plan.inner) return
+        nativeContextPanelWindowRef.current = plan.state
+        const expanded: SavedWindowFrame = { outer: plan.outer, inner: plan.inner }
+        try {
+          await applyFrame(expanded, plan.inner.width)
+        } catch (error) {
+          try { await applyFrame(original, original.inner.width) } catch { /* Keep the native resize failure as the reported error. */ }
+          nativeContextPanelWindowRef.current = CLOSED_CONTEXT_PANEL_WINDOW
+          throw error
+        }
+        return
+      }
+
+      const plan = planContextPanelWindow(currentState, false, null, { x: 0, y: 0, width: 0 }, 0)
+      if (!plan.outer || !plan.inner) return
+      await applyFrame({ outer: plan.outer, inner: plan.inner }, plan.inner.width)
+      nativeContextPanelWindowRef.current = plan.state
+    }
+
+    const queued = nativeContextPanelWindowQueueRef.current.then(run, run)
+    nativeContextPanelWindowQueueRef.current = queued.catch((error: unknown) => {
+      console.warn('Could not resize the native window for the context panel', error)
+    })
+    return queued
+  }, [])
+
   const openContextPanel = useCallback(() => {
     if (contextPanelCloseTimerRef.current !== null) window.clearTimeout(contextPanelCloseTimerRef.current)
     contextPanelCloseTimerRef.current = null
-    setContextPanelPhase('open')
-  }, [])
+    void resizeContextPanelWindow(true).catch(() => undefined).finally(() => setContextPanelPhase('open'))
+  }, [resizeContextPanelWindow])
 
   const closeContextPanel = useCallback(() => {
     if (contextPanelPhase !== 'open') return
@@ -314,6 +376,11 @@ function App() {
     contextPanelCloseTimerRef.current = null
     setContextPanelPhase((phase) => transitionContextPanel(phase, 'invalidate'))
   }, [])
+
+  useEffect(() => {
+    if (contextPanelPhase === 'open') void resizeContextPanelWindow(true).catch(() => undefined)
+    else if (contextPanelPhase === 'closed') void resizeContextPanelWindow(false).catch(() => undefined)
+  }, [contextPanelPhase, resizeContextPanelWindow])
 
   useLayoutEffect(() => {
     const identity = `${hostScope}:${activePage}`
@@ -1231,6 +1298,7 @@ function App() {
     setSelectedChat(chatId)
     setSidebarOverlayOpen(false)
     setActivePage('chat')
+    setShowSettings(false)
     setQuoteTarget(null)
     setMessageMenu(null)
     setSendError(null)
@@ -2744,7 +2812,7 @@ function App() {
       <button type="button" className="search-entry" onClick={() => setShowSearch(true)} aria-label={t('sidebar.search.placeholder')}><Search size={14} /><span className="grow">{t('sidebar.search.placeholder')}</span><kbd>⌘K</kbd></button>
       <div className="sidebar-scroll">
         <div className="nav-section"><div className="section-label">{t('sidebar.main_bot.tag')}</div>
-          {mainChats.map((chat) => <ChatRow key={chat.id} title={chatTitle(chat)} subtitle={t('sidebar.main_bot.subtitle')} approval={sidebarApproval(chat.id)} selected={currentChat?.id === chat.id} onClick={() => selectChat(chat.id)} onDetails={() => openBotPanel(chat.bot_id ?? mainBot?.id ?? '')} detailsLabel={t('bot.action.settings')} main />)}
+          {mainChats.map((chat) => <ChatRow key={chat.id} title={chatTitle(chat)} subtitle={t('sidebar.main_bot.subtitle')} approval={sidebarApproval(chat.id)} selected={currentChat?.id === chat.id} onClick={() => selectChat(chat.id)} main />)}
         </div>
         <div className="nav-section"><div className="section-label">{t('sidebar.section.groups').replace('{count}', String(sidebarGroups.active.length))}</div>
           {sidebarGroups.active.map((chat) => <ChatRow key={chat.id} title={chatTitle(chat)} subtitle="" approval={sidebarApproval(chat.id)} selected={currentChat?.id === chat.id} onClick={() => selectChat(chat.id)} />)}
@@ -2782,12 +2850,11 @@ function App() {
           <span>{currentChat?.kind === 'project' || currentChat?.project_id ? groupSubtitle(currentChat, currentProject, announcement) : currentChat?.bot_id ? botSubtitle(currentChat, currentAssignments, state.bots) : t('chat.main.subtitle')}</span></div>
         {currentChat?.bot_id && <button className="icon-button" type="button" aria-label={t('computer.title').replace('{bot}', chatTitle(currentChat))} title={t('computer.title').replace('{bot}', chatTitle(currentChat))} onClick={() => openComputer(currentChat.bot_id!)}><Monitor size={16} /></button>}
         <button className="icon-button" aria-label={t('chat.search')} onClick={() => setShowSearch(true)}><Search size={17} /></button>
-        <button className="icon-button" aria-label={contextPanelOpen ? t('follow.collapse') : t('group.info')} title={contextPanelOpen ? t('follow.collapse') : t('group.info')} aria-expanded={contextPanelOpen} onClick={() => {
-          if (botPanelId) { setBotPanelId(null); openContextPanel(); return }
-          if (contextPanelOpen) closeContextPanel()
-          else openContextPanel()
+        {!contextPanelRetained && <button className="icon-button" aria-label={t('group.info')} title={t('group.info')} aria-expanded={false} onClick={() => {
+          if (botPanelId) setBotPanelId(null)
+          openContextPanel()
           setContextPanelStack(['context'])
-        }}><PanelRight size={17} /></button>
+        }}><PanelRight size={17} /></button>}
       </header>
       {(currentChat?.kind === 'project' || currentChat?.project_id) && <GroupStatusBar chat={currentChat} announcement={announcement} project={currentProject} bots={state.bots} assignments={state.assignments} onSelectAssignment={openTrace} />}
       {(currentChat?.kind === 'project' || currentChat?.project_id) && <button type="button" className="pinned-announcement glass-toolbar" onClick={() => { openContextPanel(); setContextPanelStack(['context']); requestAnimationFrame(() => announcementPanelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })) }}>
@@ -2916,7 +2983,6 @@ function App() {
       }}
       t={(key) => t(key as CopyKey)}
     /> : contextPanelRetained ? <>
-      <button type="button" className={`context-panel-scrim ${contextPanelPhase === 'closing' ? 'context-panel-scrim-closing' : ''}`} aria-label={t('follow.collapse')} aria-hidden={contextPanelPhase === 'closing'} onClick={closeContextPanel} />
       <aside className={`context-panel glass-sidebar context-panel-open ${contextPanelPhase === 'closing' ? 'context-panel-closing' : ''} ${currentProjectId ? 'group-context-panel-open' : ''}`} aria-hidden={contextPanelPhase === 'closing'} inert={contextPanelPhase === 'closing'}>
       <div className={`panel-heading drag-region ${contextPanelPage === 'group-settings' ? 'context-panel-page-heading' : ''}`}>
         {contextPanelPage === 'group-settings' && <button type="button" className="icon-button" aria-label={t('common.back')} onClick={popContextPanelPage}><ChevronRight size={16} style={{ transform: 'rotate(180deg)' }} /></button>}
@@ -3029,7 +3095,7 @@ function App() {
         </section></>}
       </div> : null}
       </aside>
-    </> : <aside className="context-panel-collapsed"><button type="button" aria-label={t('group.info')} title={t('group.info')} onClick={openContextPanel}><PanelRight size={16} /></button></aside>}
+    </> : null}
     </>}
     {activePage === 'artifact' && artifactRoute && <ArtifactPage
       key={`${artifactRoute.hostScope}:${artifactRoute.projectId}:${artifactRoute.artifactId}`}
@@ -3176,7 +3242,6 @@ function App() {
       activeHostId={state.active_host?.id ?? null}
       connection={state.connection}
       onSelect={(section) => {
-        if (section === 'skills') { setShowSettings(false); setActivePage('skills'); return }
         setSettingsSection(section)
       }}
       onClose={() => setShowSettings(false)}
@@ -3368,7 +3433,6 @@ function SettingsPanel(props: { selected: SettingsNavigationSection; error: stri
     { id: 'models', label: t('settings.section.models') },
     { id: 'runtime', label: t('settings.section.runtime') },
     { id: 'tools', label: t('settings.section.tools') },
-    { id: 'skills', label: t('settings.section.skills') },
     { id: 'computer', label: t('settings.section.computer') },
     { id: 'hosts', label: t('settings.section.hosts') },
     { id: 'about', label: t('settings.section.about') },

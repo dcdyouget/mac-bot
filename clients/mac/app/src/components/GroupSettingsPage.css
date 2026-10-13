@@ -55,10 +55,6 @@
 .context-panel-page-stack > .panel-content { min-height: 0; flex: 1; overflow-y: auto; }
 .context-panel-page-heading { justify-content: flex-start; gap: 7px; }
 .context-panel-page-heading > strong { flex: 1; }
-.context-panel-scrim { display: none; }
-.context-panel-collapsed { display: flex; width: 34px; flex: none; align-items: flex-start; justify-content: center; padding-top: 10px; border-left: 1px solid var(--border-subtle); background: var(--bg-sidebar); }
-.context-panel-collapsed button { display: grid; width: 28px; height: 32px; place-items: center; border: 0; border-radius: 7px; background: transparent; color: var(--text-secondary); }
-.context-panel-collapsed button:hover { background: var(--bg-hover); }
 .context-action-row,
 .follow-project-row { display: flex; width: 100%; min-width: 0; min-height: 46px; align-items: center; gap: 8px; padding: 6px 7px; border: 0; border-radius: 8px; background: transparent; color: var(--text-primary); text-align: left; }
 .context-action-row:hover,
@@ -77,4 +73,3 @@
 .context-assignment-actions { display: flex; justify-content: flex-end; gap: 4px; margin-top: 5px; }
 .context-assignment-actions .trace-button { min-height: 25px; padding: 0 6px; }
 .context-panel.context-panel-closing { pointer-events: none; }
-.context-panel-scrim.context-panel-scrim-closing { pointer-events: none; }
