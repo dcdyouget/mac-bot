@@ -362,7 +362,7 @@ interface Announcement {
 interface Assignment {
   id: Id;
   project_id: Id | null;       // null = 主 Bot 转交的小事，或者私聊里产生的任务
-  origin_chat_id: Id;          // 任务所在的会话
+  origin_chat_id: Id;          // 不可变的执行/默认发送会话：主 Bot=chat_main；普通 Bot 私聊=Bot.dm_chat_id；群=Project.chat_id
   bot_id: Id;
   title: string;
   instruction: string;
@@ -699,7 +699,7 @@ interface Workbench {
 | `routine.test_run` | `{ routine_id }` | `{ run: RoutineRun }` |
 | `routine.runs` | `{ routine_id }` | `{ runs: RoutineRun[] }`（最近 20 次） |
 
-定时任务在派发时确定投递会话：项目存在且未归档时使用项目群的 `chat_id`，否则使用该 Bot 的 `dm_chat_id`（主 Bot 为 `chat_main`）。任务、正常结果和失败提示都使用这个真实会话，不创建 `routine:*` 会话。投递会话不改变项目用量归属；没有项目的定时任务仍计入 `project` 维度的 `routine`。
+定时任务在派发时确定投递会话：带 `project_id` 时，无论项目是否归档，都必须使用该项目群的 `chat_id`，并要求执行 Bot 仍是项目成员；项目缺失或成员关系失效时本次运行失败并停用该 routine，绝不降级到私聊。不带项目时使用该 Bot 的 `dm_chat_id`（主 Bot 为 `chat_main`）。任务、正常结果和失败提示都使用这个真实会话，不创建 `routine:*` 会话。投递会话不改变项目用量归属；没有项目的定时任务仍计入 `project` 维度的 `routine`。
 
 ### 5.10 模型与设置
 

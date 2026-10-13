@@ -217,7 +217,7 @@ Event    { seq, event, data }                         -- 即 PROTOCOL 6.1 的持
 send_msg(
   text: string,                                   // Markdown
   intent: "ack" | "progress" | "decision" | "done" | "blocked",
-  to?: "task_chat" | "user" | {bot: id},          // 默认是任务所在的会话；"user" = 和用户的私聊；{bot} = Bot 间私信
+  to?: "task_chat" | "user" | {bot: id},          // 只表达路由意图；规范 chat_id 由服务端根据当前分身解析
   mentions?: [ bot_id | {bot, instruction?} | "main" | "user" ],   // @ 谁，谁就行动
   artifacts?: [{title, path_or_url}],             // done 时登记产物
   options?: [string],                             // decision 时的选项
@@ -226,6 +226,10 @@ send_msg(
   projects?: [{project_id, note?}]                // 提到某个群时附上群聊卡片：服务端校验项目存在且 Bot 是成员后，追加 project_card 块（context = mentioned）
 ) -> { message_id, then: "continue" | "wait" | "end" }
 ```
+
+**发送作用域由服务端固定，不由模型选择**：Bot 是长期身份；它在一个会话里的分身由 `(bot_id, chat_id)` 唯一确定。主 Bot 固定 `chat_main`；普通 Bot 的私聊分身固定 `Bot.dm_chat_id`；群分身固定 `Project.chat_id`，且一个项目的成员列表中同一 Bot 只能出现一次。`Assignment.origin_chat_id` 只表示不可变的执行/默认发送作用域：带 `project_id` 时必须等于该项目的 `chat_id` 且 Bot 必须是成员；无项目时固定为该 Bot 私聊。模型传入的 `chat_id`、`bot_id`、`assignment_id` 不能覆盖这些值，跨群或投递到其他 Bot 的用户私聊会被拒绝。
+
+`to: "task_chat"` / 缺省目标发到当前分身；`to: "user"` 只解析为当前 Bot 的用户私聊；`to: {bot}` 由服务端解析为稳定的 Bot↔Bot `bot_dm`。执行会话和结果回传会话分开：普通 Bot 始终在自己的私聊或当前群里发言，服务端再按项目群 → 父任务 → 触发消息 → 主会话的顺序，把完成或阻塞摘要以 system 消息回传给发起会话。
 
 产物预览的“历史”只展示真实快照：Bot 每次在 `send_msg` 登记 project Home 内普通文件时，服务端读取并保存当时内容；相同内容不重复编号。快照只覆盖普通文件，最大 5 MiB；URL、目录、越界路径及超限文件不生成可读历史。客户端通过 `artifact.versions.list` 列表和 `artifact.version.get` 读取历史内容。
 
