@@ -240,18 +240,10 @@ impl HostStore {
             last_seq,
             device_id: self.device_id.clone(),
         };
-        let old = index.map(|index| self.hosts[index].clone());
-        match index {
-            Some(index) => self.hosts[index] = record.clone(),
-            None => self.hosts.push(record.clone()),
-        }
+        let previous_hosts = self.hosts.clone();
+        promote_host(&mut self.hosts, record.clone());
         if let Err(error) = self.save() {
-            match old {
-                Some(previous) => self.hosts[index.expect("existing index")] = previous,
-                None => {
-                    self.hosts.retain(|host| host.id != id);
-                }
-            }
+            self.hosts = previous_hosts;
             return Err(error).context("persist host metadata after vault update");
         }
         Ok(record)
@@ -277,6 +269,14 @@ impl HostStore {
         }
         Ok(())
     }
+}
+
+/// Keep the most recently connected Host first while preserving the relative
+/// order of all other saved Hosts. Startup can then reconnect to the same Host
+/// without asking the user to choose again.
+fn promote_host(hosts: &mut Vec<HostRecord>, record: HostRecord) {
+    hosts.retain(|host| host.id != record.id);
+    hosts.insert(0, record);
 }
 
 fn default_store_path() -> Result<PathBuf> {
@@ -558,6 +558,30 @@ mod tests {
         let json = serde_json::to_string(&record).unwrap();
         assert!(!json.contains("password"));
         assert!(json.contains("node_id"));
+    }
+
+    #[test]
+    fn promoting_a_host_remembers_the_most_recent_connection_first() {
+        let host = |id: &str| HostRecord {
+            id: id.into(),
+            name: id.into(),
+            node_id: Some(format!("node-{id}")),
+            addresses: vec![format!("{id}:7788")],
+            last_seq: 0,
+            device_id: "device-1".into(),
+        };
+        let mut hosts = vec![host("one"), host("two"), host("three")];
+
+        promote_host(&mut hosts, host("two"));
+
+        assert_eq!(
+            hosts
+                .iter()
+                .map(|host| host.id.as_str())
+                .collect::<Vec<_>>(),
+            ["two", "one", "three"]
+        );
+        assert_eq!(hosts.iter().filter(|host| host.id == "two").count(), 1);
     }
 
     #[test]

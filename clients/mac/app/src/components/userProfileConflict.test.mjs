@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import { setImmediate } from 'node:timers'
 import { applySavedProfileField, flushUserProfileSaveQueue, reconcileUserProfileConflict } from './userProfileConflict.ts'
 import { isMemoryQuotaAtLimit, shouldSaveOnEnter } from './memoryPageModel.ts'
 

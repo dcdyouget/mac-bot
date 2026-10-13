@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { AlertTriangle, Check, ChevronRight, Circle, Clock3, File, Folder, Globe, Image as ImageIcon, Link2, MessageCircle, PauseCircle, Reply, Target, X, Zap } from 'lucide-react'
 import { t } from '../i18n'
@@ -122,13 +122,14 @@ function ImageFileView({ file, onReadFile }: { file: MessageFileRef; onReadFile:
   useEffect(() => {
     if (!open) return
     const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    const triggerButton = trigger.current
     closeButton.current?.focus()
     const closeOnEscape = (event: KeyboardEvent) => { if (event.key === 'Escape') setOpen(false) }
     window.addEventListener('keydown', closeOnEscape)
     return () => {
       window.removeEventListener('keydown', closeOnEscape)
       if (previousFocus?.isConnected) previousFocus.focus()
-      else trigger.current?.focus()
+      else triggerButton?.focus()
     }
   }, [open])
   return <div className="protocol-image-wrap" ref={target}>
@@ -161,13 +162,21 @@ function useFileImage(file: MessageFileRef, onReadFile: (file: MessageFileRef) =
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [retryCount, setRetryCount] = useState(0)
+  const stableFile = useMemo(() => ({
+    root: file.root,
+    root_id: file.root_id,
+    path: file.path,
+    name: file.name,
+    size: file.size,
+    mime: file.mime,
+  }), [file.root, file.root_id, file.path, file.name, file.size, file.mime])
   useEffect(() => {
     if (!enabled) return
     let active = true
     setSrc(null)
     setError(null)
     setLoading(true)
-    void onReadFile(file).then((preview) => {
+    void onReadFile(stableFile).then((preview) => {
       const mime = preview.mime.split(';', 1)[0].trim().toLowerCase()
       if (preview.content_encoding !== 'base64' || !/^image\/(png|jpeg|gif|webp|avif)$/i.test(mime) || !Number.isFinite(preview.size) || preview.size > 5 * 1024 * 1024) throw new Error('unsupported image preview')
       if (active) setSrc(`data:${mime};base64,${preview.content}`)
@@ -177,7 +186,7 @@ function useFileImage(file: MessageFileRef, onReadFile: (file: MessageFileRef) =
       if (active) setLoading(false)
     })
     return () => { active = false }
-  }, [file.root, file.root_id, file.path, onReadFile, retryCount, enabled])
+  }, [stableFile, onReadFile, retryCount, enabled])
   return { src, error, loading, retry: () => setRetryCount((value) => value + 1), fail: () => { setSrc(null); setError('image decode failed') } }
 }
 

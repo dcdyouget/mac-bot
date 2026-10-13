@@ -29,7 +29,10 @@ import { CONTEXT_PANEL_TRANSITION_MS, transitionContextPanel, type ContextPanelP
 import { CLOSED_CONTEXT_PANEL_WINDOW, planContextPanelWindow, type ContextPanelWindowState, type SavedWindowFrame } from './components/contextPanelWindow.model'
 import { isLatestLocalPreferenceSave, mergeLocalPreferences, rollbackLocalPreferencePatch } from './components/localPreferences.model'
 import { captureChatScrollPosition, restoreChatScrollTop, type ChatScrollPosition } from './components/chatScrollPosition.model'
-import { collectPendingChatActions, taskCardAvatarOwnerBotId, type PendingChatAction } from './components/pendingChatActions.model'
+import { taskCardAvatarOwnerBotId } from './components/pendingChatActions.model'
+import { resolveHostStartup } from './components/hostStartup.model.mjs'
+import { isMessageVisibleInChat } from './components/chatMessageVisibility.model'
+import { pendingDecisionsForContext, type PendingDecision } from './components/pendingApprovalDecisions.model'
 import { CreateGroupDialog, MessageContextMenu, type ChatEntryMessage, type QuoteTarget } from './components/ChatEntry'
 import './components/ChatEntry.css'
 import { AttachmentMenu, AttachmentTray, type ChatAttachment } from './components/ChatAttachments'
@@ -41,7 +44,6 @@ import { findForcedSkillTextBlockIndex, getRenderableSkillNames, getValidLoadedS
 
 type ThemeMode = 'light' | 'dark' | 'system'
 type ContextPanelPage = 'context' | 'group-settings'
-type PendingContextAction = { id: string; messageId: string; title: string; kind: 'question' | 'review' }
 type SettingsNavigationSection = 'general' | 'memory' | 'models' | 'runtime' | 'tools' | 'computer' | 'hosts' | 'about'
 type AppPage = 'chat' | 'workbench' | 'dashboard' | 'routines' | 'skills' | 'memory' | 'trace' | 'computer' | 'artifact'
 type TraceReturnPage = Exclude<AppPage, 'trace' | 'computer' | 'artifact'>
@@ -132,6 +134,8 @@ function decodeScreenPacket(bytes: Uint8Array): { header: ScreenFrameHeader; jpe
 function App() {
   const [state, setState] = useState<BridgeState>(emptyState)
   const [savedHosts, setSavedHosts] = useState<HostRecord[]>([])
+  const [hostListLoaded, setHostListLoaded] = useState(false)
+  const [startupReconnectState, setStartupReconnectState] = useState<'idle' | 'connecting' | 'failed'>('idle')
   const [hostMenuOpen, setHostMenuOpen] = useState(false)
   const [hostManageMode, setHostManageMode] = useState(false)
   const [hostDialogOpen, setHostDialogOpen] = useState(false)
@@ -228,6 +232,7 @@ function App() {
   const composerTextareaRef = useRef<HTMLTextAreaElement>(null)
   const chatScrollRef = useRef<HTMLDivElement>(null)
   const pendingChatScrollRestoreRef = useRef<{ hostScope: string; chatId: string; position: ChatScrollPosition } | null>(null)
+  const startupReconnectStartedRef = useRef(false)
   const [showSettings, setShowSettings] = useState(false)
   const [settingsSection, setSettingsSection] = useState<SettingsNavigationSection>('runtime')
   const [clientVersion, setClientVersion] = useState('0.1.0')
@@ -453,7 +458,7 @@ function App() {
 
   useEffect(() => {
     let active = true
-    void invoke<HostRecord[]>('list_hosts').then((hosts) => { if (active) setSavedHosts(hosts) }).catch((error: unknown) => { if (active) setHostError(String(error)) })
+    void invoke<HostRecord[]>('list_hosts').then((hosts) => { if (active) { setSavedHosts(hosts); setHostListLoaded(true) } }).catch((error: unknown) => { if (active) { setHostError(String(error)); setHostListLoaded(true) } })
     void invoke<Record<string, PendingMessage>>('get_pending_messages').then((pendingMessages) => {
       if (active) setState((current) => ({ ...current, pending_messages: pendingMessages }))
     }).catch((error: unknown) => { if (active) setState((current) => ({ ...current, error: String(error) })) })
@@ -555,7 +560,10 @@ function App() {
         if (event.payload.active_host?.name) setHostName(event.payload.active_host.name)
         void invoke<HostRecord[]>('list_hosts').then(setSavedHosts).catch((error: unknown) => setHostError(String(error)))
       }
-      if (event.payload.connection === 'disconnected') setConnecting(false)
+      if (event.payload.connection === 'disconnected') {
+        setConnecting(false)
+        setStartupReconnectState((current) => current === 'connecting' ? 'failed' : current)
+      }
     }).then(async (dispose) => {
       unlisten = dispose
       try {
@@ -573,6 +581,20 @@ function App() {
     })
     return () => unlisten?.()
   }, [])
+
+  useEffect(() => {
+    const startup = resolveHostStartup({
+      initialized: listenerReady && hostListLoaded,
+      connected: state.connection === 'connected' || state.connection === 'connecting',
+      hosts: savedHosts,
+      reconnectAttempted: startupReconnectState === 'failed',
+      reconnectInProgress: startupReconnectState === 'connecting',
+    })
+    if (!showConnect || startup.kind !== 'reconnect' || startupReconnectStartedRef.current) return
+    startupReconnectStartedRef.current = true
+    setStartupReconnectState('connecting')
+    void connectSavedHost(startup.hostId)
+  }, [listenerReady, hostListLoaded, state.connection, savedHosts, startupReconnectState, showConnect])
 
   useEffect(() => {
     let active = true
@@ -1216,14 +1238,8 @@ function App() {
     return { label: t('sidebar.approval_line').replace('{summary}', summary), count: approvals.length }
   }
   const currentQuestions = useMemo(() => ({ ...state.questions, ...historyQuestions[hostScope] }), [state.questions, historyQuestions, hostScope])
-  const currentApprovalRecords = { ...state.approvals, ...historyApprovals[hostScope] }
-  const pendingChatActions = useMemo(() => collectPendingChatActions(
-    currentChat?.id,
-    currentMessages,
-    currentQuestions,
-    currentApprovalRecords,
-    state.projects,
-  ), [currentChat?.id, currentMessages, currentQuestions, currentApprovalRecords, state.projects])
+  const scopedHistoryApprovals = historyApprovals[hostScope]
+  const currentApprovalRecords = useMemo(() => ({ ...state.approvals, ...scopedHistoryApprovals }), [state.approvals, scopedHistoryApprovals])
   const currentProjectId = typeof currentChat?.project_id === 'string' ? currentChat.project_id : null
   const currentProject = currentProjectId ? state.projects[currentProjectId] : undefined
   const currentProjectIdRef = useRef(currentProjectId)
@@ -1234,37 +1250,17 @@ function App() {
     setAnnouncementSaving(false)
     setAnnouncementError(null)
   }, [hostScope, currentProjectId])
-  const currentPendingActions = useMemo<PendingContextAction[]>(() => {
-    const seen = new Set<string>()
-    const actions: PendingContextAction[] = []
-    for (const message of currentMessages) for (const [index, block] of (message.blocks ?? []).entries()) {
-      if (block.type === 'question') {
-        const questionId = typeof block.question_id === 'string' ? block.question_id : ''
-        const question = questionId ? currentQuestions[questionId] : undefined
-        if (!question || question.state !== 'pending' || seen.has(questionId)) continue
-        seen.add(questionId)
-        actions.push({ id: questionId, messageId: message.id, title: question.text, kind: 'question' })
-        continue
-      }
-      if (block.type === 'review_card' && block.state === 'pending') {
-        const projectId = typeof block.project_id === 'string' ? block.project_id : ''
-        const id = `${message.id}:${index}`
-        if (seen.has(id)) continue
-        seen.add(id)
-        actions.push({ id, messageId: message.id, title: state.projects[projectId]?.name ?? t('project.status.review'), kind: 'review' })
-      }
-    }
-    return actions
-  }, [currentMessages, currentQuestions, state.projects])
-  const approvalMessageIds = useMemo(() => {
-    const ids = new Map<string, string>()
-    for (const message of currentMessages) for (const block of message.blocks ?? []) {
-      if (block.type === 'approval' && typeof block.approval_id === 'string') ids.set(block.approval_id, message.id)
-    }
-    return ids
-  }, [currentMessages])
   const contextPanelPage = contextPanelStack[contextPanelStack.length - 1] ?? 'context'
   const isMainChat = currentChat?.kind === 'main' || Boolean(currentChat?.bot_id && state.bots[currentChat.bot_id]?.is_main)
+  const referencedApprovalIds = new Set(currentMessages.flatMap((message) => (message.blocks ?? [])
+    .filter((block) => block.type === 'approval_ref' && typeof block.approval_id === 'string')
+    .map((block) => String(block.approval_id))))
+  const currentDecisions = pendingDecisionsForContext(currentApprovalRecords, currentQuestions, state.projects, chats, {
+    chatId: currentChat?.id ?? '',
+    botId: currentChatBotId,
+    projectId: currentProjectId,
+    isMain: isMainChat,
+  }, state.assignments, referencedApprovalIds)
   const followedProjects = Object.values(state.projects).filter((project) => ['active', 'review'].includes(String(project.status ?? '')))
   const skillPickerSkills = useMemo(() => skillsDataScope === hostScope && !skillsLoading && !skillsError ? skills : [], [hostScope, skills, skillsDataScope, skillsError, skillsLoading])
   const slashSkillItems = useMemo(() => getChatSkillPickerItems(skillPickerSkills, slashPicker?.query ?? ''), [skillPickerSkills, slashPicker?.query])
@@ -1343,14 +1339,41 @@ function App() {
   selectChatRef.current = selectChat
 
   async function openApprovalInChat(chatId: string, approvalId: string) {
+    await openDecisionMessage(chatId, (message) => message.blocks?.some((block) => block.type === 'approval' && block.approval_id === approvalId) === true)
+  }
+
+  async function openPendingDecision(decision: PendingDecision) {
+    const matches = decision.kind === 'approval'
+      ? (message: Message) => message.blocks?.some((block) => block.type === 'approval' && block.approval_id === decision.id) === true
+      : decision.kind === 'question'
+        ? (message: Message) => message.blocks?.some((block) => block.type === 'question' && block.question_id === decision.id) === true
+        : (message: Message) => message.blocks?.some((block) => block.type === 'review_card' && block.project_id === decision.projectId) === true
+    await openDecisionMessage(decision.chatId, matches)
+  }
+
+  async function openDecisionMessage(chatId: string, matches: (message: Message) => boolean) {
     if (!chatId) return
     const scope = hostScope
     if (hostScopeRef.current !== scope) return
     try {
-      const history = await invoke<{ messages?: Message[] }>('protocol_request', { method: 'chat.history', params: { chat_id: chatId, limit: 100 } })
+      const messages: Message[] = []
+      let beforeSeq: number | undefined
+      let target: Message | undefined
+      for (let page = 0; page < 20; page += 1) {
+        const history = await invoke<{ messages?: Message[]; has_more?: boolean }>('protocol_request', {
+          method: 'chat.history',
+          params: { chat_id: chatId, limit: 100, ...(beforeSeq ? { before_seq: beforeSeq } : {}) },
+        })
+        if (hostScopeRef.current !== scope) return
+        const pageMessages = history.messages ?? []
+        messages.unshift(...pageMessages)
+        target = messages.find(matches)
+        if (target || !history.has_more || pageMessages.length === 0) break
+        const oldestSeq = Number((pageMessages[0] as Message & { seq?: number }).seq)
+        if (!Number.isFinite(oldestSeq) || oldestSeq <= 0 || oldestSeq === beforeSeq) break
+        beforeSeq = oldestSeq
+      }
       if (hostScopeRef.current !== scope) return
-      const messages = history.messages ?? []
-      const target = messages.find((message) => message.blocks?.some((block) => block.type === 'approval' && block.approval_id === approvalId))
       const cacheKey = historyCacheKey(scope, chatId)
       setHistoryByChat((current) => ({ ...current, [cacheKey]: mergeMessages(current[cacheKey] ?? [], messages) }))
       selectChatRef.current(chatId)
@@ -1934,6 +1957,7 @@ function App() {
     } catch (error) {
       setConnecting(false)
       setState((current) => ({ ...current, connection: 'disconnected', error: String(error) }))
+      setStartupReconnectState((current) => current === 'connecting' ? 'failed' : current)
     }
   }
 
@@ -2059,10 +2083,6 @@ function App() {
     void openProject(projectId, chatId).catch((error: unknown) => {
       setState((current) => ({ ...current, error: String(error) }))
     })
-  }
-
-  function scrollToMessage(messageId: string) {
-    document.getElementById(`message-${messageId}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
   }
 
   function captureCurrentChatScrollPosition(): ChatScrollPosition | null {
@@ -2821,7 +2841,16 @@ function App() {
     }
   }
 
-  if (showConnect) {
+  const hostStartup = resolveHostStartup({
+    initialized: listenerReady && hostListLoaded,
+    connected: state.connection === 'connected' || state.connection === 'connecting',
+    hosts: savedHosts,
+    reconnectAttempted: startupReconnectState === 'failed',
+    reconnectInProgress: startupReconnectState === 'connecting',
+  })
+
+  if (showConnect && hostStartup.kind !== 'ready') {
+    if (hostStartup.kind === 'loading' || hostStartup.kind === 'reconnect') return <HostStartupScreen />
     return <ConnectScreen endpoint={endpoint} setEndpoint={setEndpoint} password={password} setPassword={setPassword}
       hostName={hostName} setHostName={setHostName} onSubmit={connect} connecting={connecting} ready={listenerReady} error={state.error}
       deepLinkNotice={deepLinkNotice}
@@ -2923,22 +2952,6 @@ function App() {
           setContextPanelStack(['context'])
         }}><PanelRight size={17} /></button>}
       </header>
-      {pendingChatActions.length > 0 && <section className="chat-pending-actions" aria-label={t('follow.awaiting')}>
-        <div className="chat-pending-actions-content">
-          <div className="chat-pending-actions-heading"><Shield size={14} /><strong>{t('follow.awaiting')}</strong><span>{pendingChatActions.length}</span></div>
-          {pendingChatActions.map((action) => action.kind === 'approval'
-            ? <PendingApprovalRow key={`approval-${action.id}`} action={action} onDecide={decideApproval} />
-            : action.kind === 'question'
-              ? action.messageId
-                ? <button type="button" className="chat-pending-link" key={`question-${action.id}`} onClick={() => scrollToMessage(action.messageId!)}>
-                  <MessageCircle size={14} /><span><strong>{action.title}</strong><small>{t('follow.pending_question')}</small></span><b>{t('block.approval_ref.go')}</b>
-                </button>
-                : <div className="chat-pending-question" key={`question-${action.id}`}><QuestionCard question={action.question} botName={state.bots[String(action.question.bot_id ?? '')]?.name ?? t('common.bot')} onAnswer={answerQuestion} /></div>
-              : <button type="button" className="chat-pending-link" key={`review-${action.id}`} onClick={() => scrollToMessage(action.messageId)}>
-                <Check size={14} /><span><strong>{action.title || t('project.status.review')}</strong><small>{t('follow.pending_review')}</small></span><b>{t('block.approval_ref.go')}</b>
-              </button>)}
-        </div>
-      </section>}
       {(currentChat?.kind === 'project' || currentChat?.project_id) && <GroupStatusBar chat={currentChat} announcement={announcement} project={currentProject} bots={state.bots} assignments={state.assignments} onSelectAssignment={openTrace} />}
       {(currentChat?.kind === 'project' || currentChat?.project_id) && <button type="button" className="pinned-announcement glass-toolbar" onClick={() => { openContextPanel(); setContextPanelStack(['context']); requestAnimationFrame(() => announcementPanelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })) }}>
         <span className="announcement-bar" /><span className="announcement-summary"><strong>{t('group.announcement')}</strong><small>{announcement ? summarizeMarkdown(announcement.text) || t('group.announcement.empty') : announcementLoading ? t('settings.permissions.loading') : t('group.announcement.empty')}</small></span><ChevronDown size={14} />
@@ -2961,7 +2974,7 @@ function App() {
           </div>}
         </div>
           : currentMessages.length ? <div className="message-list">
-          {buildMessageTimeline(currentMessages, state.assignments).map((entry, index) => <Fragment key={entry.message.id}>
+          {buildMessageTimeline(currentMessages, state.assignments, currentChat?.id, isMainChat ? currentChatBotId ?? undefined : undefined).filter((entry) => entry.visible).map((entry, index) => <Fragment key={entry.message.id}>
           {entry.dayLabel && <div className="day-separator">{entry.dayLabel}</div>}
           <div id={`message-${entry.message.id}`} data-message-id={entry.message.id} className={`timeline-fragment ${messageMenu?.message.id === entry.message.id ? 'message-context-selected' : ''}`} tabIndex={focusedMessageId ? (focusedMessageId === entry.message.id ? 0 : -1) : (index === 0 ? 0 : -1)} role="group" aria-label={t('chat.message.keyboard_actions')} onFocus={() => setFocusedMessageId(entry.message.id)} onKeyDown={(event) => {
             if (event.target !== event.currentTarget || messageMenu || (entry.message as Message & { deleted?: boolean }).deleted) return
@@ -3104,6 +3117,7 @@ function App() {
           </div> : announcement.text ? <MarkdownPreview content={announcement.text} /> : <div className="announcement-detail">{t('group.announcement.empty')}</div>)}
           {typeof currentProject?.home_path === 'string' && <div className="project-home-path"><Folder size={13} /><code>{currentProject.home_path}</code><button type="button" onClick={() => void navigator.clipboard?.writeText(String(currentProject.home_path))}>{t('common.copy_path')}</button></div>}
         </section>
+        <PendingDecisionSection decisions={currentDecisions} bots={state.bots} projects={state.projects} chats={chats} onOpenDecision={openPendingDecision} />
         <section className="follow-section"><div className="section-label">{t('group.members')}<span className="panel-section-count">{announcement?.members.length ?? 0}</span></div>
           {announcement?.members.length ? announcement.members.map((member) => {
             const botName = state.bots[member.bot_id]?.name ?? t('common.bot')
@@ -3126,15 +3140,7 @@ function App() {
         {selectedAssignment && state.assignments[selectedAssignment] && <section className="follow-section"><div className="section-label">{t('trace.show')}</div><div className="assignment-card"><strong>{String(state.assignments[selectedAssignment].title ?? '')}</strong><div className="assignment-meta">{String(state.assignments[selectedAssignment].instruction ?? '')}</div><button className="trace-button" type="button" onClick={() => openTrace(selectedAssignment)}>{t('common.open')}</button></div></section>}
       </div> : currentChat ? <div className="panel-content">
         {isMainChat ? <>
-          <section className="follow-section"><div className="section-label"><Shield size={13} />{t('follow.awaiting')} <span>{currentPendingActions.length + currentApprovals.filter((item) => item.chat_id === currentChat.id).length}</span></div>
-            {currentApprovals.filter((item) => item.chat_id === currentChat.id).map((approval) => {
-              const messageId = approvalMessageIds.get(String(approval.id))
-              const content = <><Shield size={14} /><span><strong>{String(approval.tool)} · {String(approval.summary)}</strong><small>{String(approval.risk ?? '')}</small></span></>
-              return messageId ? <button type="button" className="context-action-row" key={String(approval.id)} onClick={() => scrollToMessage(messageId)}>{content}</button> : <div className="context-action-row" key={String(approval.id)}>{content}</div>
-            })}
-            {currentPendingActions.map((item) => <button type="button" className="context-action-row" key={item.id} onClick={() => scrollToMessage(item.messageId)}><span className={`context-action-kind ${item.kind}`}>{item.kind === 'question' ? '?' : '✓'}</span><span><strong>{item.title}</strong><small>{t(item.kind === 'question' ? 'follow.pending_question' : 'follow.pending_review')}</small></span></button>)}
-            {!currentPendingActions.length && !currentApprovals.some((item) => item.chat_id === currentChat.id) && <div className="panel-empty">{t('follow.empty')}</div>}
-          </section>
+          <PendingDecisionSection decisions={currentDecisions} bots={state.bots} projects={state.projects} chats={chats} onOpenDecision={openPendingDecision} />
           <section className="follow-section"><div className="section-label">{t('follow.groups')} <span>{followedProjects.length}</span></div>
             {followedProjects.length ? followedProjects.map((project) => {
               const projectChat = chats.find((chat) => chat.project_id === project.id) ?? chats.find((chat) => chat.id === project.chat_id)
@@ -3143,13 +3149,7 @@ function App() {
             }) : <div className="panel-empty">{t('follow.empty')}</div>}
           </section>
         </> : <>
-        {currentApprovals.some((item) => item.chat_id === currentChat.id) && <section className="follow-section"><div className="section-label"><Shield size={13} />{t('follow.pending_approval')} <span>{currentApprovals.filter((item) => item.chat_id === currentChat.id).length}</span></div>
-          {currentApprovals.filter((item) => item.chat_id === currentChat.id).map((approval) => {
-            const messageId = approvalMessageIds.get(String(approval.id))
-            const content = <><Shield size={14} /><span><strong>{String(approval.tool)} · {String(approval.summary)}</strong><small>{String(approval.risk ?? '')}</small></span></>
-            return messageId ? <button type="button" className="context-action-row" key={String(approval.id)} onClick={() => scrollToMessage(messageId)}>{content}</button> : <div className="context-action-row" key={String(approval.id)}>{content}</div>
-          })}
-        </section>}
+        <PendingDecisionSection decisions={currentDecisions} bots={state.bots} projects={state.projects} chats={chats} onOpenDecision={openPendingDecision} />
         <section className="follow-section"><div className="section-label">{t('follow.section.active')} <span>{activeCurrentAssignments.length} / {currentBotTaskLimit}</span></div>
           {activeCurrentAssignments.length === 0 ? <div className="panel-empty">{t('follow.empty')}</div> : activeCurrentAssignments.map((assignment) => {
             const assignmentProjectId = typeof assignment.project_id === 'string' ? assignment.project_id : ''
@@ -3452,6 +3452,13 @@ function botSubtitle(chat: Chat, assignments: Record<string, Json>[], bots: Brid
 
 type ConnectProps = { endpoint: string; setEndpoint: (value: string) => void; password: string; setPassword: (value: string) => void; hostName: string; setHostName: (value: string) => void; onSubmit: (event: React.FormEvent) => void; connecting: boolean; ready: boolean; error: string | null; deepLinkNotice: string | null; hosts: HostRecord[]; hostError: string | null; connected: boolean; templates: WelcomeTemplateRecord[]; selectedChoice: WelcomeTemplateChoice | null; templateFetchError: string | null; templateApplyError: string | null; templatesLoading: boolean; templateApplying: boolean; onSelectTemplate: (choice: WelcomeTemplateChoice) => void; onRetryTemplates: () => void; onRetryTemplateApply: () => void; onConnectSaved: (host: HostRecord) => void; onRemoveHost: (host: HostRecord) => void }
 
+function HostStartupScreen() {
+  return <main className="host-startup-screen" aria-live="polite">
+    <BeanAvatar main size="64" />
+    <div className="host-startup-status"><span className="status-dot connecting" />{t('host.initializing')}</div>
+  </main>
+}
+
 function ConnectScreen(props: ConnectProps) {
   return <main className="connect-screen">
     <section className="connect-form-side glass-sidebar">
@@ -3592,30 +3599,42 @@ function isMessageFileRef(value: unknown): value is MessageFileRef {
 
 type ApprovalDecision = 'allow_once' | 'always_allow' | 'deny'
 
-function PendingApprovalRow({ action, onDecide }: { action: Extract<PendingChatAction, { kind: 'approval' }>; onDecide: (approvalId: string, decision: ApprovalDecision) => Promise<void> }) {
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const decide = async (decision: ApprovalDecision) => {
-    setBusy(true)
-    setError(null)
-    try { await onDecide(action.id, decision) }
-    catch (reason) { setError(String(reason)) }
-    finally { setBusy(false) }
-  }
-  return <article className="chat-pending-approval">
-    <Shield size={15} />
-    <span className="chat-pending-approval-copy"><strong>{t('block.approval.title').replace('{tool}', action.tool || t('follow.pending_approval'))}</strong><small>{action.summary}{action.risk ? ` · ${action.risk}` : ''}</small>{action.matchedRuleText && <small>{t('block.approval.matched_rule').replace('{rule}', action.matchedRuleText)}</small>}{action.detail && <details><summary>{t('block.approval.view_details')}</summary><pre>{action.detail}</pre></details>}</span>
-    <div className="chat-pending-approval-actions">
-      <button type="button" className="approval-action allow-once" disabled={busy} onClick={() => void decide('allow_once')}>{t('block.approval.allow_once')}</button>
-      <button type="button" className="approval-action deny" disabled={busy} onClick={() => void decide('deny')}>{t('block.approval.deny')}</button>
-    </div>
-    {error && <small className="chat-pending-approval-error" role="alert">{error}</small>}
-  </article>
+function PendingDecisionSection({ decisions, bots, projects, chats, onOpenDecision }: {
+  decisions: PendingDecision[]
+  bots: BridgeState['bots']
+  projects: BridgeState['projects']
+  chats: Chat[]
+  onOpenDecision: (decision: PendingDecision) => Promise<void>
+}) {
+  const count = decisions.length
+  return <section className="follow-section" aria-label={t('follow.pending_decisions')}>
+    <div className="section-label"><Shield size={13} />{t('follow.pending_decisions')} <span>{count}</span></div>
+    {decisions.map((decision) => {
+      const botName = decision.botId ? bots[decision.botId]?.name ?? t('common.bot') : t('common.bot')
+      const projectName = decision.projectId ? projects[decision.projectId]?.name : undefined
+      const targetChat = chats.find((chat) => chat.id === decision.chatId)
+      const targetTitle = targetChat?.title ?? (targetChat?.bot_id ? bots[targetChat.bot_id]?.name : undefined) ?? botName
+      const location = typeof projectName === 'string' ? projectName : targetTitle
+      const origin = t('follow.pending_decision_origin').replace('{bot}', botName).replace('{context}', location)
+      const title = decision.kind === 'approval'
+        ? `${decision.tool || t('follow.pending_approval')} · ${decision.summary || t('follow.pending_approval')}`
+        : decision.title
+      const state = decision.kind === 'approval'
+        ? decision.risk || t('follow.pending_approval')
+        : t(decision.kind === 'question' ? 'follow.pending_question' : 'follow.pending_review')
+      return <button type="button" className="context-action-row" key={`${decision.kind}-${decision.id}`} disabled={!decision.chatId} onClick={() => void onOpenDecision(decision)}>
+        {decision.kind === 'approval' ? <Shield size={14} /> : decision.kind === 'question' ? <MessageCircle size={14} /> : <Check size={14} />}
+        <span><strong>{title}</strong><small>{origin} · {state}</small></span>
+        <ChevronRight size={13} />
+      </button>
+    })}
+    {count === 0 && <div className="panel-empty">{t('follow.pending_decisions_empty')}</div>}
+  </section>
 }
 
-type TimelineEntry = { message: Message; dayLabel?: string; timeSeparator?: string; exactTime: string; headerTime: string; groupStart: boolean; groupEnd: boolean; showAvatar: boolean; taskAvatarBotId?: string }
+type TimelineEntry = { message: Message; dayLabel?: string; timeSeparator?: string; exactTime: string; headerTime: string; groupStart: boolean; groupEnd: boolean; showAvatar: boolean; visible: boolean; taskAvatarBotId?: string }
 
-function buildMessageTimeline(messages: Message[], assignments: BridgeState['assignments']): TimelineEntry[] {
+function buildMessageTimeline(messages: Message[], assignments: BridgeState['assignments'], chatId?: string, mainBotId?: string): TimelineEntry[] {
   const result: TimelineEntry[] = []
   let previous: Message | undefined
   let previousTime: Date | undefined
@@ -3642,7 +3661,7 @@ function buildMessageTimeline(messages: Message[], assignments: BridgeState['ass
     const suppressHeaderTime = groupable || Boolean(timeSeparator)
     const taskAvatarBotId = taskCardAvatarOwnerBotId(previous, message, assignments)
     if (taskAvatarBotId && last) last.showAvatar = false
-    result.push({ message, dayLabel, timeSeparator, exactTime, headerTime: suppressHeaderTime ? '' : exactTime, groupStart: !groupable, groupEnd: true, showAvatar: true, taskAvatarBotId })
+    result.push({ message, dayLabel, timeSeparator, exactTime, headerTime: suppressHeaderTime ? '' : exactTime, groupStart: !groupable, groupEnd: true, showAvatar: true, taskAvatarBotId, visible: isMessageVisibleInChat(message, chatId, mainBotId) })
     previous = message
     previousTime = validDate
     previousSender = sender

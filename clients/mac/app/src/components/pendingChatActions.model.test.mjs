@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { readFileSync } from 'node:fs'
+import { URL } from 'node:url'
 import { collectPendingChatActions, taskCardAvatarOwnerBotId, taskCardOwnsFollowingAvatar } from './pendingChatActions.model.ts'
 
 const realChatMainTaskShape = JSON.parse(readFileSync(new URL('./fixtures/chat-main-task-avatar-shape.json', import.meta.url), 'utf8'))
