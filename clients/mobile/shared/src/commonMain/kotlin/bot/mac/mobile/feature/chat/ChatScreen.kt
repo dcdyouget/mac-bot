@@ -104,6 +104,7 @@ import bot.mac.mobile.core.state.MobileState
 import bot.mac.mobile.core.ui.MarkdownText
 import bot.mac.mobile.core.ui.LucideIcon
 import bot.mac.mobile.core.ui.LucideIconKind
+import bot.mac.mobile.core.ui.mainBotChatTitle
 import bot.mac.mobile.resources.*
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Job
@@ -190,6 +191,12 @@ fun ChatScreen(
     val groupChat = chat?.str("kind") == "project"
     val mainBotChat = chat?.str("kind") == "main"
     val chatBot = chat?.str("bot_id")?.let { botId -> state.bots.firstOrNull { it.str("id") == botId } }
+    val mainBotDefaultName = stringResource(Res.string.feature_main_bot_default_name)
+    val chatDisplayTitle = if (mainBotChat) {
+        mainBotChatTitle(chat?.str("title"), chatBot?.str("name"), mainBotDefaultName)
+    } else {
+        chat?.str("title").orEmpty()
+    }
     val showMainChatEmptyState = mainBotChat && messages.isEmpty() && historyLoaded
     val activeBotAssignments = state.assignments.count {
         it.str("bot_id") == chat?.str("bot_id") && it.str("status") in setOf("working", "queued")
@@ -305,7 +312,7 @@ fun ChatScreen(
     val composerPlaceholder = when {
         !state.connected -> stringResource(Res.string.chat_composer_placeholder_offline)
         groupChat -> stringResource(Res.string.chat_composer_placeholder_group, chat?.str("title").orEmpty())
-        else -> stringResource(Res.string.chat_composer_placeholder_dm, chat?.str("title").orEmpty().ifBlank { stringResource(Res.string.feature_bot) })
+        else -> stringResource(Res.string.chat_composer_placeholder_dm, chatDisplayTitle.ifBlank { stringResource(Res.string.feature_bot) })
     }
     LaunchedEffect(hostId, chatId) {
         draftLoaded = false
@@ -465,7 +472,7 @@ fun ChatScreen(
                     Spacer(Modifier.width(12.dp))
                 }
                 Column(Modifier.weight(1f).semantics(mergeDescendants = true) {}, verticalArrangement = Arrangement.spacedBy(1.dp)) {
-                    Text(chat?.str("title").orEmpty(), style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(chatDisplayTitle, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     Text(chatSubtitle, style = MaterialTheme.typography.bodySmall, color = LocalMobilePalette.current.textSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
                 chat?.str("project_id")?.takeIf { it.isNotBlank() }?.let { projectId ->

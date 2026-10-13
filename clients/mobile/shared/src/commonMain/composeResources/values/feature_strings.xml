@@ -116,7 +116,7 @@
     <string name="feature_quote_to">引用 %1$s · 不指定谁回应</string>
     <string name="feature_attention_banner">有新的事项需要你处理</string>
     <string name="feature_attention_open">查看</string>
-    <string name="feature_completion_notify_main">@总管 全部完成，请汇总验收</string>
+    <string name="feature_completion_notify_main">@秘书长 全部完成，请汇总验收</string>
     <string name="feature_question_stack_title">需要你决定 %1$d 道题 · 第 %2$d / %1$d 题 · 已答 %3$d</string>
     <string name="feature_question_stack_answered">已回答 %1$d 个问题</string>
     <string name="feature_question_answered_option">✓ 你选择了 %1$s</string>
@@ -546,7 +546,7 @@
     <string name="sidebar_completed">已完成</string>
     <string name="sidebar_archived_hint">已归档 %1$d · 在搜索里查看</string>
     <string name="sidebar_approval_line">⚠ 需要你审批 · %1$s</string>
-    <string name="sidebar_empty_groups">还没有群。对总管说「帮我做…」，它会拉群去做。</string>
+    <string name="sidebar_empty_groups">还没有群。对秘书长说「帮我做…」，它会拉群去做。</string>
     <string name="sidebar_hidden_bots">隐藏的 Bot %1$d ›</string>
     <string name="sidebar_menu_pin">置顶</string>
     <string name="sidebar_menu_rename">重命名</string>
@@ -560,11 +560,11 @@
     <string name="sidebar_swipe_mute">静音</string>
     <string name="onboarding_welcome">欢迎使用 Mac Bot</string>
     <string name="onboarding_connect_subtitle">连接你的 Bot 主机</string>
-    <string name="onboarding_meet_main">认识你的主 Bot：总管</string>
+    <string name="onboarding_meet_main">认识你的主 Bot：秘书长</string>
     <string name="onboarding_meet_main_desc">日常和它聊；有事它会拉群。选一个团队模板：</string>
     <string name="onboarding_template_only_main">先只用主 Bot</string>
-    <string name="onboarding_footer">对总管说「帮我做…」，它会拉群去做</string>
-    <string name="onboarding_empty_title">你好，我是总管</string>
+    <string name="onboarding_footer">对秘书长说「帮我做…」，它会拉群去做</string>
+    <string name="onboarding_empty_title">你好，我是秘书长</string>
     <string name="onboarding_empty_desc">把要做的事交给我：需要几个 Bot 配合的，我会拉群分工，做完提醒你验收；小事我直接转给合适的 Bot。</string>
     <string name="onboarding_suggest_login">帮我给 App 加个登录</string>
     <string name="onboarding_suggest_research">调研 3 个竞品</string>
@@ -631,7 +631,7 @@
         <item quantity="other">%1$s 正在干活，这条消息不会打断它们，会在交付前看到</item>
     </plurals>
     <string name="chat_queue_at_now">@%1$s 立即生效</string>
-    <string name="chat_delivery_main_received">总管 已收到</string>
+    <string name="chat_delivery_main_received">秘书长 已收到</string>
     <string name="chat_delivery_queued_for">%1$s 交付前会看到</string>
     <string name="chat_delivery_queue_seen">%1$s 交付前已查看 ✓</string>
     <string name="trace_queue_title">待看消息</string>
@@ -662,7 +662,7 @@
     <string name="block_review_card_confirmed">你已确认完成 · %1$s</string>
     <string name="block_review_card_changes_requested">你提了修改意见 · 已派给对应的 Bot</string>
     <string name="block_review_card_changes_dialog_title">提修改意见 · %1$s</string>
-    <string name="block_review_card_changes_dialog_hint">意见会发到群里并 @总管，由总管派给对应的 Bot；群回到「进行中」。</string>
+    <string name="block_review_card_changes_dialog_hint">意见会发到群里并 @秘书长，由秘书长派给对应的 Bot；群回到「进行中」。</string>
     <string name="block_delegation_text">交给 %1$s 处理（不建群）</string>
     <string name="block_approval_meta">来自 %1$s · 命中规则「%2$s」</string>
     <string name="block_approval_allowed_once">已允许一次 · 你 %1$s</string>
@@ -687,7 +687,7 @@
     <string name="block_loop_paused_ended">你结束了这一轮</string>
     <string name="block_system_announcement_updated">%1$s 更新了公告</string>
     <string name="block_system_member_added">%1$s 加入了群</string>
-    <string name="block_system_created">总管 创建了群，拉入 %1$s</string>
+    <string name="block_system_created">秘书长 创建了群，拉入 %1$s</string>
     <string name="block_fallback_hint">这类消息需要更新客户端才能完整显示</string>
     <string name="group_statusbar_lead">★ 负责人</string>
     <string name="group_announcement_meta">%1$s · %2$s 更新</string>
@@ -714,11 +714,11 @@
     <string name="new_group">新建群「%1$s」</string>
     <string name="new_bot">新建 Bot「%1$s」</string>
     <string name="new_input_placeholder">输入一件事（建群），或一个名字（新建 Bot）</string>
-    <string name="new_group_hint">总管会自动加入并担任负责人</string>
-    <string name="new_members">选择成员（1–6 个，已选 %1$d，另加总管）</string>
+    <string name="new_group_hint">秘书长会自动加入并担任负责人</string>
+    <string name="new_members">选择成员（1–6 个，已选 %1$d，另加秘书长）</string>
     <string name="new_note">说明（会写进公告）</string>
     <string name="new_create_group">建群</string>
-    <string name="new_footer">建群后，总管会写好公告，在群里发开场并 @ 第一个 Bot</string>
+    <string name="new_footer">建群后，秘书长会写好公告，在群里发开场并 @ 第一个 Bot</string>
     <string name="search_placeholder">搜索消息、Bot、群、产物、定时任务</string>
     <string name="search_filter_messages">消息</string>
     <string name="search_filter_groups">群</string>
@@ -754,7 +754,7 @@
     <string name="workbench_waiting_review">等你验收</string>
     <string name="workbench_waiting_approval">等你审批</string>
     <string name="workbench_concurrency">%1$d/%2$d 并发</string>
-    <string name="workbench_main_not_counted">总管只协调，不占并发名额</string>
+    <string name="workbench_main_not_counted">秘书长只协调，不占并发名额</string>
     <string name="workbench_done_today">今天完成 %1$d</string>
     <string name="dashboard_range_today">今天</string>
     <string name="dashboard_range_7d">7 天</string>
@@ -895,7 +895,8 @@
     <string name="settings_about_export_diag">导出诊断信息</string>
     <string name="notify_need_you_title">需要你 · %1$s</string>
     <string name="notify_approval_body">审批：%1$s</string>
-    <string name="notify_review_title">待验收 · 总管</string>
+    <string name="notify_review_title">待验收 · 秘书长</string>
+    <string name="feature_main_bot_default_name">秘书长</string>
     <string name="notify_review_body">「%1$s」做完了，请你验收</string>
     <string name="notify_action_allow_once">允许一次</string>
     <string name="notify_action_deny">拒绝</string>

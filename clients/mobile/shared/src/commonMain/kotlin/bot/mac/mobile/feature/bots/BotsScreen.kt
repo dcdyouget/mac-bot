@@ -43,6 +43,7 @@ import bot.mac.mobile.core.design.BotAvatar
 import bot.mac.mobile.core.design.FontScaleToolbar
 import bot.mac.mobile.core.ui.LucideIcon
 import bot.mac.mobile.core.ui.LucideIconKind
+import bot.mac.mobile.core.ui.botDisplayName
 import bot.mac.mobile.core.protocol.arr
 import bot.mac.mobile.core.protocol.long
 import bot.mac.mobile.core.protocol.boolean
@@ -149,15 +150,16 @@ fun BotsScreen(
         val visibleBots = state.bots.filter { showHidden || !it.boolean("hidden") }
         val mainBot = visibleBots.firstOrNull { it.boolean("is_main") }
         val regularBots = visibleBots.filterNot { it.boolean("is_main") }
+        val mainBotDefaultName = stringResource(Res.string.feature_main_bot_default_name)
         LazyColumn(Modifier.fillMaxSize().padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             if (mainBot != null) {
                 item { Text(stringResource(Res.string.sidebar_main_bot_tag), style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(start = 4.dp, top = 8.dp, bottom = 2.dp)) }
-                item { BotRow(repository, mainBot, onOpenDetail, onOpenBot) }
+                item { BotRow(repository, mainBot, onOpenDetail, onOpenBot, mainBotDefaultName) }
             }
             if (regularBots.isNotEmpty()) {
                 item { Text(stringResource(Res.string.search_filter_bots), style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(start = 4.dp, top = 12.dp, bottom = 2.dp)) }
                 items(regularBots, key = { it.str("id").ifBlank { "bot:${it.hashCode()}" } }) { bot ->
-                    BotRow(repository, bot, onOpenDetail, onOpenBot)
+                    BotRow(repository, bot, onOpenDetail, onOpenBot, mainBotDefaultName)
                 }
             }
         }
@@ -165,7 +167,7 @@ fun BotsScreen(
 }
 
 @Composable
-private fun BotRow(repository: MobileRepository, bot: JsonObject, onOpen: (String) -> Unit, onEdit: (String) -> Unit) {
+private fun BotRow(repository: MobileRepository, bot: JsonObject, onOpen: (String) -> Unit, onEdit: (String) -> Unit, mainBotDefaultName: String) {
     val id = bot.str("id")
     val status = bot.obj("status")
     Row(
@@ -178,7 +180,7 @@ private fun BotRow(repository: MobileRepository, bot: JsonObject, onOpen: (Strin
             BotAvatar(repository, bot, main = bot.boolean("is_main"), status = status?.str("summary").orEmpty())
         }
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-        Text(bot.str("name").ifBlank { id }, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text(botDisplayName(bot.str("name"), id, bot.boolean("is_main"), mainBotDefaultName), style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text(bot.str("label").ifBlank { bot.str("description") }, style = MaterialTheme.typography.bodySmall, maxLines = 1)
         }
         Column(horizontalAlignment = Alignment.End) {
@@ -209,6 +211,7 @@ fun BotDetailScreen(
     val activeHost by repository.activeHost.collectAsState()
     val hostId = activeHost?.id
     val bot = state.bots.firstOrNull { it.str("id") == botId }
+    val mainBotDefaultName = stringResource(Res.string.feature_main_bot_default_name)
     var groups by remember(botId, hostId) { mutableStateOf(emptyList<JsonObject>()) }
     var assignments by remember(botId, hostId) { mutableStateOf(emptyList<JsonObject>()) }
     var usage by remember(botId, hostId) { mutableStateOf<JsonObject?>(null) }
@@ -251,7 +254,7 @@ fun BotDetailScreen(
         FontScaleToolbar {
             Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                 Button(onClick = onBack) { Text(stringResource(Res.string.common_back)) }
-                Text(bot.str("name"), Modifier.weight(1f).padding(start = 12.dp), style = MaterialTheme.typography.titleLarge, maxLines = 1)
+                Text(botDisplayName(bot.str("name"), botId, bot.boolean("is_main"), mainBotDefaultName), Modifier.weight(1f).padding(start = 12.dp), style = MaterialTheme.typography.titleLarge, maxLines = 1)
                 TextButton(onClick = { onEdit(botId) }) { Text(stringResource(Res.string.common_edit)) }
             }
         }
@@ -260,7 +263,7 @@ fun BotDetailScreen(
             item {
                 Column(Modifier.fillMaxWidth().padding(vertical = 12.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Box(Modifier.size(72.dp), contentAlignment = Alignment.Center) { BotAvatar(repository, bot) }
-                    Text(bot.str("name"), style = MaterialTheme.typography.titleLarge)
+                    Text(botDisplayName(bot.str("name"), botId, bot.boolean("is_main"), mainBotDefaultName), style = MaterialTheme.typography.titleLarge)
                     Text(listOf(bot.str("label"), bot.str("model")).filter(String::isNotBlank).joinToString(" · "), style = MaterialTheme.typography.bodySmall)
                     Row(Modifier.fillMaxWidth().padding(top = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         DetailShortcut(Modifier.weight(1f), LucideIconKind.MessageCircle, stringResource(Res.string.feature_open_chat), onClick = { onOpenChat(bot.str("dm_chat_id")) })

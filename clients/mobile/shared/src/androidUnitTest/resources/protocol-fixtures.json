@@ -491,7 +491,7 @@
           "label": "主 Bot",
           "max_parallel": 1,
           "model": null,
-          "name": "总管",
+          "name": "秘书长",
           "notifications": true,
           "pinned": true,
           "status": {
@@ -569,7 +569,7 @@
           "label": "主 Bot",
           "max_parallel": 1,
           "model": null,
-          "name": "总管",
+          "name": "秘书长",
           "notifications": true,
           "pinned": true,
           "status": {
@@ -612,7 +612,7 @@
           "muted": false,
           "pinned": true,
           "project_id": null,
-          "title": "总管",
+          "title": "秘书长",
           "unread": 0,
           "updated_at": "2026-10-09T10:19:02.312Z"
         }
@@ -653,7 +653,7 @@
           "muted": false,
           "pinned": true,
           "project_id": null,
-          "title": "总管",
+          "title": "秘书长",
           "unread": 0,
           "updated_at": "2026-10-09T10:19:02.312Z"
         }
@@ -1692,7 +1692,7 @@
       "label": "主 Bot",
       "max_parallel": 1,
       "model": null,
-      "name": "总管",
+      "name": "秘书长",
       "notifications": true,
       "pinned": true,
       "status": {
@@ -1727,7 +1727,7 @@
       "muted": false,
       "pinned": true,
       "project_id": null,
-      "title": "总管",
+      "title": "秘书长",
       "unread": 0,
       "updated_at": "2026-10-09T10:19:02.312Z"
     }
@@ -3098,7 +3098,7 @@
           "muted": false,
           "pinned": true,
           "project_id": null,
-          "title": "总管",
+          "title": "秘书长",
           "unread": 0,
           "updated_at": "2026-10-09T10:19:02.312Z"
         }
@@ -5594,7 +5594,7 @@
           "deleted": false,
           "delivery": [],
           "edited_at": null,
-          "fallback_text": "测试 20/20 通过，报告在 test/report.md，@总管 请验收。",
+          "fallback_text": "测试 20/20 通过，报告在 test/report.md，@秘书长 请验收。",
           "id": "msg_test_done",
           "intent": "done",
           "mentions": [

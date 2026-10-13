@@ -81,7 +81,6 @@ fun GroupScreen(
     val project = state.projects.firstOrNull { it.str("id") == projectId }
     val chatId = project?.str("chat_id")?.takeIf { it.isNotBlank() }
     val announcement = state.announcements[projectId]
-    var showAnnouncement by remember { mutableStateOf(false) }
     var showGroupActions by remember { mutableStateOf(false) }
     var changeText by remember { mutableStateOf("") }
     var showChangeInput by remember { mutableStateOf(false) }
@@ -255,9 +254,6 @@ fun GroupScreen(
                         )
                     }
                 }
-                IconButton(onClick = { showAnnouncement = !showAnnouncement }, modifier = Modifier.size(40.dp)) {
-                    LucideIcon(LucideIconKind.MessageCircle, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.primary, contentDescription = stringResource(Res.string.group_announcement))
-                }
                 Box {
                     IconButton(onClick = { showGroupActions = true }, modifier = Modifier.size(40.dp)) {
                         LucideIcon(LucideIconKind.Ellipsis, Modifier.size(20.dp), contentDescription = stringResource(Res.string.group_info))
@@ -334,20 +330,6 @@ fun GroupScreen(
                 GroupMemberChip(repository, bot, botName, status, assignmentId.takeIf(String::isNotBlank)?.let { id -> { onOpenTrace(id) } })
             }
         }
-        Row(
-            Modifier.fillMaxWidth().height(44.dp).clickable { showAnnouncement = !showAnnouncement }.padding(horizontal = 12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Box(Modifier.width(2.dp).height(28.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primary))
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.Center) {
-                Text(stringResource(Res.string.group_announcement), style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold), color = MaterialTheme.colorScheme.primary, maxLines = 1)
-                val announcementSummary = announcement?.str("text")?.lineSequence()?.firstOrNull()?.trim().orEmpty()
-                Text(announcementSummary.ifBlank { stringResource(Res.string.group_announcement_empty) }, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            }
-            LucideIcon(if (showAnnouncement) LucideIconKind.ChevronDown else LucideIconKind.ChevronRight, Modifier.size(18.dp))
-        }
-        if (showAnnouncement) AnnouncementPanel(announcement, project, onOpenArtifact, onOpenHome, onCopyHome)
         HorizontalDivider()
         Box(Modifier.weight(1f).fillMaxWidth()) {
             chatId?.let { id ->
@@ -407,7 +389,6 @@ fun GroupScreen(
         }
     }
 }
-
 @Composable
 internal fun GroupAvatar(repository: MobileRepository, members: List<kotlinx.serialization.json.JsonElement>, bots: List<JsonObject>, size: androidx.compose.ui.unit.Dp = 40.dp) {
     val botIds = members.mapNotNull { (it as? JsonObject)?.str("bot_id")?.takeIf(String::isNotBlank) }.distinct().take(4)
@@ -517,48 +498,5 @@ fun GroupCreateScreen(
                 }.onFailure { error = it.message ?: createFailed }
             }
         }, modifier = Modifier.fillMaxWidth()) { Text(stringResource(Res.string.new_create_group)) }
-    }
-}
-
-@Composable
-private fun AnnouncementPanel(
-    announcement: JsonObject?,
-    project: JsonObject?,
-    onOpenArtifact: (artifactId: String, pathOrUrl: String, projectId: String?) -> Unit,
-    onOpenHome: (String) -> Unit,
-    onCopyHome: (String) -> Unit,
-) {
-    Surface(Modifier.fillMaxWidth().padding(12.dp), color = MaterialTheme.colorScheme.secondaryContainer) {
-        Column(Modifier.heightIn(max = 300.dp).verticalScroll(rememberScrollState()).padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(stringResource(Res.string.feature_announcement_title, project?.str("name") ?: ""), style = MaterialTheme.typography.titleMedium)
-            project?.str("status")?.takeIf { it.isNotBlank() }?.let { StatusLabel(it) }
-            if (announcement?.str("text").orEmpty().isNotBlank()) MarkdownText(announcement?.str("text").orEmpty(), Modifier.fillMaxWidth())
-            else Text(stringResource(Res.string.group_announcement_empty), color = MaterialTheme.colorScheme.onSurfaceVariant)
-            announcement?.str("text_updated_at")?.takeIf { it.isNotBlank() }?.let { Text(stringResource(Res.string.feature_announcement_updated, it), style = MaterialTheme.typography.bodySmall) }
-            val home = project?.str("home_path").orEmpty()
-            Text(stringResource(Res.string.feature_home_value, home))
-            if (home.isNotBlank()) {
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Button(onClick = { onOpenHome(home) }) { Text(stringResource(Res.string.group_open_home)) }
-                    Button(onClick = { onCopyHome(home) }) { Text(stringResource(Res.string.common_copy_path)) }
-                }
-            }
-            announcement?.arr("artifacts")?.forEach { item ->
-                val artifact = item as? JsonObject ?: return@forEach
-                val artifactId = artifact.str("id")
-                val pathOrUrl = artifact.str("path_or_url")
-                if (artifactId.isNotBlank() && pathOrUrl.isNotBlank()) {
-                    Column {
-                        Text(stringResource(Res.string.common_provided_by, artifact.str("bot_id").ifBlank { stringResource(Res.string.search_filter_bots) }), style = MaterialTheme.typography.labelSmall)
-                        Button(onClick = { onOpenArtifact(artifactId, pathOrUrl, project?.str("id")) }) {
-                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-                                LucideIcon(LucideIconKind.FileText, Modifier.size(18.dp))
-                                Text(artifact.str("title").ifBlank { pathOrUrl })
-                            }
-                        }
-                    }
-                }
-            }
-        }
     }
 }
