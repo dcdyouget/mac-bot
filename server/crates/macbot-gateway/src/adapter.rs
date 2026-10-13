@@ -3914,6 +3914,17 @@ impl RpcBackend for ProductionBackend {
         if method == "send_msg" {
             append_link_preview_blocks(&mut result, &params)?;
             append_project_card_blocks(self, &mut result, &params).await?;
+            if self.is_main_dm_delegate_message(&params) {
+                // A small task delegated from the main Bot DM is represented
+                // there by its delegation/task card and its result. Keep the
+                // worker's result blocks and text so the main Bot can use the
+                // report, but don't render the worker as a second speaker in
+                // the user's conversation.
+                if let Some(message) = result.as_object_mut() {
+                    message.insert("sender".into(), json!({"kind":"system"}));
+                    message.insert("intent".into(), Value::Null);
+                }
+            }
             result = self.persist_client_message(&result)?;
         } else if method == "chat.send" {
             let canonical = self.persist_client_message(&result["message"])?;
@@ -5628,6 +5639,34 @@ impl ProductionBackend {
 
     /// Pure target validation, also used before the executor's durable receipt.
     /// Resolve explicit Bot DM routes without creating their metadata or events.
+    fn is_main_dm_delegate_message(&self, params: &Value) -> bool {
+        let Some(assignment_id) = params.get("assignment_id").and_then(Value::as_str) else {
+            return false;
+        };
+        let Some(bot_id) = params.get("bot_id").and_then(Value::as_str) else {
+            return false;
+        };
+        if bot_id == "main" || params.get("chat_id").and_then(Value::as_str) != Some("chat_main") {
+            return false;
+        }
+        self.orchestrator
+            .snapshot()
+            .ok()
+            .and_then(|snapshot| {
+                snapshot
+                    .get("assignments")
+                    .and_then(Value::as_object)
+                    .and_then(|assignments| assignments.get(assignment_id))
+                    .cloned()
+            })
+            .is_some_and(|assignment| {
+                assignment.get("bot_id").and_then(Value::as_str) == Some(bot_id)
+                    && assignment.get("origin_chat_id").and_then(Value::as_str) == Some("chat_main")
+                    && assignment.get("from").and_then(Value::as_str) == Some("main")
+                    && assignment.get("project_id").is_none_or(Value::is_null)
+            })
+    }
+
     pub fn execution_validate_send_msg_target(&self, params: &Value) -> Result<(), RpcError> {
         let mut resolved = params.clone();
         if params.get("to").is_some() {
@@ -12745,6 +12784,158 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn delegated_worker_messages_in_main_dm_are_system_attributed_with_result_preserved() {
+        let home = tempdir().unwrap();
+        let gateway = Gateway::new(GatewayConfig {
+            home: home.path().to_path_buf(),
+            ..Default::default()
+        });
+        let backend = ProductionBackend::open(home.path()).unwrap();
+        let worker = backend
+            .call("bot.create", json!({"name":"委派 worker"}), &gateway.state)
+            .await
+            .unwrap();
+        let worker_id = worker["bot"]["id"].as_str().unwrap();
+        let delegated = backend
+            .call(
+                "delegate",
+                json!({
+                    "origin_chat_id":"chat_main",
+                    "bot_id":worker_id,
+                    "title":"整理资料",
+                    "instruction":"整理公开资料并汇报",
+                    "from":"main",
+                    "client_request_id":"main-dm-delegate-worker-messages"
+                }),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        let assignment_id = delegated["id"].as_str().unwrap();
+
+        let ack = backend
+            .execution_send_msg(
+                &gateway.state,
+                json!({
+                    "receipt":{"run_id":"delegate-worker-run","call_id":"ack"},
+                    "message":{
+                        "bot_id":worker_id,
+                        "chat_id":"chat_main",
+                        "assignment_id":assignment_id,
+                        "text":"已开始整理",
+                        "intent":"ack",
+                        "mentions":[]
+                    }
+                }),
+            )
+            .await
+            .unwrap();
+        assert_eq!(ack["sender"]["kind"], "system");
+        assert!(ack["sender"]["bot_id"].is_null());
+        assert!(ack["intent"].is_null());
+
+        let completion = backend
+            .execution_send_msg(
+                &gateway.state,
+                json!({
+                    "receipt":{"run_id":"delegate-worker-run","call_id":"done"},
+                    "message":{
+                        "bot_id":worker_id,
+                        "chat_id":"chat_main",
+                        "assignment_id":assignment_id,
+                        "text":"整理完成：找到三份可用资料",
+                        "intent":"done",
+                        "mentions":[]
+                    }
+                }),
+            )
+            .await
+            .unwrap();
+        assert_eq!(completion["sender"]["kind"], "system");
+        assert!(completion["intent"].is_null());
+        assert_eq!(completion["blocks"][0]["type"], "completion");
+        assert_eq!(
+            completion["blocks"][0]["summary"],
+            "整理完成：找到三份可用资料"
+        );
+
+        let assignment = backend
+            .call(
+                "assignment.get",
+                json!({"assignment_id":assignment_id}),
+                &gateway.state,
+            )
+            .await
+            .unwrap()["assignment"]
+            .clone();
+        assert_eq!(assignment["status"], "done");
+        assert_eq!(assignment["result_message_id"], completion["id"]);
+
+        let history = backend
+            .call(
+                "chat.history",
+                json!({"chat_id":"chat_main","limit":100}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        let messages = history["messages"].as_array().unwrap();
+        assert!(messages.iter().any(|message| {
+            message["id"] == completion["id"]
+                && message["sender"]["kind"] == "system"
+                && message["blocks"][0]["type"] == "completion"
+        }));
+        assert!(messages.iter().any(|message| {
+            message["blocks"].as_array().is_some_and(|blocks| {
+                blocks.iter().any(|block| {
+                    block["type"] == "delegation" && block["assignment_id"] == assignment_id
+                })
+            })
+        }));
+        assert!(!messages.iter().any(|message| {
+            message["assignment_id"] == assignment_id
+                && message["sender"]["kind"] == "bot"
+                && message["sender"]["bot_id"] == worker_id
+        }));
+
+        // A worker explicitly addressed by the user in the main chat remains
+        // that worker's message; only main-originated private delegations are
+        // presented as system task output.
+        let direct = backend
+            .call(
+                "assignment.create",
+                json!({
+                    "origin_chat_id":"chat_main",
+                    "bot_id":worker_id,
+                    "title":"用户直接交办",
+                    "instruction":"直接向用户答复",
+                    "from":"user"
+                }),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        let direct_id = direct["id"].as_str().unwrap();
+        let direct_reply = backend
+            .call(
+                "send_msg",
+                json!({
+                    "bot_id":worker_id,
+                    "chat_id":"chat_main",
+                    "assignment_id":direct_id,
+                    "text":"这是用户直接交办的答复",
+                    "intent":"done",
+                    "mentions":[]
+                }),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        assert_eq!(direct_reply["sender"]["kind"], "bot");
+        assert_eq!(direct_reply["sender"]["bot_id"], worker_id);
+    }
+
+    #[tokio::test]
     async fn routine_tick_returns_execution_dispatch_and_assignment_event() {
         let home = tempdir().unwrap();
         let gateway = Gateway::new(GatewayConfig {
@@ -15309,8 +15500,14 @@ mod tests {
                 .code,
             "conflict"
         );
-        assert_eq!(backend.read_proposal(&stale_id).unwrap().unwrap()["state"], "failed");
-        assert_eq!(backend.read_proposal(&winner_id).unwrap().unwrap()["state"], "approved");
+        assert_eq!(
+            backend.read_proposal(&stale_id).unwrap().unwrap()["state"],
+            "failed"
+        );
+        assert_eq!(
+            backend.read_proposal(&winner_id).unwrap().unwrap()["state"],
+            "approved"
+        );
         assert_eq!(
             backend
                 .call(
@@ -15333,8 +15530,7 @@ mod tests {
                 .unwrap()
                 .iter()
                 .filter(|event| {
-                    event.event == "question.answered"
-                        && event.data["question"]["id"] == stale_id
+                    event.event == "question.answered" && event.data["question"]["id"] == stale_id
                 })
                 .count(),
             1
