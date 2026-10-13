@@ -445,6 +445,9 @@ impl ProductionBackend {
         }
         backend.reconcile_durable_decision_waits()?;
         backend.repair_decision_question_messages()?;
+        backend
+            .repair_pending_proposal_question_messages()
+            .map_err(|error| AdapterError::OrchestratorSnapshot(error.message))?;
         *backend
             .startup_repair_events
             .lock()
@@ -675,6 +678,121 @@ impl ProductionBackend {
             }
         }
         Ok(())
+    }
+
+    /// Older servers persisted `propose_bot` as a pending Question without
+    /// creating the corresponding chat message. Rebuild the message from the
+    /// durable proposal and Question records during startup so existing
+    /// clients can resolve the question by its normal message block.
+    fn repair_pending_proposal_question_messages(&self) -> Result<(), RpcError> {
+        let snapshot = self.orchestrator.snapshot().map_err(Self::error)?;
+        let Some(questions) = snapshot.get("questions").and_then(Value::as_object) else {
+            return Ok(());
+        };
+        for question in questions
+            .values()
+            .filter(|question| question.get("state").and_then(Value::as_str) == Some("pending"))
+        {
+            let Some(question_id) = question.get("id").and_then(Value::as_str) else {
+                continue;
+            };
+            let Some(proposal) = self.read_proposal(question_id)? else {
+                continue;
+            };
+            if proposal.get("state").and_then(Value::as_str) != Some("pending") {
+                continue;
+            }
+            self.ensure_proposal_question_message(question)?;
+        }
+        Ok(())
+    }
+
+    /// Persist one stable, visible Question message for a `propose_bot`
+    /// request. The message id and event receipt are derived from the Question
+    /// id, making retries and startup repair idempotent.
+    fn ensure_proposal_question_message(
+        &self,
+        question: &Value,
+    ) -> Result<Option<macbot_store::Event>, RpcError> {
+        let question_id = question
+            .get("id")
+            .and_then(Value::as_str)
+            .ok_or_else(|| RpcError {
+                code: "internal".into(),
+                message: "proposal question has no id".into(),
+                details: None,
+            })?;
+        let chat_id = question
+            .get("chat_id")
+            .and_then(Value::as_str)
+            .ok_or_else(|| RpcError {
+                code: "internal".into(),
+                message: "proposal question has no chat_id".into(),
+                details: None,
+            })?;
+        let bot_id = question
+            .get("bot_id")
+            .and_then(Value::as_str)
+            .unwrap_or("main");
+        let text = question
+            .get("text")
+            .and_then(Value::as_str)
+            .unwrap_or("需要你确认一项 Bot 创建提议");
+        let assignment_id = question
+            .get("assignment_id")
+            .cloned()
+            .unwrap_or(Value::Null);
+        let message_id = format!("msg_question_proposal_{}", takeover_component(question_id));
+        let mut card = json!({
+            "id":message_id,
+            "chat_id":chat_id,
+            "seq":0,
+            "sender":{"kind":"bot","bot_id":bot_id},
+            "created_at":now(),
+            "edited_at":null,
+            "deleted":false,
+            "reply_to":null,
+            "thread_count":0,
+            "mentions":[],
+            "blocks":[{"type":"question","question_id":question_id}],
+            "fallback_text":text,
+            "intent":null,
+            "assignment_id":assignment_id,
+            "streaming":false,
+            "delivery":[],
+            "reactions":[]
+        });
+        if let Some(existing) = self
+            .load_chat_messages(chat_id)?
+            .into_iter()
+            .find(|message| message.get("id").and_then(Value::as_str) == Some(message_id.as_str()))
+        {
+            card = existing;
+            card["sender"] = json!({"kind":"bot","bot_id":bot_id});
+            card["blocks"] = json!([{"type":"question","question_id":question_id}]);
+            card["fallback_text"] = json!(text);
+            card["assignment_id"] = assignment_id;
+            card["deleted"] = json!(false);
+        }
+        let canonical = self.persist_client_message(&card)?;
+        let event_name = if self
+            .store
+            .events_since(0)
+            .map_err(store_error)?
+            .iter()
+            .any(|event| {
+                matches!(event.event.as_str(), "message.created" | "message.updated")
+                    && event.data["message"]["id"] == message_id
+            }) {
+            "message.updated"
+        } else {
+            "message.created"
+        };
+        self.append_repaired_event(
+            &format!("proposal-question:{question_id}:message"),
+            event_name,
+            json!({"message":canonical}),
+        )
     }
 
     fn migrate_legacy_chat_sequences(
@@ -2438,7 +2556,17 @@ impl ProductionBackend {
         if method == "announcement.update" {
             self.persist_announcement_text(result)?;
         }
-        for event in self.repair_operation_events(&operation)? {
+        let mut events = Vec::new();
+        if method == "propose_bot" {
+            if let Some(question) = result.get("question") {
+                if let Some(event) = self.ensure_proposal_question_message(question)? {
+                    events.push(event);
+                }
+            }
+        }
+        events.extend(self.repair_operation_events(&operation)?);
+        events.sort_by_key(|event| event.seq);
+        for event in events {
             state
                 .publish_event(event.seq, &event.event, event.data)
                 .await;
@@ -3350,7 +3478,17 @@ impl RpcBackend for ProductionBackend {
                             "status":"done"
                         })
                     });
-                for event in self.repair_operation_events(&operation)? {
+                let mut events = Vec::new();
+                if method == "propose_bot" {
+                    if let Some(question) = value.get("question") {
+                        if let Some(event) = self.ensure_proposal_question_message(question)? {
+                            events.push(event);
+                        }
+                    }
+                }
+                events.extend(self.repair_operation_events(&operation)?);
+                events.sort_by_key(|event| event.seq);
+                for event in events {
                     state
                         .publish_event(event.seq, &event.event, event.data)
                         .await;
@@ -14246,6 +14384,161 @@ mod tests {
             )
             .unwrap();
         }
+    }
+
+    #[tokio::test]
+    async fn pending_bot_proposal_question_has_a_durable_card_and_legacy_backfill() {
+        async fn question_card_count(
+            backend: &ProductionBackend,
+            state: &GatewayState,
+            question_id: &str,
+        ) -> usize {
+            let message_id = format!("msg_question_proposal_{}", takeover_component(question_id));
+            backend
+                .call(
+                    "chat.history",
+                    json!({"chat_id":"chat_main","limit":100}),
+                    state,
+                )
+                .await
+                .unwrap()["messages"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|message| {
+                    message["id"] == message_id
+                        && message["blocks"].as_array().is_some_and(|blocks| {
+                            blocks.iter().any(|block| {
+                                block["type"] == "question" && block["question_id"] == question_id
+                            })
+                        })
+                })
+                .count()
+        }
+
+        let home = tempdir().unwrap();
+        let gateway = Gateway::new(GatewayConfig {
+            home: home.path().to_path_buf(),
+            ..Default::default()
+        });
+        let backend = ProductionBackend::open(home.path()).unwrap();
+        let proposal = backend
+            .call(
+                "propose_bot",
+                json!({"name":"Proposal worker","chat_id":"chat_main"}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        let question = proposal["question"].clone();
+        let question_id = question["id"].as_str().unwrap();
+        let message_id = format!("msg_question_proposal_{}", takeover_component(question_id));
+
+        assert_eq!(
+            question_card_count(&backend, &gateway.state, question_id).await,
+            1
+        );
+        assert!(backend
+            .ensure_proposal_question_message(&question)
+            .unwrap()
+            .is_none());
+        assert_eq!(
+            question_card_count(&backend, &gateway.state, question_id).await,
+            1
+        );
+
+        // Simulate the durable files left by the old implementation: the
+        // proposal and pending Question exist, while no Question message or
+        // message.created event was ever written.
+        let messages_path = home.path().join("data/chats/chat_main/messages.jsonl");
+        let messages = std::fs::read_to_string(&messages_path).unwrap();
+        let retained_messages = messages
+            .lines()
+            .filter(|line| {
+                serde_json::from_str::<Value>(line)
+                    .ok()
+                    .and_then(|message| {
+                        message.get("id").and_then(Value::as_str).map(str::to_owned)
+                    })
+                    .as_deref()
+                    != Some(message_id.as_str())
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        std::fs::write(&messages_path, format!("{retained_messages}\n")).unwrap();
+
+        let events_path = home.path().join("data/events/events.jsonl");
+        let events = std::fs::read_to_string(&events_path).unwrap();
+        let retained_events = events
+            .lines()
+            .filter(|line| {
+                serde_json::from_str::<Value>(line)
+                    .ok()
+                    .is_none_or(|event| {
+                        event["event"] != "message.created"
+                            || event.pointer("/data/message/id").and_then(Value::as_str)
+                                != Some(message_id.as_str())
+                    })
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        std::fs::write(&events_path, format!("{retained_events}\n")).unwrap();
+        drop(backend);
+
+        let restored = ProductionBackend::open(home.path()).unwrap();
+        assert_eq!(
+            question_card_count(&restored, &gateway.state, question_id).await,
+            1
+        );
+        assert_eq!(
+            restored
+                .store
+                .events_since(0)
+                .unwrap()
+                .iter()
+                .filter(|event| event.event == "message.created"
+                    && event.data["message"]["id"] == message_id)
+                .count(),
+            1
+        );
+
+        let answered = restored
+            .call(
+                "question.answer",
+                json!({"question_id":question_id,"option_index":1}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        assert_eq!(answered["question"]["state"], "answered");
+        let listed = restored
+            .call(
+                "question.list",
+                json!({"chat_id":"chat_main"}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        assert!(listed["questions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|item| item["id"] == question_id && item["state"] == "answered"));
+        assert_eq!(
+            question_card_count(&restored, &gateway.state, question_id).await,
+            1
+        );
+        assert_eq!(
+            restored
+                .store
+                .events_since(0)
+                .unwrap()
+                .iter()
+                .filter(|event| event.event == "question.answered"
+                    && event.data["question"]["id"] == question_id)
+                .count(),
+            1
+        );
     }
 
     #[tokio::test]
