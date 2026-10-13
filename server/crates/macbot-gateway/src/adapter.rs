@@ -5804,18 +5804,26 @@ impl ProductionBackend {
                     }
                     scope_chat_id.clone()
                 } else if let Some(target_bot_id) = target_bot_id {
-                    bot_dm_context = Some(self.resolve_bot_dm_context(
-                        params,
-                        &source_bot_id,
-                        &scope_chat_id,
-                        target_bot_id,
-                    )?);
-                    bot_dm_context
-                        .as_ref()
-                        .expect("Bot DM context was just resolved")
-                        .route
-                        .chat_id
-                        .clone()
+                    if target_bot_id == source_bot_id {
+                        // Addressing the current Bot is a shorthand for this
+                        // execution incarnation's immutable scope. In
+                        // particular, a group assignment must never escape
+                        // its bound project chat through a Bot-DM route.
+                        scope_chat_id.clone()
+                    } else {
+                        bot_dm_context = Some(self.resolve_bot_dm_context(
+                            params,
+                            &source_bot_id,
+                            &scope_chat_id,
+                            target_bot_id,
+                        )?);
+                        bot_dm_context
+                            .as_ref()
+                            .expect("Bot DM context was just resolved")
+                            .route
+                            .chat_id
+                            .clone()
+                    }
                 } else {
                     return Err(crate::rpc_error(
                         "invalid_params",
@@ -5837,18 +5845,24 @@ impl ProductionBackend {
                         None,
                     ));
                 }
-                bot_dm_context = Some(self.resolve_bot_dm_context(
-                    params,
-                    &source_bot_id,
-                    &scope_chat_id,
-                    &to,
-                )?);
-                bot_dm_context
-                    .as_ref()
-                    .expect("Bot DM context was just resolved")
-                    .route
-                    .chat_id
-                    .clone()
+                if to == source_bot_id {
+                    // String-form Bot ids follow the same current-scope
+                    // semantics as `{bot: current_bot_id}`.
+                    scope_chat_id.clone()
+                } else {
+                    bot_dm_context = Some(self.resolve_bot_dm_context(
+                        params,
+                        &source_bot_id,
+                        &scope_chat_id,
+                        &to,
+                    )?);
+                    bot_dm_context
+                        .as_ref()
+                        .expect("Bot DM context was just resolved")
+                        .route
+                        .chat_id
+                        .clone()
+                }
             }
             Some(_) => {
                 return Err(crate::rpc_error(
@@ -12819,6 +12833,108 @@ mod tests {
                 "bot_id":"main","chat_id":bot["bot"]["dm_chat_id"]
             }))
             .is_err());
+    }
+
+    #[tokio::test]
+    async fn send_msg_to_current_bot_stays_in_private_or_group_assignment_scope() {
+        let home = tempdir().unwrap();
+        let gateway = Gateway::new(GatewayConfig {
+            home: home.path().to_path_buf(),
+            ..Default::default()
+        });
+        let backend = ProductionBackend::open(home.path()).unwrap();
+        let bot = backend
+            .call(
+                "bot.create",
+                json!({"name":"Self-route worker"}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        let bot_id = bot["bot"]["id"].as_str().unwrap();
+        let dm_chat_id = bot["bot"]["dm_chat_id"].as_str().unwrap();
+        let private_assignment = backend
+            .call(
+                "assignment.create",
+                json!({
+                    "bot_id":bot_id,
+                    "origin_chat_id":dm_chat_id,
+                    "title":"Private incarnation",
+                    "instruction":"Report in the private task chat",
+                    "from":"main"
+                }),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        let private_sent = backend
+            .call(
+                "send_msg",
+                json!({
+                    "bot_id":bot_id,
+                    "assignment_id":private_assignment["id"],
+                    "chat_id":dm_chat_id,
+                    "to":bot_id,
+                    "intent":"done",
+                    "text":"私聊分身仍发送到自己的 DM"
+                }),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        assert_eq!(private_sent["chat_id"], dm_chat_id);
+
+        let project = backend
+            .call(
+                "project.create",
+                json!({
+                    "name":"Self-route project",
+                    "goal":"Keep a group incarnation bound to its group",
+                    "member_bot_ids":[bot_id]
+                }),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        let project_id = project["project"]["id"].as_str().unwrap();
+        let group_chat_id = project["project"]["chat_id"].as_str().unwrap();
+        let group_assignment = backend
+            .call(
+                "assignment.create",
+                json!({
+                    "project_id":project_id,
+                    "origin_chat_id":group_chat_id,
+                    "bot_id":bot_id,
+                    "title":"Group incarnation",
+                    "instruction":"Report only in the project group",
+                    "from":"main"
+                }),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        let group_sent = backend
+            .call(
+                "send_msg",
+                json!({
+                    "bot_id":bot_id,
+                    "assignment_id":group_assignment["id"],
+                    "project_id":project_id,
+                    "chat_id":group_chat_id,
+                    "to":{"bot":bot_id},
+                    "intent":"done",
+                    "text":"群分身不能因自身 bot_id 逃离群"
+                }),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        assert_eq!(group_sent["chat_id"], group_chat_id);
+        let snapshot = backend.orchestrator.snapshot().unwrap();
+        assert!(!snapshot
+            .get("chats")
+            .and_then(Value::as_object)
+            .is_some_and(|chats| chats.keys().any(|chat_id| chat_id.starts_with("bot_dm_"))));
     }
 
     #[tokio::test]

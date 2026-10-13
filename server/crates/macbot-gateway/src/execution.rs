@@ -45,6 +45,8 @@ pub enum ExecutionError {
     Resolver(String),
     #[error("run exceeded tool/model turn limit")]
     TurnLimit,
+    #[error("task_no_report: assigned run ended without a send_msg done or blocked report")]
+    TaskNoReport,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -762,6 +764,38 @@ impl ExecutionEngine {
         }
     }
 
+    /// Count an assignment as complete only after its canonical `done`
+    /// message has been accepted. Model requests are metered before tool
+    /// execution, so persist a zero-cost completion marker separately instead
+    /// of guessing from a requested-but-failed send_msg call.
+    async fn record_task_completion(
+        &self,
+        request: &ExecutionRequest,
+    ) -> Result<(), ExecutionError> {
+        let Some(assignment_id) = request.assignment_id.as_deref() else {
+            return Ok(());
+        };
+        if request.routine || subagent_requested(request) {
+            return Ok(());
+        }
+        self.usage.lock().await.record(UsageRecord {
+            request_id: format!("task_done:{assignment_id}:{}", request.run_id),
+            ts: Utc::now(),
+            bot_id: request.bot_id.clone(),
+            project_id: request.project_id.clone(),
+            chat_id: request.chat_id.clone(),
+            assignment_id: Some(assignment_id.to_owned()),
+            run_id: request.run_id.clone(),
+            phase: execution_phase(request).into(),
+            provider_id: request.provider_id.clone(),
+            model_id: usage_model_id(&request.provider_id, &request.model),
+            routine: request.routine,
+            usage: Totals::default(),
+            task_done: true,
+        })?;
+        Ok(())
+    }
+
     /// Resume working jobs. Unsafe checkpoints are converted to `Suspended` by
     /// `DurableRuntime::resume_plan`; the gateway can turn these into approval
     /// cards without replaying a write or command.
@@ -1104,7 +1138,11 @@ impl ExecutionEngine {
                 (job, initial_messages, 0, false, None, Vec::new(), run_guard)
             }
         };
-        let streaming_message_id = if request.private {
+        // Assigned private runs deliver user-facing results through the
+        // canonical send_msg bridge. Do not create a second assistant bubble
+        // that could outlive a successful tool report or persist unreported
+        // model text as the task result.
+        let streaming_message_id = if request.private && request.assignment_id.is_none() {
             Some(self.create_streaming_message(&request).await?)
         } else {
             None
@@ -1115,7 +1153,9 @@ impl ExecutionEngine {
         let mut completed = false;
         let mut group_progress_count = 0usize;
         let mut group_done = false;
-        let mut group_no_report_rounds = 0usize;
+        let assignment_requires_report =
+            request.assignment_id.is_some() && !subagent_requested(&request);
+        let mut no_report_followups = 0usize;
         if resumed {
             self.trace(&request, "run.resume", json!({"by_message_id":null}))
                 .await?;
@@ -1444,14 +1484,10 @@ impl ExecutionEngine {
                     requests: 1,
                     cost: request_cost,
                 },
-                // A model request is only task-complete when the run has
-                // reached its terminal text response. Chat turns without an
-                // assignment, subagents, and routines never count as tasks.
-                task_done: !subagent_requested(&request)
-                    && !request.routine
-                    && request.assignment_id.is_some()
-                    && completion.tool_calls.is_empty()
-                    && (request.private || group_done),
+                // A model request is not itself task completion. Successful
+                // assigned `send_msg done` calls get a separate completion
+                // marker after the bridge accepts the message.
+                task_done: false,
             })?;
             self.record_usage_tick(&request, &completion.usage, request_cost)
                 .await;
@@ -1463,12 +1499,31 @@ impl ExecutionEngine {
             .await?;
 
             if completion.tool_calls.is_empty() {
+                if assignment_requires_report && !group_done {
+                    if no_report_followups < 1 && turn + 1 < max_turns {
+                        no_report_followups += 1;
+                        messages.push(assistant_message(&completion));
+                        messages.push(json!({"role":"user","content":"本任务必须通过 send_msg 提交报告：完成时发送 intent=done；无法继续时发送 intent=blocked。普通文字回复不算完成报告。请现在提交其中一种。"}));
+                        continue;
+                    }
+                    let error = ExecutionError::TaskNoReport;
+                    self.fail_run(&request, &job, &error, streaming_message_id.as_deref())
+                        .await?;
+                    return Ok(ExecutionOutcome {
+                        run_id: request.run_id.clone(),
+                        job_id: job.id.clone(),
+                        status: "failed".into(),
+                        text: error.to_string(),
+                        usage,
+                        turns: turns_used,
+                    });
+                }
                 if !request.private
                     && !group_done
-                    && group_no_report_rounds < 2
+                    && no_report_followups < 2
                     && turn + 1 < max_turns
                 {
-                    group_no_report_rounds += 1;
+                    no_report_followups += 1;
                     messages.push(assistant_message(&completion));
                     messages.push(json!({"role":"user","content":"请通过 send_msg 工具发送本轮进展或最终结果。"}));
                     continue;
@@ -1762,6 +1817,7 @@ impl ExecutionEngine {
                         let result = ToolResult::text("message admitted");
                         messages.push(tool_message(&call.call_id, &result));
                         if intent == "done" {
+                            self.record_task_completion(&request).await?;
                             final_text = call.args["text"]
                                 .as_str()
                                 .unwrap_or("任务已完成")
@@ -2510,6 +2566,7 @@ impl ExecutionEngine {
                 let result = ToolResult::text("message admitted");
                 messages.push(tool_message(&call.call_id, &result));
                 if intent == "done" {
+                    self.record_task_completion(request).await?;
                     let final_text = call.args["text"]
                         .as_str()
                         .unwrap_or("任务已完成")
@@ -2723,14 +2780,14 @@ impl ExecutionEngine {
                 "type":"function",
                 "function":{
                     "name":"send_msg",
-                    "description":"Send a complete message using this execution's server-bound chat scope. Do not choose or change chat_id, bot_id, or assignment_id. Use decision for a request that needs a response: include options for a user question or mentions for a Bot handoff. Set multi only for a multi-select user question. Attach structured link_previews only when providing real metadata for links in the message. When answering an existing decision, use reply_to and progress or done; do not use decision to report an answer. For compatibility, to may be task_chat or user for this private scope, or {bot_id} for a Bot-to-Bot DM from a private incarnation.",
+                    "description":"Send a complete message using this execution's server-bound chat scope. Do not choose or change chat_id, bot_id, or assignment_id. Use decision for a request that needs a response: include options for a user question or mentions for a Bot handoff. Set multi only for a multi-select user question. Attach structured link_previews only when providing real metadata for links in the message. When answering an existing decision, use reply_to and progress or done; do not use decision to report an answer. Omit to or use task_chat for this execution's bound scope. Using this Bot's own bot_id also means this same bound scope (a group incarnation stays in its group). Use user only for a private scope. Only a different Bot's bot_id opens a Bot-to-Bot DM, and only from a private incarnation.",
                     "parameters":{
                         "type":"object",
                         "required":["intent","text"],
                         "properties":{
                             "intent":{"type":"string","enum":["ack","progress","decision","done","blocked"]},
                             "text":{"type":"string"},
-                                "to":{"type":["string","object"],"description":"Omit or use task_chat for this execution's bound chat; use user only for this private scope; use {bot_id} only for a Bot-to-Bot DM from a private incarnation."},
+                                "to":{"type":["string","object"],"description":"Omit or use task_chat for this execution's bound chat. This Bot's own bot_id resolves to the same bound chat, including the current group. Use user only for this private scope. Only a different Bot's bot_id opens a Bot-to-Bot DM, and only from a private incarnation."},
                                 "mentions":{"type":"array","items":{}},
                                 "artifacts":{"type":"array","items":{"type":"object"}},
                                 "options":{"type":"array","items":{"type":"string"}},
@@ -4444,6 +4501,7 @@ mod tests {
         events: StdMutex<Vec<ExecutionEvent>>,
         groups: StdMutex<Vec<Value>>,
         rejected: StdMutex<Vec<Value>>,
+        reject_self_bot: bool,
     }
 
     #[async_trait]
@@ -4453,7 +4511,11 @@ mod tests {
         }
 
         async fn validate_send_msg_target(&self, message: &Value) -> Result<(), String> {
-            if message.get("chat_id").and_then(Value::as_str) == Some("chat_bad") {
+            if message.get("chat_id").and_then(Value::as_str) == Some("chat_bad")
+                || (self.reject_self_bot
+                    && message.pointer("/to/bot").and_then(Value::as_str)
+                        == message.get("bot_id").and_then(Value::as_str))
+            {
                 self.rejected.lock().unwrap().push(message.clone());
                 return Err("invalid send_msg target".into());
             }
@@ -5028,11 +5090,15 @@ mod tests {
         assert!(schema
             .pointer("/function/parameters/properties/to/description")
             .and_then(Value::as_str)
-            .is_some_and(|description| description.contains("bound chat")));
+            .is_some_and(|description| {
+                description.contains("own bot_id resolves to the same bound chat")
+                    && description.contains("Only a different Bot's bot_id")
+            }));
         let description = schema["function"]["description"].as_str().unwrap();
         assert!(description.contains("decision"));
         assert!(description.contains("reply_to"));
         assert!(description.contains("server-bound chat scope"));
+        assert!(description.contains("a group incarnation stays in its group"));
     }
 
     #[tokio::test]
@@ -5152,6 +5218,71 @@ mod tests {
                     .and_then(Value::as_str)
                     == Some("valid-message")
         }));
+    }
+
+    #[tokio::test]
+    async fn assigned_run_with_failed_send_msg_cannot_finish_without_a_report() {
+        let dir = tempdir().unwrap();
+        let sink = Arc::new(TargetRecordingSink {
+            reject_self_bot: true,
+            ..Default::default()
+        });
+        let provider = Arc::new(MockProvider::new(vec![
+            Completion {
+                tool_calls: vec![ToolCall {
+                    call_id: "self_dm_rejected".into(),
+                    name: "send_msg".into(),
+                    args: json!({
+                        "intent":"done",
+                        "text":"我完成了",
+                        "to":{"bot":"bot_mock"}
+                    }),
+                }],
+                stop_reason: "tool_calls".into(),
+                ..Default::default()
+            },
+            Completion {
+                text: "我已经完成。".into(),
+                stop_reason: "stop".into(),
+                ..Default::default()
+            },
+            Completion {
+                text: "仍然只返回普通文字。".into(),
+                stop_reason: "stop".into(),
+                ..Default::default()
+            },
+        ]));
+        let engine = ExecutionEngine::new(
+            Store::open(dir.path()).unwrap(),
+            provider,
+            Vec::<Arc<dyn Tool>>::new(),
+            sink.clone(),
+            dir.path(),
+        )
+        .unwrap();
+        let mut req = request(true);
+        req.assignment_id = Some("assignment_no_report".into());
+
+        let outcome = engine.run(req.clone()).await.unwrap();
+        assert_eq!(outcome.status, "failed");
+        assert!(outcome.text.contains("task_no_report"));
+        assert!(sink.groups.lock().unwrap().is_empty());
+        assert_eq!(sink.rejected.lock().unwrap().len(), 1);
+        let durable = engine.state.durable.lock().await;
+        let job = durable
+            .jobs()
+            .find(|job| job.checkpoint["run_id"] == req.run_id)
+            .unwrap();
+        assert_eq!(job.status, JobStatus::Failed);
+        assert!(job.checkpoint["error"]
+            .as_str()
+            .is_some_and(|error| error.contains("task_no_report")));
+        let chat_path = dir.path().join("data/chats/chat_mock/messages.jsonl");
+        if chat_path.exists() {
+            let messages = std::fs::read_to_string(chat_path).unwrap();
+            assert!(!messages.contains("我已经完成。"));
+            assert!(!messages.contains("仍然只返回普通文字。"));
+        }
     }
 
     #[tokio::test]
@@ -5583,8 +5714,7 @@ mod tests {
             dir.path(),
         )
         .unwrap();
-        let mut req = request(false);
-        req.assignment_id = Some("assignment_parallel".into());
+        let req = request(false);
         assert_eq!(engine.run(req).await.unwrap().status, "done");
         assert_eq!(max_active.load(Ordering::SeqCst), 2);
     }
@@ -5999,6 +6129,21 @@ mod tests {
         assert_eq!(outcome.text, "完成");
         assert_eq!(sink.groups.lock().unwrap().len(), 1);
         assert_eq!(sink.groups.lock().unwrap()[0]["message"]["intent"], "done");
+        let usage_records = std::fs::read_dir(dir.path().join("data/usage/raw"))
+            .unwrap()
+            .flat_map(|entry| {
+                std::fs::read_to_string(entry.unwrap().path())
+                    .unwrap()
+                    .lines()
+                    .map(|line| serde_json::from_str::<Value>(line).unwrap())
+                    .collect::<Vec<_>>()
+            })
+            .filter(|record| record["task_done"] == true)
+            .collect::<Vec<_>>();
+        assert_eq!(usage_records.len(), 1);
+        assert!(usage_records[0]["request_id"]
+            .as_str()
+            .is_some_and(|id| id.starts_with("task_done:assignment_done:")));
         let trace =
             std::fs::read_to_string(dir.path().join("data/traces/assignment_done.jsonl")).unwrap();
         assert!(trace.lines().any(|line| {
@@ -6009,6 +6154,45 @@ mod tests {
             let value: Value = serde_json::from_str(line).unwrap();
             value["type"] == "tool.start" && value["data"]["call_id"] == "must_not_run"
         }));
+    }
+
+    #[tokio::test]
+    async fn private_assignment_uses_send_msg_without_assistant_stream_placeholder() {
+        let dir = tempdir().unwrap();
+        let sink = Arc::new(RecordingSink::default());
+        let provider = Arc::new(MockProvider::new(vec![Completion {
+            tool_calls: vec![ToolCall {
+                call_id: "private_assignment_done".into(),
+                name: "send_msg".into(),
+                args: json!({"intent":"done","text":"已从工具提交结果"}),
+            }],
+            stop_reason: "tool_calls".into(),
+            ..Default::default()
+        }]));
+        let engine = ExecutionEngine::new(
+            Store::open(dir.path()).unwrap(),
+            provider,
+            Vec::<Arc<dyn Tool>>::new(),
+            sink.clone(),
+            dir.path(),
+        )
+        .unwrap();
+        let mut req = request(true);
+        req.assignment_id = Some("private_assignment".into());
+
+        let outcome = engine.run(req).await.unwrap();
+        assert_eq!(outcome.status, "done");
+        assert_eq!(sink.groups.lock().unwrap().len(), 1);
+        assert!(!dir
+            .path()
+            .join("data/chats/chat_mock/messages.jsonl")
+            .exists());
+        assert!(!sink
+            .events
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|event| event.event == "message.created"));
     }
 
     #[tokio::test]
@@ -6275,7 +6459,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn usage_marks_only_terminal_assignment_request_as_done() {
+    async fn usage_does_not_mark_an_unreported_assignment_done() {
         let dir = tempdir().unwrap();
         let provider = Arc::new(MockProvider::new(vec![
             Completion {
@@ -6292,6 +6476,11 @@ mod tests {
                 stop_reason: "stop".into(),
                 ..Default::default()
             },
+            Completion {
+                text: "still no send_msg report".into(),
+                stop_reason: "stop".into(),
+                ..Default::default()
+            },
         ]));
         let engine = ExecutionEngine::new(
             Store::open(dir.path()).unwrap(),
@@ -6303,7 +6492,9 @@ mod tests {
         .unwrap();
         let mut req = request(true);
         req.assignment_id = Some("assignment_usage".into());
-        engine.run(req).await.unwrap();
+        let outcome = engine.run(req).await.unwrap();
+        assert_eq!(outcome.status, "failed");
+        assert!(outcome.text.contains("task_no_report"));
 
         let mut records = Vec::new();
         for entry in std::fs::read_dir(dir.path().join("data/usage/raw")).unwrap() {
@@ -6314,9 +6505,8 @@ mod tests {
                     .map(|line| serde_json::from_str::<Value>(line).unwrap()),
             );
         }
-        assert_eq!(records.len(), 2);
-        assert_eq!(records[0]["task_done"], false);
-        assert_eq!(records[1]["task_done"], true);
+        assert_eq!(records.len(), 3);
+        assert!(records.iter().all(|record| record["task_done"] == false));
     }
 
     #[tokio::test]
@@ -6352,8 +6542,7 @@ mod tests {
             dir.path(),
         )
         .unwrap();
-        let mut execution_request = request(true);
-        execution_request.assignment_id = Some("assignment_usage_tick".into());
+        let execution_request = request(true);
         let outcome = engine.run(execution_request).await.unwrap();
         assert_eq!(outcome.status, "done");
         assert_eq!(outcome.text, "已完成");
@@ -6363,7 +6552,6 @@ mod tests {
         assert!(events.iter().any(|event| event.event == "message.updated"));
         assert!(!events.iter().any(|event| event.event == "usage.updated"));
         assert!(events.iter().any(|event| event.event == "message.created"));
-        assert!(events.iter().any(|event| event.event == "usage.tick"));
         let updated = events
             .iter()
             .find(|event| event.event == "message.updated")
@@ -6411,7 +6599,7 @@ mod tests {
                 .unwrap()
                 .is_empty()
         );
-        let trace_path = dir.path().join("data/traces/assignment_usage_tick.jsonl");
+        let trace_path = dir.path().join("data/traces/chat_mock.jsonl");
         let trace_lines = std::fs::read_to_string(trace_path).unwrap();
         let run_start = trace_lines
             .lines()

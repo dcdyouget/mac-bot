@@ -3542,6 +3542,12 @@ mod tests {
             })
             .unwrap();
         assert_eq!(package.layers[0].level, 0);
+        assert!(package.layers[0]
+            .content
+            .contains("a group incarnation must remain in its group"));
+        assert!(package.layers[0]
+            .content
+            .contains("plain assistant text is not a task report"));
         assert!(package.layers[3].content.contains("m10"));
         assert!(!package.layers[3].content.contains("m0"));
         assert!(package.new_segment);

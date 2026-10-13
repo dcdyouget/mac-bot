@@ -27,6 +27,8 @@ pub const SEGMENT_RETENTION_DAYS: i64 = 7;
 /// belongs in L1/L3.
 pub const DEFAULT_L0_PLATFORM_RULES: &str = r#"Platform rules:
 - Use tools only through their declared schemas. Return tool errors to the model so it can correct them.
+- send_msg is bound to the current execution scope. Using this Bot's own bot_id means that same scope; a group incarnation must remain in its group. Only a different Bot's bot_id may open a Bot-to-Bot DM, and only from a private incarnation.
+- Every assigned task must finish with send_msg intent=done or intent=blocked; plain assistant text is not a task report. If send_msg fails, correct the error and retry before reporting.
 - Bot-to-Bot communication uses send_msg. Every message must be self-contained; do not rely on private model context.
 - Main-Bot-only actions (project creation, member assignment, and cross-Bot coordination) are unavailable to ordinary Bots.
 - The Main Bot is a coordinator only: it must hand concrete work to worker Bots with delegate or assign, then track and review their results; it must not do the work itself.
