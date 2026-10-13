@@ -40,7 +40,7 @@
 | 项 | 决策 |
 |----|------|
 | 部署形态 | 无界面服务端 + 客户端。所有业务操作都在客户端里通过协议完成；服务端只带极简的本机 Web 管理页和 CLI（5.0） |
-| 网络 | 服务端监听一个端口（默认 7788）。客户端用任意 IP 或域名连接；公网代理由用户自己解决 |
+| 网络 | 服务端监听一个端口（默认 28789）。客户端用任意 IP 或域名连接；公网代理由用户自己解决 |
 | 安全 | v1 只做访问密码（5.0.1）。TLS、审计、设备管理都放到以后 |
 | 存储 | JSON 文件：JSONL 追加日志是事实来源，JSON 快照用于快速读取；不使用数据库（5.2） |
 | 主 Bot | 每台 Host 内置一个，不能删除。只协调、不干活：建群、分派、跟进、提醒用户验收（5.3） |
@@ -76,7 +76,7 @@
 
 **macbotd**
 1. 无界面守护进程，以**用户级 LaunchAgent** 运行。不能用 root 级的 LaunchDaemon，因为只有在用户会话里才能访问用户的钥匙串和 Chrome。二进制放在一个没有界面的 `.app` 包里（`LSUIElement`），这样签名、公证和系统权限都有稳定的身份。
-2. 安装包 `.pkg` 做三件事：安装程序、注册 LaunchAgent、安装结束时打开 `http://localhost:7788/admin`。
+2. 安装包 `.pkg` 做三件事：安装程序、注册 LaunchAgent、安装结束时打开 `http://localhost:28789/admin`。
 3. `/admin` 是极简管理页：首次设置密码、运行状态、改端口和名称、查看日志、重启。页面是嵌入二进制的单个 HTML 文件。
 4. CLI 和守护进程是同一个二进制：`macbot status | passwd | logs | restart | update`，通过本地 Unix socket 通信。
 5. 平台相关的能力（钥匙串、自启动、浏览器、桌面控制）放在 trait 后面，只实现 macOS 版本，测试时换成假实现。
@@ -94,7 +94,7 @@
 
 ```
 ┌──────────── Mac（macbotd，无界面守护进程，LaunchAgent）──────────────┐
-│ Gateway  axum，端口 7788：/ws（主连接） /ws/screen（画面） /api/v1 /admin │
+│ Gateway  axum，端口 28789：/ws（主连接） /ws/screen（画面） /api/v1 /admin │
 │ Local CLI  Unix socket ← macbot status|passwd|logs|restart|update   │
 │ Orchestrator  主 Bot、群、任务派发与交接、插话、路由、防循环          │
 │ Runtime       durable 执行、send_msg、子代理、审批、挂起与恢复       │
@@ -150,7 +150,10 @@ mac-bot/
 ### 5.2 数据存储：JSON 文件
 
 ```
-~/MacBot/
+~/mac-bot/
+└── config.toml                 # 守护进程用户配置（端口、Host 名、data_home）
+
+~/MacBot/                       # 默认数据目录；可由 config.toml 的 data_home 覆盖
 ├── data/
 │   ├── node.json  auth.json  settings.json
 │   ├── providers.json  models.json       # API Key 存在钥匙串，这里只存引用
@@ -601,7 +604,7 @@ struct ToolResult { content: Vec<Part /* Text | Image */>, details: Value, is_er
 
 **目标是一次做完全部功能**：阶段只决定先后顺序和联调时间点，不削减范围。由一个主 agent 按模块派 subagent 推进，约定见 AGENTS.md，启动 prompt 见 AGENT_PROMPTS.md。
 
-**开发机就是目标机**：这台 Mac mini（Apple M4，16 GB，局域网 IP 192.168.31.162）既是开发机，也是最终运行 macbotd 的 Host。**每个阶段的成果都要能在这台机器上直接运行和查看**：服务端以 LaunchAgent 方式常驻，桌面客户端打包成 .app 打开使用，Android 客户端跑在本机的 Android 模拟器里（连接 `10.0.2.2:7788`）。以后换成真机时，手机连接 `192.168.31.162:7788`。
+**开发机就是目标机**：这台 Mac mini（Apple M4，16 GB，局域网 IP 192.168.31.162）既是开发机，也是最终运行 macbotd 的 Host。**每个阶段的成果都要能在这台机器上直接运行和查看**：服务端以 LaunchAgent 方式常驻，桌面客户端打包成 .app 打开使用，Android 客户端跑在本机的 Android 模拟器里（连接 `10.0.2.2:28789`）。以后换成真机时，手机连接 `192.168.31.162:28789`。
 
 | 阶段 | server | desktop | mobile（Android 全部功能） | 验收（在 Mac mini 上实际操作） |
 |------|-----------|-----------|----------------|---------|
@@ -622,7 +625,7 @@ struct ToolResult { content: Vec<Part /* Text | Image */>, details: Value, is_er
 |------|------|
 | Rust | stable（rustfmt、clippy），crates.io 走清华 tuna 镜像，`cargo search` 需要加 `--registry crates-io` |
 | 桌面客户端 | Tauri 2 + React + Vite + TypeScript；需要 Xcode 26（已经安装）和 Node.js |
-| Android | JDK 21、Gradle 9.8（项目内使用 wrapper）、Android SDK 36、build-tools 36.1、adb、Android 模拟器（AVD `macbot_api36`：Android 16 / API 36、arm64，已经在这台 Mac mini 上装好）。模拟器里访问 Mac 本机要用 `10.0.2.2`：mock 是 `10.0.2.2:7789`，正式服务是 `10.0.2.2:7788`。启动命令：`$ANDROID_HOME/emulator/emulator -avd macbot_api36`（需要无窗口运行时加 `-no-window -no-audio`） |
+| Android | JDK 21、Gradle 9.8（项目内使用 wrapper）、Android SDK 36、build-tools 36.1、adb、Android 模拟器（AVD `macbot_api36`：Android 16 / API 36、arm64，已经在这台 Mac mini 上装好）。模拟器里访问 Mac 本机要用 `10.0.2.2`：mock 是 `10.0.2.2:7789`，正式服务是 `10.0.2.2:28789`。启动命令：`$ANDROID_HOME/emulator/emulator -avd macbot_api36`（需要无窗口运行时加 `-no-window -no-audio`） |
 | 浏览器 | Chrome（S4 使用） |
 | 机器 | 这台 Mac mini（M4，16 GB，192.168.31.162）就是开发机和目标 Host；数据目录开发时可以用 `MACBOT_HOME` 指到别处，部署时用 `~/MacBot` |
 

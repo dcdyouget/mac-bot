@@ -152,7 +152,7 @@ S.work = (p) => sbar(p) + header(p, '工作台', { large: 1, actions: ['search']
 
 S.me = (p) => sbar(p) + header(p, '我的', { large: 1 }) + `
   <div class="content" style="padding:0 16px">
-    <div class="card row gap12" style="padding:14px 16px;margin-bottom:20px"><span class="iconbtn" style="width:44px;height:44px;border-radius:12px;background:var(--accent-soft);color:var(--accent)">${I('monitor', 's24')}</span><div class="grow"><b style="font-size:16px">Mac mini（家）</b><div class="t-foot"><span style="color:var(--success)">● 在线</span> · 192.168.31.162:7788</div></div>${I('chevR', 't3')}</div>
+    <div class="card row gap12" style="padding:14px 16px;margin-bottom:20px"><span class="iconbtn" style="width:44px;height:44px;border-radius:12px;background:var(--accent-soft);color:var(--accent)">${I('monitor', 's24')}</span><div class="grow"><b style="font-size:16px">Mac mini（家）</b><div class="t-foot"><span style="color:var(--success)">● 在线</span> · 192.168.31.162:28789</div></div>${I('chevR', 't3')}</div>
     <div class="card" style="margin-bottom:20px">${[['clock', '定时任务', '3'], ['user', '记忆', '1,186 / 1,500 字'], ['chart', '仪表盘', '今天 512k tok'], ['bot', 'Bot 管理', '5'], ['zap', '技能', '12']].map(([i, t, r], k) =>
       `<div class="row gap12" style="height:${p === 'a' ? 56 : 48}px;padding:0 14px;${k ? 'border-top:1px solid var(--border-subtle)' : ''}">${I(i, 's20 t2')}<span class="grow" style="font-size:16px">${t}</span><span class="t3" style="font-size:14px">${r}</span>${I('chevR', 't3')}</div>`).join('')}</div>
     <div class="card">${[['sun', '外观', '跟随系统'], ['bell', '通知', '需要你 · 待验收'], ['settings', '关于', 'v0.1.0']].map(([i, t, r], k) =>
@@ -310,7 +310,7 @@ S.computer = (p) => `<div style="position:absolute;inset:0;background:#0F0F11"><
 S.connect = (p) => sbar(p) + `<div class="content" style="padding:${p === 'a' ? 48 : 40}px 24px 0">
     <div class="av s64" style="--c:var(--avatar-0)">${GLASSES}</div>
     <div style="font-size:30px;font-weight:700;letter-spacing:-.5px;margin:16px 0 6px">欢迎使用 Mac Bot</div><div class="t2" style="font-size:16px;margin-bottom:28px">连接你的 Bot 主机</div>
-    <div class="label" style="font-size:13px">地址</div><div class="field lg focus" style="height:48px;font-size:16px;margin-bottom:6px">192.168.31.162:7788</div><div class="t-foot" style="margin-bottom:16px">支持 host:port、ws:// 与 wss://</div>
+    <div class="label" style="font-size:13px">地址</div><div class="field lg focus" style="height:48px;font-size:16px;margin-bottom:6px">192.168.31.162:28789</div><div class="t-foot" style="margin-bottom:16px">支持 host:port、ws:// 与 wss://</div>
     <div class="label" style="font-size:13px">密码</div><div class="field lg" style="height:48px;font-size:16px;margin-bottom:16px">••••••••</div>
     <div class="label" style="font-size:13px">名称</div><div class="field lg" style="height:48px;font-size:16px;margin-bottom:24px">Mac mini（家）</div>
     <div class="mbtn" style="background:var(--accent);color:var(--accent-on)">连接</div>
@@ -368,7 +368,7 @@ S.swipe = (p) => S.list(p).replace(/(<div class="lrow">)(\$\{gav|<div class="gav
 
 S.hostswitch = (p) => S.list(p).replace(/<div class="(anav|inav)[\s\S]*$/, '') + `<div class="scrim"></div>
   <div class="sheet glass-pop"><div class="grab"></div><b style="font-size:17px">切换 Host</b>
-    <div class="card" style="margin-top:12px">${[['Mac mini（家）', '192.168.31.162:7788', 'success', 1], ['MacBook（公司）', 'wss://bot.example.com · 离线', 'text-tertiary', 0]].map(([n, a, c, on], i) => `<div class="row gap12" style="height:64px;padding:0 14px;${i ? 'border-top:1px solid var(--border-subtle)' : ''}"><span class="sdot" style="width:8px;height:8px;color:var(--${c})"></span><div class="grow"><div style="font-size:16px">${n}</div><div class="t-foot mono">${a}</div></div>${on ? `<span style="color:var(--accent)">${I('check', 's20')}</span>` : ''}</div>`).join('')}</div>
+    <div class="card" style="margin-top:12px">${[['Mac mini（家）', '192.168.31.162:28789', 'success', 1], ['MacBook（公司）', 'wss://bot.example.com · 离线', 'text-tertiary', 0]].map(([n, a, c, on], i) => `<div class="row gap12" style="height:64px;padding:0 14px;${i ? 'border-top:1px solid var(--border-subtle)' : ''}"><span class="sdot" style="width:8px;height:8px;color:var(--${c})"></span><div class="grow"><div style="font-size:16px">${n}</div><div class="t-foot mono">${a}</div></div>${on ? `<span style="color:var(--accent)">${I('check', 's20')}</span>` : ''}</div>`).join('')}</div>
     <div class="mbtn" style="margin-top:12px;background:var(--bg-active)">${I('plus', 's18')} 添加 Host</div>
   </div>${p === 'i' ? '<div class="home" style="z-index:9"></div>' : ''}`;
 

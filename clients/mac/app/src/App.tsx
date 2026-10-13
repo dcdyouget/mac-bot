@@ -165,7 +165,7 @@ function App() {
   const [welcomeTemplateApplyFailure, setWelcomeTemplateApplyFailure] = useState<{ templateId: string; message: string } | null>(null)
   const [welcomeTemplatesRetry, setWelcomeTemplatesRetry] = useState(0)
   const [welcomeTemplateApplyingId, setWelcomeTemplateApplyingId] = useState<string | null>(null)
-  const [endpoint, setEndpoint] = useState('127.0.0.1:7789')
+  const [endpoint, setEndpoint] = useState('127.0.0.1:28789')
   const [password, setPassword] = useState('dev')
   const [hostName, setHostName] = useState('Mac mini（家）')
   const [selectedChat, setSelectedChat] = useState('')

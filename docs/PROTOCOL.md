@@ -11,7 +11,7 @@
 
 ### 1.1 地址
 
-- 客户端可以填写**任意 IP 或域名**加端口：`192.168.1.20:7788`、`macmini.local:7788`、`bot.example.com:443`。
+- 客户端可以填写**任意 IP 或域名**加端口：`192.168.1.20:28789`、`macmini.local:28789`、`bot.example.com:443`。
 - 填 `host:port` 时使用 `ws://` 和 `http://`。填 `wss://…` 或 `https://…` 时使用 TLS；TLS 由用户自己的反向代理或 frp 提供，服务端本身只监听明文。
 - 一台 Host 可以保存多个地址，客户端按顺序尝试。用 `hello.node_id` 判断两个地址是不是同一台 Host。
 
@@ -44,7 +44,7 @@
 
 - `/ws`、`/ws/screen` 握手和每个 HTTP 请求都带请求头 `Authorization: Bearer <访问密码>`。如果某个平台无法设置请求头，可以改用查询参数 `?token=<访问密码>`。
 - 密码错误：返回 HTTP 401，body 为 `{"error":"unauthorized"}`。
-- 服务端还没有设置密码：返回 HTTP 403，body 为 `{"error":"setup_required"}`。客户端应提示「请先在 Bot 主机上打开 localhost:7788/admin 设置密码」。
+- 服务端还没有设置密码：返回 HTTP 403，body 为 `{"error":"setup_required"}`。客户端应提示「请先在 Bot 主机上打开 localhost:28789/admin 设置密码」。
 - `GET /api/v1/health` 不需要鉴权。
 
 ### 1.5 握手、心跳、断线补发

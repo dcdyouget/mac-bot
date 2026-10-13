@@ -62,7 +62,7 @@ pub fn tr(key: &str) -> SharedString {
         "host.error.unreachable" => "地址连不通",
         "host.error.password" => "密码错误（401）。忘了密码？在 Bot 主机上运行 macbot passwd",
         "host.error.version" => "服务端版本不兼容，请升级",
-        "host.error.no_password" => "服务端还没设置密码：请先在 Bot 主机上打开 localhost:7788/admin",
+        "host.error.no_password" => "服务端还没设置密码：请先在 Bot 主机上打开 localhost:28789/admin",
         "onboarding.welcome" => "欢迎使用 Mac Bot",
         "onboarding.connect_subtitle" => "连接你的 Bot 主机",
         "onboarding.meet_main" => "认识你的主 Bot：秘书长",

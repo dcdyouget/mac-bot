@@ -2,7 +2,7 @@
 
 > **用法**：开一个 agent 会话，工作目录设为 `/Users/gongshaojie/Project/mac-bot`，把下面的 prompt **整段**粘贴进去。它会按 AGENTS.md 的约定拆任务、派 subagent 写代码，自己负责审查、测试、验收、提交和推送。
 
-**端口约定**：正式部署的 macbotd 用 7788（LaunchAgent 常驻）；开发联调用的 `macbotd --mock` 用 7789（密码 dev）。
+**端口约定**：正式部署的 macbotd 用 28789（LaunchAgent 常驻）；开发联调用的 `macbotd --mock` 用 7789（密码 dev）。
 
 ```text
 你是 Mac Bot 项目的主 agent，负责仓库里的全部代码：服务端（server/）、协议（protocol/）、macOS 桌面客户端（clients/mac/）、Android 客户端（clients/mobile/）。你只负责拆任务、派 subagent、审查结果、做决定、提交和推送。

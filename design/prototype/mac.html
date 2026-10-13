@@ -470,11 +470,11 @@ V.onboard = () => `<div class="grow row" style="background:var(--bg-window)">
     <div><div class="av s64" style="--c:var(--avatar-0)">${GLASSES}</div></div>
     <div><div class="t-display">欢迎使用 Mac Bot</div><div class="t2" style="margin-top:8px;font-size:15px">连接你的 Bot 主机</div></div>
     <div style="width:360px" class="col gap16">
-      <div><div class="label">地址</div><div class="field lg focus">192.168.31.162:7788</div><div class="t-caption" style="margin-top:6px">支持 host:port、ws:// 与 wss://</div></div>
+      <div><div class="label">地址</div><div class="field lg focus">192.168.31.162:28789</div><div class="t-caption" style="margin-top:6px">支持 host:port、ws:// 与 wss://</div></div>
       <div><div class="label">密码</div><div class="field lg">••••••••</div></div>
       <div><div class="label">名称</div><div class="field lg">Mac mini（家）</div></div>
       <button class="btn lg primary" style="width:100%">连接</button>
-      <div class="banner err" style="font-size:12px">${I('alert')}服务端还没设置密码：请先在 Bot 主机上打开 localhost:7788/admin</div></div></div>
+      <div class="banner err" style="font-size:12px">${I('alert')}服务端还没设置密码：请先在 Bot 主机上打开 localhost:28789/admin</div></div></div>
   <div class="col" style="flex:1;padding:96px 72px;gap:20px">
     <div class="t-large">认识你的主 Bot：秘书长</div><div class="t2">日常和它聊；有事它会拉群。选一个团队模板：</div>
     ${[[['P', 'C', 'T'], '产品 + 编码 + 测试', '做软件功能', 1], [['R', 'X'], '调研 + 写作', '资料与报告'], [[], '先只用主 Bot', '以后再加']].map(([ks, t, d, on]) =>
@@ -653,7 +653,7 @@ V.set_tools = () => settingsShell(4, '工具与审批', stitle('新 Bot 默认�
     <div class="row" style="height:40px;padding:0 14px;color:var(--accent)">${I('plus', 's14')} 添加规则</div></div>`);
 V.set_computer = () => settingsShell(6, '电脑与浏览器', stitle('浏览器') + card([`<span class="grow">默认浏览器模式</span>${fld('无头 + 复用 Chrome', 200, 1)}`, `<span class="grow">Chrome profile</span>${fld('Default', 200, 1)}`, `<span class="grow">实时画面画质</span><div class="seg"><button class="on">自动</button><button>清晰</button><button>省流</button></div>`])
   + stitle('Bot 主机的系统权限') + card([['屏幕录制', 'ok', '已授权'], ['辅助功能', 'ok', '已授权'], ['完全磁盘访问', 'wait', '未授权']].map(([t, c, s]) => `<span class="grow">${t}</span><span class="chip ${c}">${s}</span>${c === 'wait' ? '<button class="btn sm secondary">去系统设置</button>' : ''}`)));
-V.set_hosts = () => settingsShell(7, 'Host 连接', card([['Mac mini（家）', '192.168.31.162:7788', 'ok', '在线 · 当前'], ['MacBook（公司）', 'wss://bot.example.com', '', '离线']].map(([n, a, c, s]) => `<span class="sdot" style="color:var(--${c ? 'success' : 'text-tertiary'})"></span><div class="grow"><div>${n}</div><div class="t-caption mono">${a}</div></div><span class="t-caption">${s}</span><button class="btn sm ghost">编辑</button><button class="btn sm ghost" style="color:var(--danger)">删除</button>`))
+V.set_hosts = () => settingsShell(7, 'Host 连接', card([['Mac mini（家）', '192.168.31.162:28789', 'ok', '在线 · 当前'], ['MacBook（公司）', 'wss://bot.example.com', '', '离线']].map(([n, a, c, s]) => `<span class="sdot" style="color:var(--${c ? 'success' : 'text-tertiary'})"></span><div class="grow"><div>${n}</div><div class="t-caption mono">${a}</div></div><span class="t-caption">${s}</span><button class="btn sm ghost">编辑</button><button class="btn sm ghost" style="color:var(--danger)">删除</button>`))
   + `<button class="btn secondary">${I('plus', 's14')}添加 Host…</button>`);
 V.set_about = () => settingsShell(8, '关于', `<div class="col" style="align-items:center;gap:8px;padding:24px 0">${av('Z', 64)}<div class="t-large">Mac Bot</div><div class="t2">客户端 0.1.0 · 协议 1 · Host macbotd 0.1.0</div><div class="row gap8" style="margin-top:8px"><button class="btn secondary">检查更新</button><button class="btn ghost">导出诊断信息</button></div></div>`);
 

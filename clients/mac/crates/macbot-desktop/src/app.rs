@@ -307,7 +307,7 @@ pub struct MacBot {
 impl MacBot {
     pub fn new(window: &mut Window, cx: &mut Context<Self>, open_url_queue: OpenUrlQueue) -> Self {
         cx.set_global(AvatarImageCache::default());
-        let address = cx.new(|cx| InputState::new(window, cx).placeholder("127.0.0.1:7788"));
+        let address = cx.new(|cx| InputState::new(window, cx).placeholder("127.0.0.1:28789"));
         let password = cx.new(|cx| InputState::new(window, cx).masked(true));
         let host_name = cx.new(|cx| InputState::new(window, cx).placeholder("Mac mini"));
         let rename_name = cx.new(|cx| InputState::new(window, cx));

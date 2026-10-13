@@ -20,7 +20,7 @@ npm run build               # TypeScript 检查和 Vite 前端构建
 npm run tauri -- build      # Tauri 原始 release bundle，位于 app/src-tauri/target/release/bundle/
 ```
 
-首次连接 mock 时，在连接页输入 `127.0.0.1:7789` 和密码 `dev`。正式服务的默认端口是 `7788`；地址支持任意 `host:port`、IP、域名及 `ws://`/`wss://`。Tauri UI 不读取旧 GPUI 使用的 `MACBOT_HOST`、`MACBOT_PASSWORD` 环境变量。
+首次连接 mock 时，在连接页输入 `127.0.0.1:7789` 和密码 `dev`。正式服务的默认端口是 `28789`；地址支持任意 `host:port`、IP、域名及 `ws://`/`wss://`。Tauri UI 不读取旧 GPUI 使用的 `MACBOT_HOST`、`MACBOT_PASSWORD` 环境变量。
 
 正式 `.app` 和 `.dmg` 使用仓库打包脚本生成：
 
@@ -81,7 +81,7 @@ cd clients/mac
 MACBOT_HOST=127.0.0.1:7789 MACBOT_PASSWORD=dev cargo run -p macbot-desktop
 ```
 
-客户端不会在未设置环境变量时自动连接 mock；下面的命令是显式启动 mock 的示例。正式本机服务使用 `MACBOT_HOST=127.0.0.1:7788`。Host 也可以是任意 IP、域名或 `ws(s)://` 地址。mock 服务由 server-mac 提供，例如：
+客户端不会在未设置环境变量时自动连接 mock；下面的命令是显式启动 mock 的示例。正式本机服务使用 `MACBOT_HOST=127.0.0.1:28789`。Host 也可以是任意 IP、域名或 `ws(s)://` 地址。mock 服务由 server-mac 提供，例如：
 
 ```sh
 macbotd --mock --port 7789 --password dev
@@ -110,7 +110,7 @@ open dist/MacBot.app
 
 ```sh
 MACBOT_HOST=127.0.0.1:7789 MACBOT_PASSWORD=dev packaging/run.sh debug
-MACBOT_HOST=127.0.0.1:7788 MACBOT_PASSWORD="$MACBOT_PASSWORD" packaging/run.sh release
+MACBOT_HOST=127.0.0.1:28789 MACBOT_PASSWORD="$MACBOT_PASSWORD" packaging/run.sh release
 # 不设置 MACBOT_HOST/MACBOT_PASSWORD：恢复已保存 Host；无记录时打开连接页
 packaging/run.sh debug
 ```
