@@ -3762,6 +3762,26 @@ impl crate::RpcBackend for ComposedBackend {
             self.finalize_project_before_confirmation(project_id)
                 .await?;
         }
+        let mut resume_answered_question = if method == "question.answer" {
+            let question_id = params.get("question_id").and_then(Value::as_str);
+            question_id.is_some_and(|question_id| {
+                self.inner
+                    .orchestrator
+                    .snapshot()
+                    .ok()
+                    .and_then(|snapshot| {
+                        snapshot
+                            .get("questions")
+                            .and_then(|questions| questions.get(question_id))
+                            .and_then(|question| question.get("state"))
+                            .and_then(Value::as_str)
+                            .map(|status| status == "pending")
+                    })
+                    .unwrap_or(false)
+            })
+        } else {
+            false
+        };
         // Keep duplication on the process-wide FeatureService so copied skill
         // metadata and the Bot mutation share one atomic registry instance.
         if method == "bot.duplicate" {
@@ -3802,6 +3822,7 @@ impl crate::RpcBackend for ComposedBackend {
                     })?
                     .filter(|marker| marker.get("kind").and_then(Value::as_str) == Some("question"))
                     .ok_or(error)?;
+                resume_answered_question = true;
                 let answer_text = params.get("text").cloned().unwrap_or(Value::Null);
                 let answer_option = params.get("option_index").cloned().unwrap_or(Value::Null);
                 json!({
@@ -4236,7 +4257,7 @@ impl crate::RpcBackend for ComposedBackend {
                 }
             }
         }
-        if method == "question.answer" {
+        if method == "question.answer" && resume_answered_question {
             if let Some(question) = result.get("question") {
                 let question_id = question
                     .get("id")

@@ -67,6 +67,7 @@ struct Inner {
     settings: OrchestratorSettings,
     default_bot_tools: ToolToggles,
     bots: HashMap<Id, Bot>,
+    idempotent_bot_creations: HashMap<String, BotCreationRequest>,
     projects: HashMap<Id, Project>,
     announcement_text: HashMap<Id, AnnouncementText>,
     assignments: HashMap<Id, Assignment>,
@@ -113,6 +114,12 @@ struct PendingLoopDispatch {
 struct QuestionScope {
     bot_id: Id,
     chat_id: Id,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+struct BotCreationRequest {
+    params_json: String,
+    bot_id: Id,
 }
 
 fn new_id() -> Id {
@@ -254,6 +261,7 @@ impl Orchestrator {
                 settings,
                 default_bot_tools: ToolToggles::default(),
                 bots: HashMap::from([(main.id.clone(), main)]),
+                idempotent_bot_creations: HashMap::new(),
                 projects: HashMap::new(),
                 announcement_text: HashMap::new(),
                 assignments: HashMap::new(),
@@ -310,6 +318,7 @@ impl Orchestrator {
             "settings": i.settings.clone(),
             "default_bot_tools": i.default_bot_tools.clone(),
             "bots": i.bots.clone(),
+            "idempotent_bot_creations": i.idempotent_bot_creations.clone(),
             "projects": i.projects.clone(),
             "announcement_text": i.announcement_text.clone(),
             "assignments": i.assignments.clone(),
@@ -343,6 +352,10 @@ impl Orchestrator {
                 .map_err(|e| OrchestratorError::Invalid(e.to_string()))?;
         }
         restore_map(&mut i.bots, value.get("bots"))?;
+        restore_map(
+            &mut i.idempotent_bot_creations,
+            value.get("idempotent_bot_creations"),
+        )?;
         for bot in i.bots.values_mut() {
             normalize_bot_dm_chat_id(bot);
         }
@@ -1635,6 +1648,38 @@ impl Inner {
 
     fn create_bot(&mut self, p: &Value) -> Result<Value> {
         let name = str_param(p, "name")?;
+        let (request_id, params_json) = match p.get("client_request_id") {
+            None | Some(Value::Null) => (None, None),
+            Some(Value::String(value)) if !value.trim().is_empty() && value.len() <= 128 => {
+                let mut params = p.as_object().cloned().unwrap_or_default();
+                params.remove("client_request_id");
+                let canonical = serde_json::to_string(&Value::Object(params))
+                    .map_err(|error| OrchestratorError::Invalid(error.to_string()))?;
+                (Some(value.clone()), Some(canonical))
+            }
+            Some(_) => {
+                return Err(OrchestratorError::Invalid(
+                    "client_request_id must contain 1 to 128 bytes".into(),
+                ));
+            }
+        };
+        if let (Some(request_id), Some(params_json)) =
+            (request_id.as_deref(), params_json.as_deref())
+        {
+            if let Some(previous) = self.idempotent_bot_creations.get(request_id) {
+                if previous.params_json != params_json {
+                    return Err(OrchestratorError::Conflict(
+                        "client_request_id was already used with different bot parameters".into(),
+                    ));
+                }
+                let bot = self.bots.get(&previous.bot_id).ok_or_else(|| {
+                    OrchestratorError::Conflict(
+                        "idempotent Bot creation no longer has its Bot".into(),
+                    )
+                })?;
+                return Ok(json!({ "bot": bot, "dm_chat": dm_chat_for_bot(bot) }));
+            }
+        }
         if self.bots.values().any(|b| b.name == name) {
             return Err(OrchestratorError::Conflict(format!(
                 "bot name {name} already exists"
@@ -1683,6 +1728,15 @@ impl Inner {
             updated_at: ts.clone(),
         };
         self.bots.insert(id.clone(), bot.clone());
+        if let (Some(request_id), Some(params_json)) = (request_id, params_json) {
+            self.idempotent_bot_creations.insert(
+                request_id,
+                BotCreationRequest {
+                    params_json,
+                    bot_id: id,
+                },
+            );
+        }
         Ok(json!({ "bot": bot, "dm_chat": dm_chat_for_bot(&bot) }))
     }
 
@@ -3956,16 +4010,6 @@ impl Inner {
             .questions
             .get_mut(&id)
             .ok_or_else(|| OrchestratorError::NotFound(format!("question {id}")))?;
-        if q.state != "pending" {
-            return Err(OrchestratorError::Conflict(
-                if q.state == "expired" {
-                    "question expired"
-                } else {
-                    "question already answered"
-                }
-                .into(),
-            ));
-        }
         if let Some(option) = option {
             if !options.contains(&option) {
                 options.push(option);
@@ -3991,6 +4035,44 @@ impl Inner {
         if !q.multi && options.len() > 1 {
             return Err(OrchestratorError::Invalid(
                 "single-choice question accepts one option".into(),
+            ));
+        }
+        if q.state == "answered" {
+            let mut requested = options;
+            requested.sort_unstable();
+            requested.dedup();
+            let answer = q.answer.as_ref();
+            let mut current = answer
+                .map(|answer| answer.option_indexes.clone())
+                .unwrap_or_default();
+            if current.is_empty() {
+                if let Some(index) = answer.and_then(|answer| answer.option_index) {
+                    current.push(index);
+                }
+            }
+            current.sort_unstable();
+            current.dedup();
+            if current == requested
+                && answer.and_then(|answer| answer.text.as_deref()) == text.as_deref()
+            {
+                // A retried answer is safe only when it repeats the exact
+                // committed choice. Returning the canonical answer lets the
+                // gateway finish any proposal/assignment side effects that
+                // were interrupted after this state transition.
+                return Ok(q.clone());
+            }
+            return Err(OrchestratorError::Conflict(
+                "question already answered with a different response".into(),
+            ));
+        }
+        if q.state != "pending" {
+            return Err(OrchestratorError::Conflict(
+                if q.state == "expired" {
+                    "question expired"
+                } else {
+                    "question already answered"
+                }
+                .into(),
             ));
         }
         q.answer = Some(QuestionAnswer {
@@ -5032,6 +5114,37 @@ mod tests {
     }
 
     #[test]
+    fn bot_create_request_is_idempotent_and_bound_to_its_parameters() {
+        let o = Orchestrator::default();
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let params = json!({"name":"Proposal worker","client_request_id":"proposal:question-1"});
+        let created = rt.block_on(o.rpc("bot.create", params.clone())).unwrap();
+        let replay = rt.block_on(o.rpc("bot.create", params.clone())).unwrap();
+        assert_eq!(replay["bot"]["id"], created["bot"]["id"]);
+
+        let restored = Orchestrator::default();
+        restored.restore(o.snapshot().unwrap()).unwrap();
+        let after_restart = rt.block_on(restored.rpc("bot.create", params)).unwrap();
+        assert_eq!(after_restart["bot"]["id"], created["bot"]["id"]);
+
+        let reused_with_different_name = rt.block_on(restored.rpc(
+            "bot.create",
+            json!({"name":"Different worker","client_request_id":"proposal:question-1"}),
+        ));
+        assert!(matches!(
+            reused_with_different_name,
+            Err(OrchestratorError::Conflict(_))
+        ));
+        assert_eq!(
+            rt.block_on(restored.rpc("bot.list", json!({}))).unwrap()["bots"]
+                .as_array()
+                .unwrap()
+                .len(),
+            2
+        );
+    }
+
+    #[test]
     fn private_question_scope_does_not_create_or_resume_assignment() {
         let o = Orchestrator::default();
         let rt = tokio::runtime::Runtime::new().unwrap();
@@ -5077,6 +5190,54 @@ mod tests {
                 .as_object()
                 .unwrap()
                 .len(),
+            0
+        );
+    }
+
+    #[test]
+    fn question_answer_is_idempotent_only_for_the_same_response() {
+        let o = Orchestrator::default();
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let question = rt
+            .block_on(o.rpc(
+                "question.ask",
+                json!({
+                    "bot_id":"main",
+                    "assignment_id":null,
+                    "chat_id":"chat_main",
+                    "text":"继续吗？",
+                    "options":["继续", "停止"],
+                    "allow_free_text":false
+                }),
+            ))
+            .unwrap();
+        let question_id = question["id"].as_str().unwrap();
+
+        let first = rt
+            .block_on(o.rpc(
+                "question.answer",
+                json!({"question_id":question_id,"option_index":0}),
+            ))
+            .unwrap();
+        let replay = rt
+            .block_on(o.rpc(
+                "question.answer",
+                json!({"question_id":question_id,"option_indexes":[0]}),
+            ))
+            .unwrap();
+        assert_eq!(replay["question"], first["question"]);
+        assert_eq!(
+            replay["question"]["answer"]["at"],
+            first["question"]["answer"]["at"]
+        );
+
+        let conflicting = rt.block_on(o.rpc(
+            "question.answer",
+            json!({"question_id":question_id,"option_index":1}),
+        ));
+        assert!(matches!(conflicting, Err(OrchestratorError::Conflict(_))));
+        assert_eq!(
+            o.snapshot().unwrap()["questions"][question_id]["answer"]["option_index"],
             0
         );
     }

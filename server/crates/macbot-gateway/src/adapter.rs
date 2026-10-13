@@ -689,20 +689,141 @@ impl ProductionBackend {
         let Some(questions) = snapshot.get("questions").and_then(Value::as_object) else {
             return Ok(());
         };
-        for question in questions
-            .values()
-            .filter(|question| question.get("state").and_then(Value::as_str) == Some("pending"))
-        {
+        let mut persist_snapshot = false;
+        let mut answered_questions = Vec::new();
+        for question in questions.values() {
             let Some(question_id) = question.get("id").and_then(Value::as_str) else {
                 continue;
             };
-            let Some(proposal) = self.read_proposal(question_id)? else {
+            let Some(mut proposal) = self.read_proposal(question_id)? else {
                 continue;
             };
             if proposal.get("state").and_then(Value::as_str) != Some("pending") {
                 continue;
             }
-            self.ensure_proposal_question_message(question)?;
+            match question.get("state").and_then(Value::as_str) {
+                Some("pending") => {
+                    self.ensure_proposal_question_message(question)?;
+                }
+                Some("answered") => {
+                    let answer = question.get("answer").cloned().unwrap_or(Value::Null);
+                    let assignment_id = proposal
+                        .get("assignment_id")
+                        .and_then(Value::as_str)
+                        .map(str::to_owned)
+                        .ok_or_else(|| RpcError {
+                            code: "internal".into(),
+                            message: "pending proposal has no assignment".into(),
+                            details: None,
+                        })?;
+                    if question.get("assignment_id").and_then(Value::as_str)
+                        != Some(assignment_id.as_str())
+                    {
+                        return Err(RpcError {
+                            code: "conflict".into(),
+                            message: "proposal and Question assignment do not match".into(),
+                            details: None,
+                        });
+                    }
+                    let approved = answer_request_approves(&answer);
+                    let (terminal_state, assignment_status) = if approved {
+                        let creation = snapshot
+                            .get("idempotent_bot_creations")
+                            .and_then(|items| items.get(format!("proposal:{question_id}")));
+                        let bot_id = creation
+                            .and_then(|item| item.get("bot_id"))
+                            .and_then(Value::as_str);
+                        let created_bot = bot_id.and_then(|id| {
+                            snapshot.get("bots").and_then(|bots| bots.get(id)).cloned()
+                        });
+                        if let Some(bot) = created_bot {
+                            if let Some(object) = proposal.as_object_mut() {
+                                object.insert("state".into(), json!("approved"));
+                                object.insert("bot".into(), json!(bot));
+                            }
+                            ("approved", "done")
+                        } else {
+                            let requested_name =
+                                proposal.pointer("/params/name").and_then(Value::as_str);
+                            let name_conflict = requested_name.is_some_and(|name| {
+                                snapshot.get("bots").and_then(Value::as_object).is_some_and(
+                                    |bots| {
+                                        bots.values().any(|bot| {
+                                            bot.get("name").and_then(Value::as_str) == Some(name)
+                                        })
+                                    },
+                                )
+                            });
+                            if let Some(object) = proposal.as_object_mut() {
+                                object.insert("state".into(), json!("failed"));
+                                object.insert(
+                                    "failure_code".into(),
+                                    json!(if name_conflict {
+                                        "bot_name_conflict"
+                                    } else {
+                                        "bot_creation_interrupted"
+                                    }),
+                                );
+                            }
+                            ("failed", "failed")
+                        }
+                    } else {
+                        if let Some(object) = proposal.as_object_mut() {
+                            object.insert("state".into(), json!("rejected"));
+                        }
+                        ("rejected", "cancelled")
+                    };
+                    self.write_proposal(question_id, &proposal)?;
+                    if let Some(current_status) = snapshot
+                        .get("assignments")
+                        .and_then(|items| items.get(&assignment_id))
+                        .and_then(|assignment| assignment.get("status"))
+                        .and_then(Value::as_str)
+                    {
+                        if !matches!(current_status, "done" | "failed" | "cancelled") {
+                            self.orchestrator
+                                .finish_assignment(&assignment_id, assignment_status)
+                                .map_err(Self::error)?;
+                            persist_snapshot = true;
+                        }
+                    }
+                    let has_answer_event = self
+                        .store
+                        .events_since(0)
+                        .map_err(store_error)?
+                        .iter()
+                        .any(|event| {
+                            event.event == "question.answered"
+                                && event.data.pointer("/question/id").and_then(Value::as_str)
+                                    == Some(question_id)
+                        });
+                    if !has_answer_event {
+                        answered_questions.push((question_id.to_owned(), question.clone()));
+                    }
+                    tracing::warn!(
+                        %question_id,
+                        proposal_state = terminal_state,
+                        "reconciled answered proposal left pending by an interrupted response"
+                    );
+                }
+                _ => {}
+            }
+        }
+        if persist_snapshot {
+            self.persist_orchestrator_locked(json!({
+                "method":"proposal.reconcile_answered",
+                "params":{},
+                "result":{},
+                "status":"done",
+                "event_key":"proposal:reconcile-answered"
+            }))?;
+        }
+        for (question_id, question) in answered_questions {
+            self.append_repaired_event(
+                &format!("question-answer:{question_id}"),
+                "question.answered",
+                json!({"question":question}),
+            )?;
         }
         Ok(())
     }
@@ -2537,7 +2658,7 @@ impl ProductionBackend {
         result: &Value,
     ) -> RpcResult {
         let request_id = params.get("client_request_id").and_then(Value::as_str);
-        let event_key = mutation_event_key(method, request_id);
+        let event_key = mutation_event_key(method, request_id, params);
         let audit_params = if method == "settings.update" {
             redact_settings_params(params)
         } else {
@@ -4745,12 +4866,92 @@ impl ProductionBackend {
             .map_err(store_error)
     }
 
-    async fn answer_proposal(&self, state: &GatewayState, params: &Value) -> RpcResult {
-        let result = self
-            .orchestrator
-            .rpc("question.answer", params.clone())
+    fn finish_proposal_assignment(
+        &self,
+        assignment_id: &str,
+        status: &str,
+    ) -> Result<(), RpcError> {
+        let snapshot = self.orchestrator.snapshot().map_err(Self::error)?;
+        let current = snapshot
+            .get("assignments")
+            .and_then(|assignments| assignments.get(assignment_id))
+            .and_then(|assignment| assignment.get("status"))
+            .and_then(Value::as_str)
+            .ok_or_else(|| RpcError {
+                code: "not_found".into(),
+                message: format!("proposal assignment {assignment_id} not found"),
+                details: None,
+            })?;
+        if matches!(current, "done" | "failed" | "cancelled") {
+            // A completed proposal's task may already have been terminalized
+            // by run recovery. Keep that terminal state; never resurrect it.
+            return Ok(());
+        }
+        self.orchestrator
+            .finish_assignment(assignment_id, status)
+            .map(|_| ())
+            .map_err(Self::error)
+    }
+
+    async fn fail_answered_proposal(
+        &self,
+        state: &GatewayState,
+        proposal: &mut Value,
+        params: &Value,
+        question_result: &Value,
+        failure_code: &str,
+        error: RpcError,
+    ) -> RpcResult {
+        let question_id = proposal
+            .get("question_id")
+            .and_then(Value::as_str)
+            .map(str::to_owned)
+            .ok_or_else(|| RpcError {
+                code: "internal".into(),
+                message: "proposal question id is missing".into(),
+                details: None,
+            })?;
+        let assignment_id = proposal
+            .get("assignment_id")
+            .and_then(Value::as_str)
+            .map(str::to_owned)
+            .ok_or_else(|| RpcError {
+                code: "internal".into(),
+                message: "proposal assignment id is missing".into(),
+                details: None,
+            })?;
+        if let Some(object) = proposal.as_object_mut() {
+            object.insert("state".into(), json!("failed"));
+            object.insert("failure_code".into(), json!(failure_code));
+        }
+        self.write_proposal(&question_id, proposal)?;
+        self.finish_proposal_assignment(&assignment_id, "failed")?;
+        // Persist the already accepted answer even though its secondary
+        // proposal action failed. This closes the partial-write window that
+        // previously left an answered Question with a pending proposal.
+        self.persist_question_answer_recovery(state, params, question_result)
+            .await?;
+        Err(error)
+    }
+
+    async fn persist_question_answer_recovery(
+        &self,
+        state: &GatewayState,
+        params: &Value,
+        question_result: &Value,
+    ) -> RpcResult {
+        let mut recovery_params = params.clone();
+        if let Some(object) = recovery_params.as_object_mut() {
+            // Keep a failed proposal retryable with the caller's request id;
+            // cache the Question result only after proposal reconciliation
+            // reaches a terminal state.
+            object.remove("client_request_id");
+        }
+        self.persist(state, "question.answer", &recovery_params, question_result)
             .await
-            .map_err(Self::error)?;
+    }
+
+    async fn answer_proposal(&self, state: &GatewayState, params: &Value) -> RpcResult {
         let question_id = params
             .get("question_id")
             .and_then(Value::as_str)
@@ -4760,91 +4961,260 @@ impl ProductionBackend {
                 details: None,
             })?;
         let Some(mut proposal) = self.read_proposal(question_id)? else {
-            return Ok(result);
+            return self
+                .orchestrator
+                .rpc("question.answer", params.clone())
+                .await
+                .map_err(Self::error);
         };
-        if proposal.get("state").and_then(Value::as_str) != Some("pending") {
-            return Ok(result);
+        if proposal.get("question_id").and_then(Value::as_str) != Some(question_id) {
+            return Err(RpcError {
+                code: "conflict".into(),
+                message: "proposal is linked to a different Question".into(),
+                details: None,
+            });
         }
-        let answer = result
-            .get("question")
-            .and_then(|question| question.get("answer"))
-            .cloned()
-            .unwrap_or(Value::Null);
-        let approved = answer.get("option_index").and_then(Value::as_u64) == Some(0)
-            || answer.get("text").and_then(Value::as_str) == Some("批准");
         let proposal_assignment_id = proposal
             .get("assignment_id")
             .and_then(Value::as_str)
             .map(str::to_owned);
+        let snapshot = self.orchestrator.snapshot().map_err(Self::error)?;
+        let current_question = snapshot
+            .get("questions")
+            .and_then(|questions| questions.get(question_id))
+            .ok_or_else(|| RpcError {
+                code: "not_found".into(),
+                message: format!("question {question_id} not found"),
+                details: None,
+            })?;
+        if current_question.get("id").and_then(Value::as_str) != Some(question_id)
+            || current_question
+                .get("assignment_id")
+                .and_then(Value::as_str)
+                != proposal_assignment_id.as_deref()
+        {
+            return Err(RpcError {
+                code: "conflict".into(),
+                message: "proposal and Question assignment do not match".into(),
+                details: None,
+            });
+        }
+
+        let requested_approval = answer_request_approves(params);
+        let proposal_state = proposal.get("state").and_then(Value::as_str).unwrap_or("");
+        let mut create_params = if requested_approval || proposal_state == "approved" {
+            let source = proposal
+                .get("params")
+                .and_then(Value::as_object)
+                .ok_or_else(|| RpcError {
+                    code: "internal".into(),
+                    message: "proposal parameters are missing".into(),
+                    details: None,
+                })?;
+            let mut create_params = Map::new();
+            for key in [
+                "name",
+                "label",
+                "description",
+                "avatar",
+                "model",
+                "max_parallel",
+                "tools",
+                "browser_mode",
+            ] {
+                if let Some(value) = source.get(key) {
+                    create_params.insert(key.into(), value.clone());
+                }
+            }
+            create_params.insert(
+                "client_request_id".into(),
+                json!(format!("proposal:{question_id}")),
+            );
+            Some(Value::Object(create_params))
+        } else {
+            None
+        };
+        let create_request_id = format!("proposal:{question_id}");
+        let previous_create = self
+            .idempotency
+            .lock()
+            .await
+            .get(&create_request_id)
+            .cloned();
+        if let (Some(create_params), None) = (create_params.as_ref(), previous_create.as_ref()) {
+            let requested_name = create_params.get("name").and_then(Value::as_str);
+            let name_conflict = requested_name.is_some_and(|name| {
+                snapshot
+                    .get("bots")
+                    .and_then(Value::as_object)
+                    .is_some_and(|bots| {
+                        bots.values()
+                            .any(|bot| bot.get("name").and_then(Value::as_str) == Some(name))
+                    })
+            });
+            if name_conflict
+                && current_question.get("state").and_then(Value::as_str) == Some("pending")
+            {
+                // Validate the deterministic create constraint before
+                // accepting the user's answer. A duplicate name must leave
+                // the exact Question, proposal, and waiting task untouched.
+                return Err(RpcError {
+                    code: "conflict".into(),
+                    message: "a Bot with this name already exists".into(),
+                    details: None,
+                });
+            }
+        }
+
+        let result = self
+            .orchestrator
+            .rpc("question.answer", params.clone())
+            .await
+            .map_err(Self::error)?;
+        let answered_question = result.get("question").ok_or_else(|| RpcError {
+            code: "internal".into(),
+            message: "question.answer returned no Question".into(),
+            details: None,
+        })?;
+        if answered_question.get("id").and_then(Value::as_str) != Some(question_id) {
+            return Err(RpcError {
+                code: "conflict".into(),
+                message: "question.answer returned a different Question".into(),
+                details: None,
+            });
+        }
+        let answer = answered_question
+            .get("answer")
+            .cloned()
+            .unwrap_or(Value::Null);
+        let approved = answer_request_approves(&answer);
+
+        if proposal_state == "approved" || proposal_state == "rejected" {
+            if approved != (proposal_state == "approved") {
+                return Err(RpcError {
+                    code: "conflict".into(),
+                    message: "Question answer conflicts with the terminal proposal state".into(),
+                    details: None,
+                });
+            }
+            return Ok(result);
+        }
+        if proposal_state == "failed" {
+            return Err(RpcError {
+                code: "conflict".into(),
+                message: "proposal could not be completed".into(),
+                details: None,
+            });
+        }
+        if proposal_state != "pending" {
+            return Err(RpcError {
+                code: "conflict".into(),
+                message: "proposal is not answerable".into(),
+                details: None,
+            });
+        }
+
+        let assignment_id = proposal_assignment_id.as_deref().ok_or_else(|| RpcError {
+            code: "internal".into(),
+            message: "proposal assignment is missing".into(),
+            details: None,
+        })?;
         if !approved {
+            self.finish_proposal_assignment(assignment_id, "cancelled")?;
             if let Some(object) = proposal.as_object_mut() {
                 object.insert("state".into(), json!("rejected"));
             }
-            self.write_proposal(question_id, &proposal)?;
-            if let Some(assignment_id) = proposal_assignment_id.as_deref() {
-                self.orchestrator
-                    .finish_assignment(assignment_id, "cancelled")
-                    .map_err(Self::error)?;
+            if let Err(error) = self.write_proposal(question_id, &proposal) {
+                self.persist_question_answer_recovery(state, params, &result)
+                    .await?;
+                return Err(error);
             }
             return Ok(result);
         }
 
-        let source = proposal
-            .get("params")
-            .and_then(Value::as_object)
-            .ok_or_else(|| RpcError {
-                code: "internal".into(),
-                message: "proposal parameters are missing".into(),
-                details: None,
-            })?;
-        let mut create_params = Map::new();
-        for key in [
-            "name",
-            "label",
-            "description",
-            "avatar",
-            "model",
-            "max_parallel",
-            "tools",
-            "browser_mode",
-        ] {
-            if let Some(value) = source.get(key) {
-                create_params.insert(key.into(), value.clone());
+        if previous_create.is_none() {
+            let requested_name = create_params
+                .as_ref()
+                .and_then(|params| params.get("name"))
+                .and_then(Value::as_str);
+            let name_conflict = requested_name.is_some_and(|name| {
+                snapshot
+                    .get("bots")
+                    .and_then(Value::as_object)
+                    .is_some_and(|bots| {
+                        bots.values()
+                            .any(|bot| bot.get("name").and_then(Value::as_str) == Some(name))
+                    })
+            });
+            if name_conflict {
+                let error = RpcError {
+                    code: "conflict".into(),
+                    message: "a Bot with this name already exists".into(),
+                    details: None,
+                };
+                return self
+                    .fail_answered_proposal(
+                        state,
+                        &mut proposal,
+                        params,
+                        &result,
+                        "bot_name_conflict",
+                        error,
+                    )
+                    .await;
             }
         }
-        create_params.insert(
-            "client_request_id".into(),
-            json!(format!("proposal:{question_id}")),
-        );
-        let create_params = Value::Object(create_params);
-        let mut created = self
-            .orchestrator
-            .rpc("bot.create", create_params.clone())
-            .await
-            .map_err(Self::error)?;
-        created = normalize_result("bot.create", created).map_err(|message| RpcError {
-            code: "internal".into(),
-            message,
-            details: None,
-        })?;
-        self.enrich_bot_status(&mut created)
-            .map_err(|message| RpcError {
+
+        let created = if let Some(created) = previous_create {
+            created
+        } else {
+            let create_params = create_params.take().ok_or_else(|| RpcError {
+                code: "internal".into(),
+                message: "approved proposal has no Bot creation parameters".into(),
+                details: None,
+            })?;
+            let mut created = match self
+                .orchestrator
+                .rpc("bot.create", create_params.clone())
+                .await
+            {
+                Ok(created) => created,
+                Err(error) => {
+                    let error = Self::error(error);
+                    return self
+                        .fail_answered_proposal(
+                            state,
+                            &mut proposal,
+                            params,
+                            &result,
+                            "bot_create_failed",
+                            error,
+                        )
+                        .await;
+                }
+            };
+            created = normalize_result("bot.create", created).map_err(|message| RpcError {
                 code: "internal".into(),
                 message,
                 details: None,
             })?;
-        validate_result("bot.create", &created).map_err(|message| RpcError {
-            code: "internal".into(),
-            message,
-            details: None,
-        })?;
-        self.persist(state, "bot.create", &create_params, &created)
-            .await?;
-        if let Some(assignment_id) = proposal_assignment_id.as_deref() {
-            self.orchestrator
-                .finish_assignment(assignment_id, "done")
-                .map_err(Self::error)?;
-        }
+            self.enrich_bot_status(&mut created)
+                .map_err(|message| RpcError {
+                    code: "internal".into(),
+                    message,
+                    details: None,
+                })?;
+            validate_result("bot.create", &created).map_err(|message| RpcError {
+                code: "internal".into(),
+                message,
+                details: None,
+            })?;
+            self.persist(state, "bot.create", &create_params, &created)
+                .await?;
+            created
+        };
+
+        self.finish_proposal_assignment(assignment_id, "done")?;
         if let Some(object) = proposal.as_object_mut() {
             object.insert("state".into(), json!("approved"));
             object.insert(
@@ -4852,7 +5222,14 @@ impl ProductionBackend {
                 created.get("bot").cloned().unwrap_or(Value::Null),
             );
         }
-        self.write_proposal(question_id, &proposal)?;
+        if let Err(error) = self.write_proposal(question_id, &proposal) {
+            // The deterministic bot.create key lets a retry reuse the Bot and
+            // complete this file write instead of creating or answering any
+            // other pending Question.
+            self.persist_question_answer_recovery(state, params, &result)
+                .await?;
+            return Err(error);
+        }
         Ok(result)
     }
 
@@ -8131,7 +8508,24 @@ fn browser_error(error: BrowserError) -> RpcError {
     }
 }
 
-fn mutation_event_key(method: &str, request_id: Option<&str>) -> String {
+fn answer_request_approves(answer: &Value) -> bool {
+    answer.get("option_index").and_then(Value::as_u64) == Some(0)
+        || answer
+            .get("option_indexes")
+            .and_then(Value::as_array)
+            .is_some_and(|indexes| indexes.iter().any(|index| index.as_u64() == Some(0)))
+        || answer.get("text").and_then(Value::as_str) == Some("批准")
+}
+
+fn mutation_event_key(method: &str, request_id: Option<&str>, params: &Value) -> String {
+    if method == "question.answer" {
+        if let Some(question_id) = params.get("question_id").and_then(Value::as_str) {
+            // A Question has exactly one committed answer, so event replay is
+            // keyed by that Question even when a client generates a new RPC
+            // request id for each retry.
+            return format!("question-answer:{question_id}");
+        }
+    }
     match request_id {
         Some(request_id) => format!("rpc:{method}:{request_id}"),
         None => format!("op:{method}:{}", Uuid::new_v4()),
@@ -14538,6 +14932,422 @@ mod tests {
                     && event.data["question"]["id"] == question_id)
                 .count(),
             1
+        );
+    }
+
+    #[tokio::test]
+    async fn proposal_answers_are_targeted_idempotent_and_preflight_duplicate_names() {
+        let home = tempdir().unwrap();
+        let gateway = Gateway::new(GatewayConfig {
+            home: home.path().to_path_buf(),
+            ..Default::default()
+        });
+        let backend = ProductionBackend::open(home.path()).unwrap();
+        let first = backend
+            .call(
+                "propose_bot",
+                json!({"name":"Shared proposal name","chat_id":"chat_main"}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        let second = backend
+            .call(
+                "propose_bot",
+                json!({"name":"Shared proposal name","chat_id":"chat_main"}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        let first_id = first["question"]["id"].as_str().unwrap().to_owned();
+        let second_id = second["question"]["id"].as_str().unwrap().to_owned();
+        let first_assignment = first["question"]["assignment_id"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        let second_assignment = second["question"]["assignment_id"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        assert_ne!(first_id, second_id);
+        assert_ne!(first_assignment, second_assignment);
+
+        let history = backend
+            .call(
+                "chat.history",
+                json!({"chat_id":"chat_main","limit":100}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        for question_id in [&first_id, &second_id] {
+            let cards = history["messages"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|message| {
+                    message["blocks"].as_array().is_some_and(|blocks| {
+                        blocks.iter().any(|block| {
+                            block["type"] == "question"
+                                && block["question_id"] == question_id.as_str()
+                        })
+                    })
+                })
+                .count();
+            assert_eq!(cards, 1, "each proposal card must target only its Question");
+        }
+
+        let approved = backend
+            .call(
+                "question.answer",
+                json!({"question_id":second_id,"option_index":0,"client_request_id":"proposal-answer-second"}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        assert_eq!(approved["question"]["id"], second["question"]["id"]);
+        assert_eq!(approved["question"]["state"], "answered");
+        assert_eq!(
+            backend.read_proposal(&second_id).unwrap().unwrap()["state"],
+            "approved"
+        );
+        assert_eq!(
+            backend
+                .call(
+                    "assignment.get",
+                    json!({"assignment_id":second_assignment}),
+                    &gateway.state,
+                )
+                .await
+                .unwrap()["assignment"]["status"],
+            "done"
+        );
+        let bots_after_approval = backend
+            .call("bot.list", json!({}), &gateway.state)
+            .await
+            .unwrap()["bots"]
+            .as_array()
+            .unwrap()
+            .len();
+
+        // Replaying the same answer must reuse the canonical Question and
+        // complete no Bot or proposal action a second time.
+        let replay = backend
+            .call(
+                "question.answer",
+                json!({"question_id":second_id,"option_indexes":[0],"client_request_id":"proposal-answer-second-retry"}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        assert_eq!(replay["question"], approved["question"]);
+        assert_eq!(
+            backend
+                .call("bot.list", json!({}), &gateway.state)
+                .await
+                .unwrap()["bots"]
+                .as_array()
+                .unwrap()
+                .len(),
+            bots_after_approval
+        );
+        assert_eq!(
+            backend
+                .store
+                .events_since(0)
+                .unwrap()
+                .iter()
+                .filter(|event| {
+                    event.event == "question.answered" && event.data["question"]["id"] == second_id
+                })
+                .count(),
+            1
+        );
+
+        // Approving the other pending Question with the now occupied name is
+        // rejected before question.answer mutates its Question or assignment.
+        let before = backend.orchestrator.snapshot().unwrap();
+        let duplicate = backend
+            .call(
+                "question.answer",
+                json!({"question_id":first_id,"option_index":0}),
+                &gateway.state,
+            )
+            .await
+            .unwrap_err();
+        assert_eq!(duplicate.code, "conflict");
+        let after = backend.orchestrator.snapshot().unwrap();
+        assert_eq!(
+            after["questions"][&first_id],
+            before["questions"][&first_id]
+        );
+        assert_eq!(after["questions"][&second_id]["state"], "answered");
+        assert_eq!(
+            backend.read_proposal(&first_id).unwrap().unwrap()["state"],
+            "pending"
+        );
+        assert_eq!(
+            backend.read_proposal(&second_id).unwrap().unwrap()["state"],
+            "approved"
+        );
+        assert_eq!(
+            after["assignments"][&first_assignment],
+            before["assignments"][&first_assignment]
+        );
+        assert_eq!(
+            backend
+                .call("bot.list", json!({}), &gateway.state)
+                .await
+                .unwrap()["bots"]
+                .as_array()
+                .unwrap()
+                .len(),
+            bots_after_approval
+        );
+
+        // The user can still explicitly reject that exact pending proposal;
+        // only its own question and assignment are finalized.
+        backend
+            .call(
+                "question.answer",
+                json!({"question_id":first_id,"option_index":1}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            backend.read_proposal(&first_id).unwrap().unwrap()["state"],
+            "rejected"
+        );
+        assert_eq!(
+            backend
+                .call(
+                    "assignment.get",
+                    json!({"assignment_id":first_assignment}),
+                    &gateway.state,
+                )
+                .await
+                .unwrap()["assignment"]["status"],
+            "cancelled"
+        );
+        assert_eq!(
+            backend.read_proposal(&second_id).unwrap().unwrap()["state"],
+            "approved"
+        );
+    }
+
+    #[tokio::test]
+    async fn startup_reconciles_answered_proposal_left_pending_after_name_conflict() {
+        let home = tempdir().unwrap();
+        let gateway = Gateway::new(GatewayConfig {
+            home: home.path().to_path_buf(),
+            ..Default::default()
+        });
+        let backend = ProductionBackend::open(home.path()).unwrap();
+        let stale = backend
+            .call(
+                "propose_bot",
+                json!({"name":"Existing worker","chat_id":"chat_main"}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        let winner = backend
+            .call(
+                "propose_bot",
+                json!({"name":"Existing worker","chat_id":"chat_main"}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        let stale_id = stale["question"]["id"].as_str().unwrap().to_owned();
+        let stale_assignment = stale["question"]["assignment_id"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        let winner_id = winner["question"]["id"].as_str().unwrap().to_owned();
+        backend
+            .call(
+                "question.answer",
+                json!({"question_id":winner_id,"option_index":0}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+
+        // Recreate the inconsistent durable state left by the old server:
+        // an approval answer was snapshotted, but its same-name Bot creation
+        // failed before the proposal record could leave `pending`.
+        let mut snapshot = backend.orchestrator.snapshot().unwrap();
+        snapshot["questions"][&stale_id]["state"] = json!("answered");
+        snapshot["questions"][&stale_id]["answer"] = json!({
+            "option_index":0,
+            "option_indexes":[0],
+            "text":null,
+            "at":"2026-10-13T14:41:28.607Z"
+        });
+        snapshot["assignments"][&stale_assignment]["status"] = json!("done");
+        snapshot["assignments"][&stale_assignment]["wait"] = Value::Null;
+        backend.orchestrator.restore(snapshot).unwrap();
+        backend
+            .persist_orchestrator(json!({
+                "method":"test.install_interrupted_proposal_state",
+                "params":{},
+                "result":{},
+                "status":"done"
+            }))
+            .await
+            .unwrap();
+        assert_eq!(
+            backend.read_proposal(&stale_id).unwrap().unwrap()["state"],
+            "pending"
+        );
+        drop(backend);
+
+        let reopened = ProductionBackend::open(home.path()).unwrap();
+        let repaired = reopened.read_proposal(&stale_id).unwrap().unwrap();
+        assert_eq!(
+            repaired["state"],
+            "failed",
+            "question state after reopen: {}",
+            reopened.orchestrator.snapshot().unwrap()["questions"][&stale_id]["state"]
+        );
+        assert_eq!(repaired["failure_code"], "bot_name_conflict");
+        assert_eq!(
+            reopened.read_proposal(&winner_id).unwrap().unwrap()["state"],
+            "approved"
+        );
+        let repaired_state = reopened.orchestrator.snapshot().unwrap();
+        assert_eq!(repaired_state["questions"][&stale_id]["state"], "answered");
+        assert_eq!(
+            repaired_state["assignments"][&stale_assignment]["status"],
+            "done"
+        );
+        assert_eq!(
+            reopened
+                .store
+                .events_since(0)
+                .unwrap()
+                .iter()
+                .filter(|event| {
+                    event.event == "question.answered" && event.data["question"]["id"] == stale_id
+                })
+                .count(),
+            1
+        );
+        assert_eq!(
+            reopened
+                .call("bot.list", json!({}), &gateway.state)
+                .await
+                .unwrap()["bots"]
+                .as_array()
+                .unwrap()
+                .len(),
+            2
+        );
+    }
+
+    #[tokio::test]
+    async fn retrying_an_already_answered_stale_proposal_finalizes_only_that_proposal() {
+        let home = tempdir().unwrap();
+        let gateway = Gateway::new(GatewayConfig {
+            home: home.path().to_path_buf(),
+            ..Default::default()
+        });
+        let backend = ProductionBackend::open(home.path()).unwrap();
+        let stale = backend
+            .call(
+                "propose_bot",
+                json!({"name":"Existing worker","chat_id":"chat_main"}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        let winner = backend
+            .call(
+                "propose_bot",
+                json!({"name":"Existing worker","chat_id":"chat_main"}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        let stale_id = stale["question"]["id"].as_str().unwrap().to_owned();
+        let stale_assignment = stale["question"]["assignment_id"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        let winner_id = winner["question"]["id"].as_str().unwrap().to_owned();
+        backend
+            .call(
+                "question.answer",
+                json!({"question_id":winner_id,"option_index":0}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+
+        let mut snapshot = backend.orchestrator.snapshot().unwrap();
+        snapshot["questions"][&stale_id]["state"] = json!("answered");
+        snapshot["questions"][&stale_id]["answer"] = json!({
+            "option_index":0,
+            "option_indexes":[0],
+            "text":null,
+            "at":"2026-10-13T14:41:28.607Z"
+        });
+        backend.orchestrator.restore(snapshot).unwrap();
+
+        let answer = json!({
+            "question_id":stale_id,
+            "option_index":0,
+            "client_request_id":"stale-proposal-answer"
+        });
+        assert_eq!(
+            backend
+                .call("question.answer", answer.clone(), &gateway.state)
+                .await
+                .unwrap_err()
+                .code,
+            "conflict"
+        );
+        assert_eq!(backend.read_proposal(&stale_id).unwrap().unwrap()["state"], "failed");
+        assert_eq!(backend.read_proposal(&winner_id).unwrap().unwrap()["state"], "approved");
+        assert_eq!(
+            backend
+                .call(
+                    "assignment.get",
+                    json!({"assignment_id":stale_assignment}),
+                    &gateway.state,
+                )
+                .await
+                .unwrap()["assignment"]["status"],
+            "failed"
+        );
+        assert!(backend
+            .call("question.answer", answer, &gateway.state)
+            .await
+            .is_err());
+        assert_eq!(
+            backend
+                .store
+                .events_since(0)
+                .unwrap()
+                .iter()
+                .filter(|event| {
+                    event.event == "question.answered"
+                        && event.data["question"]["id"] == stale_id
+                })
+                .count(),
+            1
+        );
+        assert_eq!(
+            backend
+                .call("bot.list", json!({}), &gateway.state)
+                .await
+                .unwrap()["bots"]
+                .as_array()
+                .unwrap()
+                .len(),
+            2
         );
     }
 
