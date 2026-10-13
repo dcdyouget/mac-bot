@@ -7,7 +7,6 @@ import { AlertCircle, AtSign, Check, ChevronDown, ChevronRight, Command, Menu, M
 import { t, type CopyKey } from './i18n'
 import { emptyState, type Announcement, type BridgeState, type Chat, type HostRecord, type Json, type LocalPreferences, type Message, type NotificationPreferenceKey, type PendingMessage, type Question } from './types'
 import { BlockedBlock, BotDmReferenceBlock, CompletionCard, DelegationLine, FallbackCard, FileBlock, LinkPreviewBlock, LoopPausedBlock, MessageImageBlock, ProjectCard, ProgressRow, ReviewCard, SkillMessageDeliveryStatus, SkillMessageLoadedStatus, SkillMessageText, SystemNotice, TakeoverRequestBlock, TaskCard, type ArtifactRef, type MessageFilePreview, type MessageFileRef } from './components/MessageBlocks'
-import { summarizeMarkdown } from './summaryMarkdown.mjs'
 import { WorkbenchPage } from './components/WorkbenchPage'
 import { DashboardPage } from './components/DashboardPage'
 import { RoutinesPage, type RoutineRecord, type RoutineRun, type RoutineInput, type RoutinePatch } from './components/RoutinesPage'
@@ -41,6 +40,7 @@ import { getChatSkillPickerItems, shouldRefreshSkillsOnPickerOpen } from './comp
 import { makeSkillCreateIntent, type SkillCreateIntent } from './components/skillCreateIntent'
 import { chatSendMentions, messageAssignmentId, messageRenderMode, messageShortcutAction, quoteSendFields, shouldSendOnCommandEnter, userHasReaction } from './components/messageActions.model'
 import { findForcedSkillTextBlockIndex, getRenderableSkillNames, getValidLoadedSkills, parseForcedSkillText } from './components/skillMessage.model'
+import { mainBotDisplayName } from './components/mainBotDisplayName.model'
 
 type ThemeMode = 'light' | 'dark' | 'system'
 type ContextPanelPage = 'context' | 'group-settings'
@@ -2867,7 +2867,14 @@ function App() {
   const sidebarGroups = splitSidebarGroups(groups, state.projects)
   const mainChats = chats.filter((chat) => chat.kind === 'main')
   const botChats = chats.filter((chat) => chat.kind === 'direct' || chat.kind === 'bot_dm')
-  const chatTitle = (chat: Chat) => chat.title ?? (chat.bot_id ? state.bots[chat.bot_id]?.name : undefined) ?? (chat.kind === 'main' ? mainBot?.name : undefined) ?? t('chat.empty.select')
+  const mainBotName = mainBotDisplayName(mainBot?.name, t('main_bot.default_name'))
+  const chatTitle = (chat: Chat) => {
+    const chatName = chat.title?.trim() ? chat.title : undefined
+    const botName = chat.bot_id ? state.bots[chat.bot_id]?.name : undefined
+    if (chat.kind === 'main') return mainBotDisplayName(chatName ?? botName, mainBotName)
+    return chatName ?? botName ?? t('chat.empty.select')
+  }
+  const currentMainBotId = mainBotIdForChat(currentChat, state.bots)
   const activeSearchSideTarget = searchSideTarget?.scope === hostScope ? searchSideTarget.result : null
   const computerTakeoverRequest = (() => {
     if (!computerRoute || computerRoute.hostScope !== hostScope) return null
@@ -2942,7 +2949,7 @@ function App() {
     <section className="conversation" onDragEnter={handleFileDragEnter} onDragOver={handleFileDragOver} onDragLeave={handleFileDragLeave} onDrop={handleFileDrop}>
       <header className="conversation-toolbar glass-toolbar drag-region">
         {currentChat?.kind === 'project' || currentChat?.project_id ? <div className="group-chat-avatar"><Users size={17} /></div> : currentChatBotId ? <button type="button" aria-label={t('bot.action.settings')} title={t('bot.action.settings')} onClick={() => openBotPanel(currentChatBotId)} style={{ width: 32, height: 32, display: 'grid', flex: 'none', placeItems: 'center', padding: 0, border: 0, borderRadius: '50%', background: 'transparent', cursor: 'pointer' }}><BeanAvatar main={state.bots[currentChatBotId]?.is_main === true} size="32" seed={state.bots[currentChatBotId]?.name ?? ''} /></button> : <BeanAvatar main size="32" />}
-        <div className="conversation-heading"><strong>{currentChat ? chatTitle(currentChat) : (mainBot?.name ?? '总管')}</strong>
+        <div className="conversation-heading"><strong>{currentChat ? chatTitle(currentChat) : mainBotName}</strong>
           <span>{currentChat?.kind === 'project' || currentChat?.project_id ? groupSubtitle(currentChat, currentProject, announcement) : currentChat?.bot_id ? botSubtitle(currentChat, currentAssignments, state.bots) : t('chat.main.subtitle')}</span></div>
         {currentChat?.bot_id && <button className="icon-button" type="button" aria-label={t('computer.title').replace('{bot}', chatTitle(currentChat))} title={t('computer.title').replace('{bot}', chatTitle(currentChat))} onClick={() => openComputer(currentChat.bot_id!)}><Monitor size={16} /></button>}
         <button className="icon-button" aria-label={t('chat.search')} onClick={() => setShowSearch(true)}><Search size={17} /></button>
@@ -2953,9 +2960,6 @@ function App() {
         }}><PanelRight size={17} /></button>}
       </header>
       {(currentChat?.kind === 'project' || currentChat?.project_id) && <GroupStatusBar chat={currentChat} announcement={announcement} project={currentProject} bots={state.bots} assignments={state.assignments} onSelectAssignment={openTrace} />}
-      {(currentChat?.kind === 'project' || currentChat?.project_id) && <button type="button" className="pinned-announcement glass-toolbar" onClick={() => { openContextPanel(); setContextPanelStack(['context']); requestAnimationFrame(() => announcementPanelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })) }}>
-        <span className="announcement-bar" /><span className="announcement-summary"><strong>{t('group.announcement')}</strong><small>{announcement ? summarizeMarkdown(announcement.text) || t('group.announcement.empty') : announcementLoading ? t('settings.permissions.loading') : t('group.announcement.empty')}</small></span><ChevronDown size={14} />
-      </button>}
       {state.connection !== 'connected' && <div className="offline-bar">{t('host.reconnecting').replace('{host}', state.active_host?.name ?? hostName)} · {t('host.reconnecting_detail')}</div>}
       {draggingFiles && <div className="chat-drop-overlay"><Paperclip size={24} /><strong>{t('chat.drop.title').replace('{group}', currentChat ? chatTitle(currentChat) : t('chat.empty.select'))}</strong><span>{t('chat.drop.desc')}</span></div>}
       <div className="message-scroll" ref={chatScrollRef}>
@@ -2990,7 +2994,7 @@ function App() {
             else if (action === 'copy') { event.preventDefault(); void copyMessage(entry.message) }
           }} onContextMenu={(event) => { event.preventDefault(); event.stopPropagation(); if ((entry.message as Message & { deleted?: boolean }).deleted) return; setFocusedMessageId(entry.message.id); setMessageMenu({ message: entry.message, x: event.clientX, y: event.clientY }) }}>
             {entry.timeSeparator && <div className="time-separator">{entry.timeSeparator}</div>}
-          <MessageBubble message={entry.message} taskAvatarBotId={entry.taskAvatarBotId} skillNames={skillsDataScope === hostScope ? getRenderableSkillNames(skills) : []} pending={Boolean(state.pending_messages[entry.message.id]) && entry.groupEnd} senderName={entry.message.sender?.kind === 'user' ? t('common.user') : state.bots[entry.message.sender?.bot_id ?? '']?.name ?? t('common.bot')} senderRole={entry.message.sender?.bot_id ? String(state.bots[entry.message.sender.bot_id]?.label ?? state.bots[entry.message.sender.bot_id]?.title ?? '') : ''} groupStart={entry.groupStart} groupEnd={entry.groupEnd} showAvatar={entry.showAvatar} headerTime={entry.headerTime} exactTime={entry.exactTime} questions={currentQuestions} approvals={currentApprovalRecords} assignments={state.assignments} projects={state.projects} bots={state.bots} chats={state.chats} chatTitle={currentChat.title ?? ''} onOpenProject={openProject} onOpenChat={selectChat} onOpenApproval={openApprovalInChat} onLoopResolve={async (rootMessageId, action) => { const scope = hostScope; if (hostScopeRef.current !== scope) return; await invoke('protocol_request', { method: 'loop.resolve', params: { root_message_id: rootMessageId, action } }); if (hostScopeRef.current !== scope) return }} onRetryAssignment={retryAssignment} onOpenBotSettings={openBotPanel} onTakeoverStart={(botId) => { setPendingTakeoverAction({ botId, action: 'start', hostScope }); openComputer(botId) }} onTakeoverRelease={(botId) => { setPendingTakeoverAction({ botId, action: 'release', hostScope }); openComputer(botId) }} onTaskDetail={openTrace} onReact={(message, emoji) => void reactToMessage(message, emoji)} onOpenComputer={openComputer} onReadMessageFile={readMessageFile} onPreviewArtifact={(artifact) => void openArtifactReference(artifact)} onConfirmProject={(projectId, messageId, blockIndex) => confirmProject(projectId, messageId, blockIndex)} onRequestChanges={(projectId, messageId, blockIndex, text) => requestProjectChanges(projectId, messageId, blockIndex, text)} onApprovalDecide={decideApproval} onQuestionAnswer={answerQuestion} />
+          <MessageBubble message={entry.message} taskAvatarBotId={entry.taskAvatarBotId} skillNames={skillsDataScope === hostScope ? getRenderableSkillNames(skills) : []} pending={Boolean(state.pending_messages[entry.message.id]) && entry.groupEnd} senderName={entry.message.sender?.kind === 'user' ? t('common.user') : state.bots[entry.message.sender?.bot_id ?? '']?.name || (entry.message.sender?.bot_id === currentMainBotId ? mainBotName : t('common.bot'))} senderRole={entry.message.sender?.bot_id ? String(state.bots[entry.message.sender.bot_id]?.label ?? state.bots[entry.message.sender.bot_id]?.title ?? '') : ''} mainBotName={mainBotName} groupStart={entry.groupStart} groupEnd={entry.groupEnd} showAvatar={entry.showAvatar} headerTime={entry.headerTime} exactTime={entry.exactTime} questions={currentQuestions} approvals={currentApprovalRecords} assignments={state.assignments} projects={state.projects} bots={state.bots} chats={state.chats} chatTitle={chatTitle(currentChat)} onOpenProject={openProject} onOpenChat={selectChat} onOpenApproval={openApprovalInChat} onLoopResolve={async (rootMessageId, action) => { const scope = hostScope; if (hostScopeRef.current !== scope) return; await invoke('protocol_request', { method: 'loop.resolve', params: { root_message_id: rootMessageId, action } }); if (hostScopeRef.current !== scope) return }} onRetryAssignment={retryAssignment} onOpenBotSettings={openBotPanel} onTakeoverStart={(botId) => { setPendingTakeoverAction({ botId, action: 'start', hostScope }); openComputer(botId) }} onTakeoverRelease={(botId) => { setPendingTakeoverAction({ botId, action: 'release', hostScope }); openComputer(botId) }} onTaskDetail={openTrace} onReact={(message, emoji) => void reactToMessage(message, emoji)} onOpenComputer={openComputer} onReadMessageFile={readMessageFile} onPreviewArtifact={(artifact) => void openArtifactReference(artifact)} onConfirmProject={(projectId, messageId, blockIndex) => confirmProject(projectId, messageId, blockIndex)} onRequestChanges={(projectId, messageId, blockIndex, text) => requestProjectChanges(projectId, messageId, blockIndex, text)} onApprovalDecide={decideApproval} onQuestionAnswer={answerQuestion} />
           </div>
           </Fragment>)}
           {currentChat.bot_id && (currentChat.kind === 'main' || currentChat.kind === 'bot_dm') && state.typing[`${currentChat.id}:${currentChat.bot_id}`] && !currentMessages.some((message) => message.sender?.bot_id === currentChat?.bot_id && message.streaming === true) && <div className="bot-typing-indicator" role="status" aria-label={t('chat.typing')}><span className="bot-typing-dots" aria-hidden="true"><i /><i /><i /></span><span>{t('chat.typing')}</span></div>}
@@ -3016,7 +3020,7 @@ function App() {
           <div className="composer-input-wrap">
             {slashPicker && <ChatSkillPicker skills={skillPickerSkills} query={slashPicker.query} selectedIndex={slashSelectedIndex} targetBotId={skillTargetBotId} targetBotName={skillTargetBotName} loading={skillsLoading || skillsDataScope !== hostScope} error={skillsDataScope === hostScope ? skillsError : null} onSelect={selectComposerSkill} onCreateSkill={createSkillFromSlash} onRetry={() => void loadSkills()} />}
             {composerSkill && <div className="chat-composer-skill-chip"><Zap size={13} /><span>/{composerSkill.name}</span><button type="button" aria-label={t('common.close')} onMouseDown={(event) => event.preventDefault()} onClick={() => setComposerSkill(null)}><X size={12} /></button></div>}
-            <textarea ref={composerTextareaRef} value={draft} onChange={(event) => { setSendError(null); updateSlashPickerFromCaret(event.target.value, event.target.selectionStart) }} onClick={(event) => updateSlashPickerFromCaret(event.currentTarget.value, event.currentTarget.selectionStart)} onKeyUp={(event) => { if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) updateSlashPickerFromCaret(event.currentTarget.value, event.currentTarget.selectionStart) }} onKeyDown={handleComposerKeyDown} placeholder={currentChat ? t('chat.composer.placeholder.dm').replace('{name}', currentChat.title ?? '总管') : t('chat.empty.select')} disabled={!currentChat || state.connection !== 'connected'} rows={2} />
+            <textarea ref={composerTextareaRef} value={draft} onChange={(event) => { setSendError(null); updateSlashPickerFromCaret(event.target.value, event.target.selectionStart) }} onClick={(event) => updateSlashPickerFromCaret(event.currentTarget.value, event.currentTarget.selectionStart)} onKeyUp={(event) => { if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) updateSlashPickerFromCaret(event.currentTarget.value, event.currentTarget.selectionStart) }} onKeyDown={handleComposerKeyDown} placeholder={currentChat ? t('chat.composer.placeholder.dm').replace('{name}', chatTitle(currentChat)) : t('chat.empty.select')} disabled={!currentChat || state.connection !== 'connected'} rows={2} />
           </div>
           <div className="composer-actions"><div className="composer-attachment-anchor"><button type="button" className="composer-tool" aria-label={t('chat.composer.attach.file')} title={t('chat.composer.attach.file')} disabled={!currentChat || state.connection !== 'connected'} onClick={() => setAttachmentMenuOpen((open) => !open)}><Plus size={17} /></button>{attachmentMenuOpen && <AttachmentMenu onFiles={() => { setAttachmentMenuOpen(false); attachmentInputRef.current?.click() }} onImages={() => { setAttachmentMenuOpen(false); imageInputRef.current?.click() }} onScreenshot={() => addNativeAttachment('screenshot')} onHome={() => addNativeAttachment('home')} homeAvailable={typeof currentProject?.home_path === 'string' && currentProject.home_path.length > 0} onClose={() => setAttachmentMenuOpen(false)} />}</div><span className="composer-hint"><Command size={11} /> ↵ 发送</span>
             <button type="submit" className="send-button" disabled={(!draft.trim() && !attachments.some((item) => item.status === 'ready' && item.uploadId)) || attachments.some((item) => item.status === 'preparing' || item.status === 'uploading') || sending || !currentChat || state.connection !== 'connected'} aria-label={t('common.send')}><Send size={16} /></button></div>
@@ -3679,13 +3683,14 @@ function dateLabel(date: Date) {
   return date.toLocaleDateString('zh-CN', { year: date.getFullYear() === today.getFullYear() ? undefined : 'numeric', month: 'long', day: 'numeric' })
 }
 
-function MessageBubble({ message, taskAvatarBotId, skillNames, pending = false, senderName, senderRole, groupStart, groupEnd, showAvatar, headerTime, exactTime, questions, approvals, assignments, projects, bots, chats, chatTitle, onOpenProject, onOpenChat, onOpenApproval, onLoopResolve, onRetryAssignment, onOpenBotSettings, onTakeoverStart, onTakeoverRelease, onTaskDetail, onReact, onOpenComputer, onReadMessageFile, onPreviewArtifact, onConfirmProject, onRequestChanges, onApprovalDecide, onQuestionAnswer }: {
+function MessageBubble({ message, taskAvatarBotId, skillNames, pending = false, senderName, senderRole, mainBotName, groupStart, groupEnd, showAvatar, headerTime, exactTime, questions, approvals, assignments, projects, bots, chats, chatTitle, onOpenProject, onOpenChat, onOpenApproval, onLoopResolve, onRetryAssignment, onOpenBotSettings, onTakeoverStart, onTakeoverRelease, onTaskDetail, onReact, onOpenComputer, onReadMessageFile, onPreviewArtifact, onConfirmProject, onRequestChanges, onApprovalDecide, onQuestionAnswer }: {
   message: Message
   taskAvatarBotId?: string
   skillNames: string[]
   pending?: boolean
   senderName: string
   senderRole: string
+  mainBotName: string
   groupStart: boolean
   groupEnd: boolean
   showAvatar: boolean
@@ -3735,12 +3740,12 @@ function MessageBubble({ message, taskAvatarBotId, skillNames, pending = false, 
     const taskBotId = String(assignment.bot_id ?? taskAvatarBotId ?? message.sender?.bot_id ?? '')
     const taskBotName = bots[taskBotId]?.name ?? senderName
     const taskCard = <TaskCard assignment={assignment} groupName={chatTitle} botName={taskBotName} onDetail={onTaskDetail} row />
-    return isUser ? taskCard : <div className="task-message-row"><div className="task-message-avatar"><BeanAvatar main={bots[taskBotId]?.is_main === true || taskBotName === '总管'} size="32" seed={taskBotName} /></div>{taskCard}</div>
+    return isUser ? taskCard : <div className="task-message-row"><div className="task-message-avatar"><BeanAvatar main={bots[taskBotId]?.is_main === true || taskBotName === mainBotName} size="32" seed={taskBotName} /></div>{taskCard}</div>
   }
   if (renderMode === 'content' && blocks.length === 1 && blocks[0].type === 'progress') return <ProgressRow text={String(blocks[0].text ?? '')} botName={senderName} />
   if (renderMode === 'content' && blocks.length === 1 && blocks[0].type === 'system') return <SystemNotice code={String(blocks[0].code ?? '')} text={String(blocks[0].text ?? '')} botName={senderName} />
   return <article className={`message-group ${isUser ? 'outgoing' : ''} ${groupStart ? 'group-start' : 'group-middle'} ${groupEnd ? 'group-end' : ''}`}>
-    {!isUser && <div className="avatar-slot">{showAvatar && <BeanAvatar main={senderName === '总管'} size="32" seed={senderName} />}</div>}
+    {!isUser && <div className="avatar-slot">{showAvatar && <BeanAvatar main={senderName === mainBotName} size="32" seed={senderName} />}</div>}
     <div className="message-stack">
       {!isUser && groupStart && <div className="message-author">{senderName}{senderRole && <span className="message-author-role"> · {senderRole}</span>}{headerTime && <span className="message-author-time"> · {headerTime}</span>}{message.sender?.bot_id && <button type="button" className="message-computer-action" aria-label={t('computer.title').replace('{bot}', senderName)} title={t('computer.title').replace('{bot}', senderName)} onClick={() => onOpenComputer(message.sender!.bot_id!)}><Monitor size={12} /></button>}</div>}
       <div className="bubble">

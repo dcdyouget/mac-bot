@@ -51,6 +51,13 @@ test('only one side-panel toggle is shown per state and native panel transitions
   assert.ok(tauriCapability.permissions.includes('core:window:allow-set-size'))
 })
 
+test('group announcement stays in the context panel without a chat-top banner', () => {
+  assert.doesNotMatch(appSource, /className="pinned-announcement/)
+  assert.match(appSource, /<section className="follow-section" ref={announcementPanelRef}>[\s\S]*?t\('group\.announcement'\)/)
+  const styles = readFileSync(resolve(appRoot, 'styles.css'), 'utf8')
+  assert.doesNotMatch(styles, /\.pinned-announcement\s*\{/)
+})
+
 test('model provider actions have visible localized labels', () => {
   const keys = new Set([...copySource.matchAll(/^\s*'([^']+)'\s*:/gm)].map((match) => match[1]))
   assert.ok(keys.has('settings.models.fetch'))

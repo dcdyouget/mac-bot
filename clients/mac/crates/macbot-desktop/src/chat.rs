@@ -600,7 +600,7 @@ fn chat_tr(key: &str) -> SharedString {
         "chat.main.subtitle" => "主 Bot · 只协调，不干活",
         "chat.bot.subtitle" => "{label} · 工作中 {count} 个活",
         "chat.group.subtitle" => "{count} 位成员",
-        "onboarding.empty.title" => "你好，我是总管",
+        "onboarding.empty.title" => "你好，我是秘书长",
         "onboarding.empty.desc" => "把要做的事交给我：需要几个 Bot 配合的，我会拉群分工，做完提醒你验收；小事我直接转给合适的 Bot。",
         "onboarding.suggest.login" => "帮我给 App 加个登录",
         "onboarding.suggest.research" => "调研 3 个竞品",
@@ -619,7 +619,7 @@ fn chat_tr(key: &str) -> SharedString {
         "chat.pin.waiting_you" => "等你处理 {count}",
         "chat.pin.pending_approval" => "待审批 {count}",
         "chat.queue.at_now" => "@{bot} 立即生效",
-        "chat.delivery.main_received" => "总管 已收到",
+        "chat.delivery.main_received" => "秘书长 已收到",
         "chat.delivery.queue_seen" => "{bot} 交付前已查看 ✓",
         "trace.queue.seen" => "已查看",
         "trace.item.queue_review" => "交付前查看新消息 {count} 条",
@@ -641,7 +641,7 @@ fn chat_tr(key: &str) -> SharedString {
         "block.review_card.request_changes" => "提修改意见",
         "block.review_card.changes_dialog_title" => "提修改意见 · {project}",
         "block.review_card.changes_dialog_hint" => {
-            "意见会发到群里并 @总管，由总管派给对应的 Bot；群回到「进行中」。"
+            "意见会发到群里并 @秘书长，由秘书长派给对应的 Bot；群回到「进行中」。"
         }
         "block.delegation.text" => "交给 {bot} 处理（不建群）",
         "block.approval.title" => "需要审批 · {tool}",
@@ -666,7 +666,7 @@ fn chat_tr(key: &str) -> SharedString {
         "block.loop_paused.ended" => "你结束了这一轮",
         "block.system.announcement_updated" => "{who} 更新了公告",
         "block.system.member_added" => "{bot} 加入了群",
-        "block.system.created" => "总管 创建了群，拉入 {members}",
+        "block.system.created" => "秘书长 创建了群，拉入 {members}",
         "block.fallback.hint" => "这类消息需要更新客户端才能完整显示",
         "group.announcement.conflict" => "{who} 刚刚也改了公告（版本 {n}）。查看差异后再保存",
         "group.statusbar.lead" => "★ 负责人",
@@ -727,8 +727,8 @@ fn chat_tr(key: &str) -> SharedString {
         "chat.announcement.expand" => "展开公告",
         "chat.announcement.collapse" => "收起公告",
         "chat.mention.bot" => "打开 {bot} 的私聊",
-        "chat.mention.main" => "打开总管私聊",
-        "chat.mention.main_label" => "@总管",
+        "chat.mention.main" => "打开秘书长私聊",
+        "chat.mention.main_label" => "@秘书长",
         "chat.mention.user" => "提及你",
         "chat.reaction.accessible" => "用 {emoji} 回应",
         "chat.edit.label" => "正在编辑你发送的消息",
@@ -3600,7 +3600,7 @@ impl MacBot {
                                         .bots
                                         .get(s(&message["sender"], "bot_id"))
                                         .map(|bot| s(bot, "name"))
-                                        .unwrap_or("总管"),
+                                        .unwrap_or("秘书长"),
                                 )
                         } else {
                             s(block, "text").to_string()

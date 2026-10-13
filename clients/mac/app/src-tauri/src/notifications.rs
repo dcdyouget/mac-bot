@@ -36,7 +36,7 @@ pub fn copy(key: &str) -> &'static str {
     match key {
         "notify.need_you.title" => "需要你 · {bot}",
         "notify.approval.body" => "审批：{summary}",
-        "notify.review.title" => "待验收 · 总管",
+        "notify.review.title" => "待验收 · 秘书长",
         "notify.review.body" => "「{project}」做完了，请你验收",
         _ => "",
     }
