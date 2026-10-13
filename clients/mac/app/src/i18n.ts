@@ -478,6 +478,7 @@ const copy = {
   'artifact.preview.tabs.source': '源文件',
   'artifact.preview.tabs.history': '历史',
   'block.approval.title': '需要审批 · {tool}',
+  'block.approval.view_details': '查看操作详情',
   'block.approval.meta': '来自 {project} · 命中规则「{rule}」',
   'block.approval.matched_rule': '命中规则「{rule}」',
   'block.approval.allow_once': '允许一次',

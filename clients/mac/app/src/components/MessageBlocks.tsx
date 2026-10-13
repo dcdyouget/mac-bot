@@ -181,7 +181,7 @@ function useFileImage(file: MessageFileRef, onReadFile: (file: MessageFileRef) =
   return { src, error, loading, retry: () => setRetryCount((value) => value + 1), fail: () => { setSrc(null); setError('image decode failed') } }
 }
 
-export function TaskCard({ assignment, groupName, botName, onDetail }: { assignment?: Record<string, Json>; groupName?: string; botName?: string; onDetail: (id: string) => void }) {
+export function TaskCard({ assignment, groupName, botName, onDetail, row = false }: { assignment?: Record<string, Json>; groupName?: string; botName?: string; onDetail: (id: string) => void; row?: boolean }) {
   if (!assignment) return null
   const id = String(assignment.id ?? '')
   const title = String(assignment.title ?? assignment.bot_id ?? '')
@@ -190,8 +190,8 @@ export function TaskCard({ assignment, groupName, botName, onDetail }: { assignm
   const elapsed = formatDuration(assignment.started_at ?? assignment.created_at, assignment.finished_at)
   const elapsedValue = durationValue(assignment.started_at ?? assignment.created_at, assignment.finished_at)
   const reason = status === 'queued' && assignment.queue_reason ? t('block.task_card.queued_reason').replace('{task}', String(assignment.queue_reason)) : typeof assignment.failure_reason === 'string' ? assignment.failure_reason : ''
-  if (status === 'done') return <div className="task-card-done-line"><Check size={14} /><span>{t('block.task_card.done_line').replace('{bot}', botName ?? t('common.bot')).replace('{title}', title).replace('{duration}', elapsedValue || '—')}{recovered && ` · ${t('status.recovered')}`}</span><button type="button" className="task-detail-button" onClick={() => id && onDetail(id)}>{t('common.details')}</button></div>
-  return <div className={`task-card task-${status}`}>
+  if (status === 'done') return <div className={`task-card-done-line${row ? ' task-card-done-row' : ''}`}><Check size={14} /><span>{t('block.task_card.done_line').replace('{bot}', botName ?? t('common.bot')).replace('{title}', title).replace('{duration}', elapsedValue || '—')}{recovered && ` · ${t('status.recovered')}`}</span><button type="button" className="task-detail-button" onClick={() => id && onDetail(id)}>{t('common.details')}</button></div>
+  return <div className={`task-card task-${status}${row ? ' task-card-in-row' : ''}`}>
     <span className={`task-card-icon task-icon-${status}`}>{status === 'done' ? <Check size={15} /> : status === 'failed' || status === 'blocked' || status === 'cancelled' ? <X size={15} /> : status === 'queued' ? <Clock3 size={15} /> : <Circle size={13} />}</span>
     <span className="task-card-copy"><strong>{t('block.task_card.title').replace('{title}', title)}</strong>{groupName && <small>{groupName}</small>}<small>{statusText(statusKey)}{elapsed && ` · ${elapsed}`}{reason && ` · ${reason}`}{recovered && ` · ${t('status.recovered')}`}</small></span>
     <button type="button" className="task-detail-button" onClick={() => id && onDetail(id)}>{t('trace.show')}</button>

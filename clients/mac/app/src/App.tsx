@@ -28,6 +28,8 @@ import { classifyDeepLink, type PendingDeepLink } from './components/deepLinkRou
 import { CONTEXT_PANEL_TRANSITION_MS, transitionContextPanel, type ContextPanelPhase } from './components/contextPanelMotion.model'
 import { CLOSED_CONTEXT_PANEL_WINDOW, planContextPanelWindow, type ContextPanelWindowState, type SavedWindowFrame } from './components/contextPanelWindow.model'
 import { isLatestLocalPreferenceSave, mergeLocalPreferences, rollbackLocalPreferencePatch } from './components/localPreferences.model'
+import { captureChatScrollPosition, restoreChatScrollTop, type ChatScrollPosition } from './components/chatScrollPosition.model'
+import { collectPendingChatActions, taskCardOwnsFollowingAvatar, type PendingChatAction } from './components/pendingChatActions.model'
 import { CreateGroupDialog, MessageContextMenu, type ChatEntryMessage, type QuoteTarget } from './components/ChatEntry'
 import './components/ChatEntry.css'
 import { AttachmentMenu, AttachmentTray, type ChatAttachment } from './components/ChatAttachments'
@@ -43,7 +45,7 @@ type PendingContextAction = { id: string; messageId: string; title: string; kind
 type SettingsNavigationSection = 'general' | 'memory' | 'models' | 'runtime' | 'tools' | 'computer' | 'hosts' | 'about'
 type AppPage = 'chat' | 'workbench' | 'dashboard' | 'routines' | 'skills' | 'memory' | 'trace' | 'computer' | 'artifact'
 type TraceReturnPage = Exclude<AppPage, 'trace' | 'computer' | 'artifact'>
-type TraceRoute = { assignmentId: string; hostScope: string; returnPage: TraceReturnPage; returnChatId: string; returnSelectedAssignment: string | null }
+type TraceRoute = { assignmentId: string; hostScope: string; returnPage: TraceReturnPage; returnChatId: string; returnSelectedAssignment: string | null; returnScrollPosition: ChatScrollPosition | null }
 type ComputerRoute = { botId: string; hostScope: string; returnPage: Exclude<AppPage, 'computer' | 'artifact'>; returnChatId: string; returnSelectedAssignment: string | null; requestId: string; tabId?: string }
 type ArtifactRoute = { hostScope: string; projectId: string; projectName: string; homePath: string; artifacts: ProjectArtifact[]; artifactId: string; returnPage: Exclude<AppPage, 'artifact'>; returnChatId: string }
 type ScreenState = { bot_id: string; driver: ComputerDriver; tabs: ComputerTab[]; width: number; height: number }
@@ -224,6 +226,8 @@ function App() {
   const attachmentInputRef = useRef<HTMLInputElement>(null)
   const imageInputRef = useRef<HTMLInputElement>(null)
   const composerTextareaRef = useRef<HTMLTextAreaElement>(null)
+  const chatScrollRef = useRef<HTMLDivElement>(null)
+  const pendingChatScrollRestoreRef = useRef<{ hostScope: string; chatId: string; position: ChatScrollPosition } | null>(null)
   const [showSettings, setShowSettings] = useState(false)
   const [settingsSection, setSettingsSection] = useState<SettingsNavigationSection>('runtime')
   const [clientVersion, setClientVersion] = useState('0.1.0')
@@ -1092,6 +1096,25 @@ function App() {
     return [...byId.values()].sort((a, b) => String(a.created_at ?? '').localeCompare(String(b.created_at ?? '')))
   }, [historyByChat, state.messages, state.pending_messages, hostScope, currentChat?.id])
 
+  useLayoutEffect(() => {
+    const pending = pendingChatScrollRestoreRef.current
+    if (!pending || activePage !== 'chat' || pending.hostScope !== hostScope || pending.chatId !== currentChat?.id) return
+    const container = chatScrollRef.current
+    if (!container) return
+    const anchor = pending.position.anchorMessageId
+      ? [...container.querySelectorAll<HTMLElement>('.timeline-fragment[data-message-id]')]
+        .find((element) => element.dataset.messageId === pending.position.anchorMessageId)
+      : null
+    const viewportTop = container.getBoundingClientRect().top
+    container.scrollTop = restoreChatScrollTop(
+      pending.position,
+      container.scrollTop,
+      viewportTop,
+      anchor?.getBoundingClientRect().top ?? null,
+    )
+    pendingChatScrollRestoreRef.current = null
+  }, [activePage, hostScope, currentChat?.id, currentMessages.length])
+
   useEffect(() => {
     const target = deepLinkScrollTarget
     if (!target || activePage !== 'chat' || target.hostScope !== hostScope || currentChat?.id !== target.chatId) return
@@ -1194,6 +1217,13 @@ function App() {
   }
   const currentQuestions = useMemo(() => ({ ...state.questions, ...historyQuestions[hostScope] }), [state.questions, historyQuestions, hostScope])
   const currentApprovalRecords = { ...state.approvals, ...historyApprovals[hostScope] }
+  const pendingChatActions = useMemo(() => collectPendingChatActions(
+    currentChat?.id,
+    currentMessages,
+    currentQuestions,
+    currentApprovalRecords,
+    state.projects,
+  ), [currentChat?.id, currentMessages, currentQuestions, currentApprovalRecords, state.projects])
   const currentProjectId = typeof currentChat?.project_id === 'string' ? currentChat.project_id : null
   const currentProject = currentProjectId ? state.projects[currentProjectId] : undefined
   const currentProjectIdRef = useRef(currentProjectId)
@@ -1295,6 +1325,7 @@ function App() {
   }, [currentProjectId])
 
   function selectChat(chatId: string) {
+    pendingChatScrollRestoreRef.current = null
     setSelectedChat(chatId)
     setSidebarOverlayOpen(false)
     setActivePage('chat')
@@ -1708,12 +1739,15 @@ function App() {
 
   function openTrace(assignmentId: string) {
     const existingRoute = activePage === 'trace' ? traceRouteRef.current : null
+    const returnPage = existingRoute?.returnPage ?? (activePage === 'trace' || activePage === 'computer' || activePage === 'artifact' ? 'chat' : activePage)
+    const returnChatId = existingRoute?.returnChatId ?? selectedChat
     const route: TraceRoute = {
       assignmentId,
       hostScope,
-      returnPage: existingRoute?.returnPage ?? (activePage === 'trace' || activePage === 'computer' || activePage === 'artifact' ? 'chat' : activePage),
-      returnChatId: existingRoute?.returnChatId ?? selectedChat,
+      returnPage,
+      returnChatId,
       returnSelectedAssignment: existingRoute?.returnSelectedAssignment ?? selectedAssignment,
+      returnScrollPosition: existingRoute?.returnScrollPosition ?? (activePage === 'chat' && returnChatId === currentChat?.id ? captureCurrentChatScrollPosition() : null),
     }
     traceRouteRef.current = route
     traceStreamRef.current = null
@@ -1727,6 +1761,9 @@ function App() {
     const route = traceRouteRef.current ?? traceRoute
     traceRouteRef.current = null
     if (route?.hostScope === hostScopeRef.current) {
+      pendingChatScrollRestoreRef.current = route.returnPage === 'chat' && route.returnScrollPosition
+        ? { hostScope: route.hostScope, chatId: route.returnChatId, position: route.returnScrollPosition }
+        : null
       setActivePage(route.returnPage)
       if (route.returnPage === 'chat') {
         setSelectedChat(route.returnChatId)
@@ -1734,6 +1771,7 @@ function App() {
       }
       setSelectedAssignment(route.returnSelectedAssignment)
     } else {
+      pendingChatScrollRestoreRef.current = null
       setActivePage('chat')
       setSelectedAssignment(null)
     }
@@ -2025,6 +2063,35 @@ function App() {
 
   function scrollToMessage(messageId: string) {
     document.getElementById(`message-${messageId}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  }
+
+  function captureCurrentChatScrollPosition(): ChatScrollPosition | null {
+    const container = chatScrollRef.current
+    if (!container) return null
+    const viewport = container.getBoundingClientRect()
+    const messages = [...container.querySelectorAll<HTMLElement>('.timeline-fragment[data-message-id]')].map((element) => {
+      const rect = element.getBoundingClientRect()
+      return { messageId: element.dataset.messageId ?? '', top: rect.top, bottom: rect.bottom }
+    })
+    return captureChatScrollPosition({ scrollTop: container.scrollTop, viewportTop: viewport.top, viewportBottom: viewport.bottom, messages })
+  }
+
+  async function decideApproval(approvalId: string, decision: ApprovalDecision) {
+    const decisionScope = hostScope
+    const result = await invoke<{ approval?: Record<string, Json> }>('protocol_request', { method: 'approval.decide', params: { approval_id: approvalId, decision } })
+    if (result.approval && hostScopeRef.current === decisionScope) {
+      setHistoryApprovals((current) => ({ ...current, [decisionScope]: { ...current[decisionScope], [approvalId]: result.approval! } }))
+      setState((current) => ({ ...current, approvals: { ...current.approvals, [approvalId]: result.approval! } }))
+    }
+  }
+
+  async function answerQuestion(question: Question, answer: QuestionAnswer) {
+    const answerScope = hostScope
+    const result = await invoke<{ question?: Question }>('protocol_request', { method: 'question.answer', params: { question_id: question.id, ...answer } })
+    if (result.question && hostScopeRef.current === answerScope) {
+      setHistoryQuestions((current) => ({ ...current, [answerScope]: { ...current[answerScope], [result.question!.id]: result.question! } }))
+      setState((current) => ({ ...current, questions: { ...current.questions, [result.question!.id]: result.question! } }))
+    }
   }
 
   function openSettings(section: SettingsNavigationSection = 'runtime') {
@@ -2856,13 +2923,29 @@ function App() {
           setContextPanelStack(['context'])
         }}><PanelRight size={17} /></button>}
       </header>
+      {pendingChatActions.length > 0 && <section className="chat-pending-actions" aria-label={t('follow.awaiting')}>
+        <div className="chat-pending-actions-content">
+          <div className="chat-pending-actions-heading"><Shield size={14} /><strong>{t('follow.awaiting')}</strong><span>{pendingChatActions.length}</span></div>
+          {pendingChatActions.map((action) => action.kind === 'approval'
+            ? <PendingApprovalRow key={`approval-${action.id}`} action={action} onDecide={decideApproval} />
+            : action.kind === 'question'
+              ? action.messageId
+                ? <button type="button" className="chat-pending-link" key={`question-${action.id}`} onClick={() => scrollToMessage(action.messageId!)}>
+                  <MessageCircle size={14} /><span><strong>{action.title}</strong><small>{t('follow.pending_question')}</small></span><b>{t('block.approval_ref.go')}</b>
+                </button>
+                : <div className="chat-pending-question" key={`question-${action.id}`}><QuestionCard question={action.question} botName={state.bots[String(action.question.bot_id ?? '')]?.name ?? t('common.bot')} onAnswer={answerQuestion} /></div>
+              : <button type="button" className="chat-pending-link" key={`review-${action.id}`} onClick={() => scrollToMessage(action.messageId)}>
+                <Check size={14} /><span><strong>{action.title || t('project.status.review')}</strong><small>{t('follow.pending_review')}</small></span><b>{t('block.approval_ref.go')}</b>
+              </button>)}
+        </div>
+      </section>}
       {(currentChat?.kind === 'project' || currentChat?.project_id) && <GroupStatusBar chat={currentChat} announcement={announcement} project={currentProject} bots={state.bots} assignments={state.assignments} onSelectAssignment={openTrace} />}
       {(currentChat?.kind === 'project' || currentChat?.project_id) && <button type="button" className="pinned-announcement glass-toolbar" onClick={() => { openContextPanel(); setContextPanelStack(['context']); requestAnimationFrame(() => announcementPanelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })) }}>
         <span className="announcement-bar" /><span className="announcement-summary"><strong>{t('group.announcement')}</strong><small>{announcement ? summarizeMarkdown(announcement.text) || t('group.announcement.empty') : announcementLoading ? t('settings.permissions.loading') : t('group.announcement.empty')}</small></span><ChevronDown size={14} />
       </button>}
       {state.connection !== 'connected' && <div className="offline-bar">{t('host.reconnecting').replace('{host}', state.active_host?.name ?? hostName)} · {t('host.reconnecting_detail')}</div>}
       {draggingFiles && <div className="chat-drop-overlay"><Paperclip size={24} /><strong>{t('chat.drop.title').replace('{group}', currentChat ? chatTitle(currentChat) : t('chat.empty.select'))}</strong><span>{t('chat.drop.desc')}</span></div>}
-      <div className="message-scroll">
+      <div className="message-scroll" ref={chatScrollRef}>
         {!currentChat || (currentChat.kind === 'main' && currentMessages.length === 0 && historyLoadingChat !== currentChat.id) ? <div className="main-empty-state">
           <BeanAvatar main size="96" /><strong>{t('onboarding.empty.title')}</strong><span>{t('onboarding.empty.desc')}</span>
           {mainChats.length > 0 && <div className="main-empty-suggestions">
@@ -2894,21 +2977,7 @@ function App() {
             else if (action === 'copy') { event.preventDefault(); void copyMessage(entry.message) }
           }} onContextMenu={(event) => { event.preventDefault(); event.stopPropagation(); if ((entry.message as Message & { deleted?: boolean }).deleted) return; setFocusedMessageId(entry.message.id); setMessageMenu({ message: entry.message, x: event.clientX, y: event.clientY }) }}>
             {entry.timeSeparator && <div className="time-separator">{entry.timeSeparator}</div>}
-          <MessageBubble message={entry.message} skillNames={skillsDataScope === hostScope ? getRenderableSkillNames(skills) : []} pending={Boolean(state.pending_messages[entry.message.id]) && entry.groupEnd} senderName={entry.message.sender?.kind === 'user' ? t('common.user') : state.bots[entry.message.sender?.bot_id ?? '']?.name ?? t('common.bot')} senderRole={entry.message.sender?.bot_id ? String(state.bots[entry.message.sender.bot_id]?.label ?? state.bots[entry.message.sender.bot_id]?.title ?? '') : ''} groupStart={entry.groupStart} groupEnd={entry.groupEnd} headerTime={entry.headerTime} exactTime={entry.exactTime} questions={currentQuestions} approvals={currentApprovalRecords} assignments={state.assignments} projects={state.projects} bots={state.bots} chats={state.chats} chatTitle={currentChat.title ?? ''} onOpenProject={openProject} onOpenChat={selectChat} onOpenApproval={openApprovalInChat} onLoopResolve={async (rootMessageId, action) => { const scope = hostScope; if (hostScopeRef.current !== scope) return; await invoke('protocol_request', { method: 'loop.resolve', params: { root_message_id: rootMessageId, action } }); if (hostScopeRef.current !== scope) return }} onRetryAssignment={retryAssignment} onOpenBotSettings={openBotPanel} onTakeoverStart={(botId) => { setPendingTakeoverAction({ botId, action: 'start', hostScope }); openComputer(botId) }} onTakeoverRelease={(botId) => { setPendingTakeoverAction({ botId, action: 'release', hostScope }); openComputer(botId) }} onTaskDetail={openTrace} onReact={(message, emoji) => void reactToMessage(message, emoji)} onOpenComputer={openComputer} onReadMessageFile={readMessageFile} onPreviewArtifact={(artifact) => void openArtifactReference(artifact)} onConfirmProject={(projectId, messageId, blockIndex) => confirmProject(projectId, messageId, blockIndex)} onRequestChanges={(projectId, messageId, blockIndex, text) => requestProjectChanges(projectId, messageId, blockIndex, text)} onApprovalDecide={async (approvalId, decision) => {
-            const decisionScope = hostScope
-            const result = await invoke<{ approval?: Record<string, Json> }>('protocol_request', { method: 'approval.decide', params: { approval_id: approvalId, decision } })
-            if (result.approval && hostScopeRef.current === decisionScope) {
-              setHistoryApprovals((current) => ({ ...current, [decisionScope]: { ...current[decisionScope], [approvalId]: result.approval! } }))
-              setState((current) => ({ ...current, approvals: { ...current.approvals, [approvalId]: result.approval! } }))
-            }
-          }} onQuestionAnswer={async (question, answer) => {
-            const answerScope = hostScope
-            const result = await invoke<{ question?: Question }>('protocol_request', { method: 'question.answer', params: { question_id: question.id, ...answer } })
-            if (result.question && hostScopeRef.current === answerScope) {
-              setHistoryQuestions((current) => ({ ...current, [answerScope]: { ...current[answerScope], [result.question!.id]: result.question! } }))
-              setState((current) => ({ ...current, questions: { ...current.questions, [result.question!.id]: result.question! } }))
-            }
-          }} />
+          <MessageBubble message={entry.message} skillNames={skillsDataScope === hostScope ? getRenderableSkillNames(skills) : []} pending={Boolean(state.pending_messages[entry.message.id]) && entry.groupEnd} senderName={entry.message.sender?.kind === 'user' ? t('common.user') : state.bots[entry.message.sender?.bot_id ?? '']?.name ?? t('common.bot')} senderRole={entry.message.sender?.bot_id ? String(state.bots[entry.message.sender.bot_id]?.label ?? state.bots[entry.message.sender.bot_id]?.title ?? '') : ''} groupStart={entry.groupStart} groupEnd={entry.groupEnd} showAvatar={entry.showAvatar} headerTime={entry.headerTime} exactTime={entry.exactTime} questions={currentQuestions} approvals={currentApprovalRecords} assignments={state.assignments} projects={state.projects} bots={state.bots} chats={state.chats} chatTitle={currentChat.title ?? ''} onOpenProject={openProject} onOpenChat={selectChat} onOpenApproval={openApprovalInChat} onLoopResolve={async (rootMessageId, action) => { const scope = hostScope; if (hostScopeRef.current !== scope) return; await invoke('protocol_request', { method: 'loop.resolve', params: { root_message_id: rootMessageId, action } }); if (hostScopeRef.current !== scope) return }} onRetryAssignment={retryAssignment} onOpenBotSettings={openBotPanel} onTakeoverStart={(botId) => { setPendingTakeoverAction({ botId, action: 'start', hostScope }); openComputer(botId) }} onTakeoverRelease={(botId) => { setPendingTakeoverAction({ botId, action: 'release', hostScope }); openComputer(botId) }} onTaskDetail={openTrace} onReact={(message, emoji) => void reactToMessage(message, emoji)} onOpenComputer={openComputer} onReadMessageFile={readMessageFile} onPreviewArtifact={(artifact) => void openArtifactReference(artifact)} onConfirmProject={(projectId, messageId, blockIndex) => confirmProject(projectId, messageId, blockIndex)} onRequestChanges={(projectId, messageId, blockIndex, text) => requestProjectChanges(projectId, messageId, blockIndex, text)} onApprovalDecide={decideApproval} onQuestionAnswer={answerQuestion} />
           </div>
           </Fragment>)}
           {currentChat.bot_id && (currentChat.kind === 'main' || currentChat.kind === 'bot_dm') && state.typing[`${currentChat.id}:${currentChat.bot_id}`] && !currentMessages.some((message) => message.sender?.bot_id === currentChat?.bot_id && message.streaming === true) && <div className="bot-typing-indicator" role="status" aria-label={t('chat.typing')}><span className="bot-typing-dots" aria-hidden="true"><i /><i /><i /></span><span>{t('chat.typing')}</span></div>}
@@ -3523,7 +3592,28 @@ function isMessageFileRef(value: unknown): value is MessageFileRef {
 
 type ApprovalDecision = 'allow_once' | 'always_allow' | 'deny'
 
-type TimelineEntry = { message: Message; dayLabel?: string; timeSeparator?: string; exactTime: string; headerTime: string; groupStart: boolean; groupEnd: boolean }
+function PendingApprovalRow({ action, onDecide }: { action: Extract<PendingChatAction, { kind: 'approval' }>; onDecide: (approvalId: string, decision: ApprovalDecision) => Promise<void> }) {
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const decide = async (decision: ApprovalDecision) => {
+    setBusy(true)
+    setError(null)
+    try { await onDecide(action.id, decision) }
+    catch (reason) { setError(String(reason)) }
+    finally { setBusy(false) }
+  }
+  return <article className="chat-pending-approval">
+    <Shield size={15} />
+    <span className="chat-pending-approval-copy"><strong>{t('block.approval.title').replace('{tool}', action.tool || t('follow.pending_approval'))}</strong><small>{action.summary}{action.risk ? ` · ${action.risk}` : ''}</small>{action.matchedRuleText && <small>{t('block.approval.matched_rule').replace('{rule}', action.matchedRuleText)}</small>}{action.detail && <details><summary>{t('block.approval.view_details')}</summary><pre>{action.detail}</pre></details>}</span>
+    <div className="chat-pending-approval-actions">
+      <button type="button" className="approval-action allow-once" disabled={busy} onClick={() => void decide('allow_once')}>{t('block.approval.allow_once')}</button>
+      <button type="button" className="approval-action deny" disabled={busy} onClick={() => void decide('deny')}>{t('block.approval.deny')}</button>
+    </div>
+    {error && <small className="chat-pending-approval-error" role="alert">{error}</small>}
+  </article>
+}
+
+type TimelineEntry = { message: Message; dayLabel?: string; timeSeparator?: string; exactTime: string; headerTime: string; groupStart: boolean; groupEnd: boolean; showAvatar: boolean }
 
 function buildMessageTimeline(messages: Message[]): TimelineEntry[] {
   const result: TimelineEntry[] = []
@@ -3545,9 +3635,14 @@ function buildMessageTimeline(messages: Message[]): TimelineEntry[] {
     const timeSeparator = validDate && previousTime && !dayChanged && gap !== undefined && gap >= 5 * 60_000 ? validDate.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }) : undefined
     const exactTime = validDate?.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }) ?? ''
     const last = result[result.length - 1]
-    if (groupable && last) last.groupEnd = false
+    if (groupable && last) {
+      last.groupEnd = false
+      last.showAvatar = false
+    }
     const suppressHeaderTime = groupable || Boolean(timeSeparator)
-    result.push({ message, dayLabel, timeSeparator, exactTime, headerTime: suppressHeaderTime ? '' : exactTime, groupStart: !groupable, groupEnd: true })
+    const taskCardRow = taskCardOwnsFollowingAvatar(previous, message)
+    if (taskCardRow && last) last.showAvatar = false
+    result.push({ message, dayLabel, timeSeparator, exactTime, headerTime: suppressHeaderTime ? '' : exactTime, groupStart: !groupable, groupEnd: true, showAvatar: true })
     previous = message
     previousTime = validDate
     previousSender = sender
@@ -3565,7 +3660,7 @@ function dateLabel(date: Date) {
   return date.toLocaleDateString('zh-CN', { year: date.getFullYear() === today.getFullYear() ? undefined : 'numeric', month: 'long', day: 'numeric' })
 }
 
-function MessageBubble({ message, skillNames, pending = false, senderName, senderRole, groupStart, groupEnd, headerTime, exactTime, questions, approvals, assignments, projects, bots, chats, chatTitle, onOpenProject, onOpenChat, onOpenApproval, onLoopResolve, onRetryAssignment, onOpenBotSettings, onTakeoverStart, onTakeoverRelease, onTaskDetail, onReact, onOpenComputer, onReadMessageFile, onPreviewArtifact, onConfirmProject, onRequestChanges, onApprovalDecide, onQuestionAnswer }: {
+function MessageBubble({ message, skillNames, pending = false, senderName, senderRole, groupStart, groupEnd, showAvatar, headerTime, exactTime, questions, approvals, assignments, projects, bots, chats, chatTitle, onOpenProject, onOpenChat, onOpenApproval, onLoopResolve, onRetryAssignment, onOpenBotSettings, onTakeoverStart, onTakeoverRelease, onTaskDetail, onReact, onOpenComputer, onReadMessageFile, onPreviewArtifact, onConfirmProject, onRequestChanges, onApprovalDecide, onQuestionAnswer }: {
   message: Message
   skillNames: string[]
   pending?: boolean
@@ -3573,6 +3668,7 @@ function MessageBubble({ message, skillNames, pending = false, senderName, sende
   senderRole: string
   groupStart: boolean
   groupEnd: boolean
+  showAvatar: boolean
   headerTime: string
   exactTime: string
   questions: BridgeState['questions']
@@ -3614,12 +3710,17 @@ function MessageBubble({ message, skillNames, pending = false, senderName, sende
   const hasSkillPrefix = isUser && !deleted && (skillTextBlockIndex >= 0 || parseForcedSkillText(displayText, renderableSkillNames) !== null)
   if (renderMode === 'content' && blocks.length === 1 && blocks[0].type === 'task_card') {
     const assignmentId = typeof blocks[0].assignment_id === 'string' ? blocks[0].assignment_id : ''
-    return assignments[assignmentId] ? <TaskCard assignment={assignments[assignmentId]} groupName={chatTitle} botName={bots[String(assignments[assignmentId].bot_id ?? '')]?.name ?? senderName} onDetail={onTaskDetail} /> : <div className="block-fallback">{message.fallback_text || t('common.unsupported_block')}</div>
+    const assignment = assignments[assignmentId]
+    if (!assignment) return <div className="block-fallback">{message.fallback_text || t('common.unsupported_block')}</div>
+    const taskBotId = String(assignment.bot_id ?? message.sender?.bot_id ?? '')
+    const taskBotName = bots[taskBotId]?.name ?? senderName
+    const taskCard = <TaskCard assignment={assignment} groupName={chatTitle} botName={taskBotName} onDetail={onTaskDetail} row />
+    return isUser ? taskCard : <div className="task-message-row"><div className="task-message-avatar"><BeanAvatar main={bots[taskBotId]?.is_main === true || taskBotName === '总管'} size="32" seed={taskBotName} /></div>{taskCard}</div>
   }
   if (renderMode === 'content' && blocks.length === 1 && blocks[0].type === 'progress') return <ProgressRow text={String(blocks[0].text ?? '')} botName={senderName} />
   if (renderMode === 'content' && blocks.length === 1 && blocks[0].type === 'system') return <SystemNotice code={String(blocks[0].code ?? '')} text={String(blocks[0].text ?? '')} botName={senderName} />
   return <article className={`message-group ${isUser ? 'outgoing' : ''} ${groupStart ? 'group-start' : 'group-middle'} ${groupEnd ? 'group-end' : ''}`}>
-    {!isUser && <div className="avatar-slot">{groupEnd && <BeanAvatar main={senderName === '总管'} size="32" seed={senderName} />}</div>}
+    {!isUser && <div className="avatar-slot">{showAvatar && <BeanAvatar main={senderName === '总管'} size="32" seed={senderName} />}</div>}
     <div className="message-stack">
       {!isUser && groupStart && <div className="message-author">{senderName}{senderRole && <span className="message-author-role"> · {senderRole}</span>}{headerTime && <span className="message-author-time"> · {headerTime}</span>}{message.sender?.bot_id && <button type="button" className="message-computer-action" aria-label={t('computer.title').replace('{bot}', senderName)} title={t('computer.title').replace('{bot}', senderName)} onClick={() => onOpenComputer(message.sender!.bot_id!)}><Monitor size={12} /></button>}</div>}
       <div className="bubble">

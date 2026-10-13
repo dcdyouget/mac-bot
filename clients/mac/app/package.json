@@ -11,6 +11,7 @@
     "test:i18n-keys": "node --test src/components/aboutCopyKeys.test.mjs",
     "test:settings-copy": "node --test src/components/settingsCopyKeys.test.mjs",
     "test:navigation": "node --test src/navigationUi.test.mjs src/components/contextPanelWindow.model.test.mjs",
+    "test:pending-actions": "node --test src/components/chatScrollPosition.model.test.mjs src/components/pendingChatActions.model.test.mjs",
     "test:skill-message": "node --test src/components/skillMessage.model.test.mjs",
     "test:dashboard": "node --test src/components/dashboard.model.test.mjs",
     "test:summary": "node --test src/summaryMarkdown.test.mjs",
