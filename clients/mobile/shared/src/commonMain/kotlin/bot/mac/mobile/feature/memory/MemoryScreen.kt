@@ -25,6 +25,8 @@ import androidx.compose.ui.unit.sp
 import bot.mac.mobile.core.design.BotAvatar
 import bot.mac.mobile.core.design.FontScaleToolbar
 import bot.mac.mobile.core.design.LocalMobilePalette
+import bot.mac.mobile.core.design.LocalSystemAnimationsEnabled
+import bot.mac.mobile.core.ui.designCardElevation
 import bot.mac.mobile.core.network.NetworkError
 import bot.mac.mobile.core.protocol.*
 import bot.mac.mobile.core.state.MobileRepository
@@ -188,7 +190,8 @@ fun MemoryScreen(
 
 @Composable
 private fun ProfileSkeleton() {
-    Column(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surface, RoundedCornerShape(14.dp)).padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    val shape = RoundedCornerShape(14.dp)
+    Column(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surface, shape).designCardElevation(shape).padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Box(Modifier.width(92.dp).height(18.dp).background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(5.dp)))
         repeat(4) { Box(Modifier.fillMaxWidth().height(36.dp).background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f), RoundedCornerShape(5.dp))) }
     }
@@ -197,8 +200,9 @@ private fun ProfileSkeleton() {
 @Composable
 private fun ProfileCard(profile: JsonObject, onOpenProfileField: (String) -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+      val shape = RoundedCornerShape(14.dp)
       Column(
-        Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surface, RoundedCornerShape(14.dp)).padding(horizontal = 14.dp, vertical = 12.dp),
+        Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surface, shape).designCardElevation(shape).padding(horizontal = 14.dp, vertical = 12.dp),
         verticalArrangement = Arrangement.spacedBy(5.dp),
       ) {
         Text(stringResource(Res.string.memory_profile_title), style = MaterialTheme.typography.titleMedium.copy(fontSize = 15.sp), fontWeight = FontWeight.SemiBold)
@@ -243,7 +247,8 @@ internal fun SaveCheck(color: androidx.compose.ui.graphics.Color) {
     var visible by remember { mutableStateOf(false) }
     val savedLabel = stringResource(Res.string.memory_profile_save_success)
     LaunchedEffect(Unit) { visible = true }
-    androidx.compose.animation.AnimatedVisibility(visible = visible) { Text("✓", Modifier.padding(start = 6.dp).semantics { contentDescription = savedLabel }, color = color, style = MaterialTheme.typography.labelMedium) }
+    val check = @Composable { Text("✓", Modifier.padding(start = 6.dp).semantics { contentDescription = savedLabel }, color = color, style = MaterialTheme.typography.labelMedium) }
+    if (LocalSystemAnimationsEnabled.current) androidx.compose.animation.AnimatedVisibility(visible = visible) { check() } else check()
 }
 
 @Composable
@@ -257,7 +262,8 @@ private fun QuotaCard(quota: JsonObject) {
         MemoryQuotaLevel.WARNING -> palette.warning
         MemoryQuotaLevel.NORMAL -> palette.accent
     }
-    Column(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surface, RoundedCornerShape(14.dp)).padding(14.dp)) {
+    val shape = RoundedCornerShape(14.dp)
+    Column(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surface, shape).designCardElevation(shape).padding(14.dp)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text(stringResource(Res.string.memory_usage), Modifier.weight(1f), style = MaterialTheme.typography.titleSmall)
             Text(stringResource(Res.string.memory_usage_value, used, limit), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -286,7 +292,7 @@ private fun MemoryEntryRow(
     val sourceChat = chats.firstOrNull { it.str("id") == source.str("chat_id") }
     val chatTitle = sourceChat?.str("title").orEmpty().ifBlank { sourceChat?.str("name").orEmpty() }
     val botName = bots.firstOrNull { it.str("id") == sender.str("bot_id") }?.str("name") ?: sender.str("bot_id")
-    val date = formatMemoryTimestamp(entry.str("updated_at"))
+    val date = memoryEntrySourceDate(entry)
     val sourceLabel = when (sender.str("kind")) {
         "user" -> stringResource(Res.string.memory_source_user)
         "system" -> stringResource(Res.string.memory_source_curator)
@@ -317,6 +323,7 @@ private fun MemoryEntryRow(
                 )
             }
             .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(14.dp))
+            .designCardElevation(RoundedCornerShape(14.dp))
             .clickable(onClick = onClick)
             .padding(horizontal = 14.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -336,8 +343,8 @@ private fun MemoryEntryRow(
                     if (chatTitle.isNotBlank() && sourceChatId.isNotBlank() && sourceMessageId.isNotBlank()) {
                         Text(" · $chatTitle", Modifier.weight(1f).clickable { onOpenSource(sourceChatId, sourceMessageId) }, style = MaterialTheme.typography.labelMedium.copy(fontSize = 13.sp), color = MaterialTheme.colorScheme.primary, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
                     } else if (chatTitle.isNotBlank()) Text(" · $chatTitle", Modifier.weight(1f), style = MaterialTheme.typography.labelMedium.copy(fontSize = 13.sp), color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
-                    if (date.isNotBlank()) Text(" · $date", style = MaterialTheme.typography.labelMedium.copy(fontSize = 13.sp), color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
                 }
+                if (date.isNotBlank()) Text(" · $date", style = MaterialTheme.typography.labelMedium.copy(fontSize = 13.sp), color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
             }
         }
         Text("›", Modifier.padding(start = 8.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -554,7 +561,7 @@ private fun memoryEntrySourceText(entry: JsonObject, chats: List<JsonObject>, bo
     val sender = source.obj("by")
     val chat = chats.firstOrNull { it.str("id") == source.str("chat_id") }
     val title = chat?.str("title").orEmpty().ifBlank { chat?.str("name").orEmpty() }
-    val date = formatMemoryTimestamp(entry.str("updated_at"))
+    val date = memoryEntrySourceDate(entry)
     val origin = when (sender.str("kind")) {
         "user" -> stringResource(Res.string.memory_source_user)
         "bot" -> stringResource(Res.string.memory_source_bot, bots.firstOrNull { it.str("id") == sender.str("bot_id") }?.str("name") ?: sender.str("bot_id"))

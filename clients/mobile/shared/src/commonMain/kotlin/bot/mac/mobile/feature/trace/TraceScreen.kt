@@ -38,6 +38,7 @@ import bot.mac.mobile.core.protocol.objects
 import bot.mac.mobile.core.protocol.obj
 import bot.mac.mobile.core.protocol.str
 import bot.mac.mobile.core.design.FontScaleToolbar
+import bot.mac.mobile.core.design.LocalSystemAnimationsEnabled
 import bot.mac.mobile.core.network.NetworkError
 import bot.mac.mobile.core.state.MobileRepository
 import bot.mac.mobile.core.ui.MarkdownText
@@ -94,6 +95,7 @@ fun TraceScreen(
     var confirmedSteeredMessageIds by remember(activeHostId, assignmentId) { mutableStateOf<Set<String>>(emptySet()) }
     var staleSteers by remember(activeHostId, assignmentId) { mutableStateOf<Set<String>>(emptySet()) }
     val fragments = state.traceFragments.filterKeys { it.startsWith("${stream ?: streamKey}:") }
+    val animationsEnabled = LocalSystemAnimationsEnabled.current
     val scope = rememberCoroutineScope()
     val activeFilter = filter
     val traceError = stringResource(Res.string.feature_trace_error)
@@ -115,7 +117,10 @@ fun TraceScreen(
     val traceListState = rememberLazyListState()
 
     LaunchedEffect(items.size, followLatest) {
-        if (followLatest && items.isNotEmpty()) traceListState.animateScrollToItem(items.lastIndex + if (hasMoreBefore) 1 else 0)
+        if (followLatest && items.isNotEmpty()) {
+            val targetIndex = items.lastIndex + if (hasMoreBefore) 1 else 0
+            if (animationsEnabled) traceListState.animateScrollToItem(targetIndex) else traceListState.scrollToItem(targetIndex)
+        }
     }
 
     // chat.history populates the repository cache used below; chat.list handles a

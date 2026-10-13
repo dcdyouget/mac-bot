@@ -4,6 +4,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -48,6 +49,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.Modifier
@@ -695,6 +697,17 @@ fun ChatScreen(
             }
         }
         }
+        Box(
+            Modifier.align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .height(44.dp)
+                .background(
+                    Brush.verticalGradient(
+                        0f to LocalMobilePalette.current.chat.copy(alpha = 0f),
+                        1f to LocalMobilePalette.current.chat,
+                    ),
+                ),
+        )
         Column(Modifier.align(Alignment.BottomCenter).onSizeChanged { composerStackHeightPx = it.height }) {
         replyTo?.let { id ->
             Surface(Modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.surfaceContainerHigh) {
@@ -853,15 +866,23 @@ fun ChatScreen(
             label = "composerSendPress",
         )
         val composerShape = RoundedCornerShape(22.dp)
+        val showComposerRing = composerFocused || draft.isNotBlank()
+        val composerPalette = LocalMobilePalette.current
+        val glassAlpha = if (composerPalette.textPrimary.luminance() > 0.5f) 0.66f else 0.72f
+        Box(
+            Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 8.dp)
+                .then(
+                    if (showComposerRing) Modifier
+                        .border(BorderStroke(3.dp, composerPalette.accentSoft), RoundedCornerShape(25.dp))
+                        .padding(3.dp)
+                    else Modifier,
+                ),
+        ) {
         Surface(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 8.dp)
-                .shadow(8.dp, composerShape),
+            modifier = Modifier.fillMaxWidth().shadow(8.dp, composerShape),
             shape = composerShape,
-            color = LocalMobilePalette.current.sidebar,
-            border = BorderStroke(
-                if (composerFocused || draft.isNotBlank()) 3.dp else 0.5.dp,
-                if (composerFocused || draft.isNotBlank()) LocalMobilePalette.current.accentSoft else LocalMobilePalette.current.borderDefault,
-            ),
+            color = composerPalette.elevated.copy(alpha = glassAlpha),
+            border = BorderStroke(0.5.dp, composerPalette.borderDefault),
         ) {
         Row(Modifier.fillMaxWidth().padding(4.dp), verticalAlignment = Alignment.Bottom) {
             IconButton(enabled = !readOnly, onClick = { showAttachmentMenu = true }, modifier = Modifier.semantics { contentDescription = attachmentLabel }) { LucideIcon(LucideIconKind.Plus, Modifier.size(20.dp)) }
@@ -895,6 +916,12 @@ fun ChatScreen(
                 },
                 placeholder = { Text(composerPlaceholder) },
                 maxLines = 4,
+                colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = androidx.compose.ui.graphics.Color.Transparent,
+                    unfocusedBorderColor = androidx.compose.ui.graphics.Color.Transparent,
+                    disabledBorderColor = androidx.compose.ui.graphics.Color.Transparent,
+                    errorBorderColor = androidx.compose.ui.graphics.Color.Transparent,
+                ),
             )
         }
             if (groupChat || mentionCandidates.isNotEmpty()) IconButton(
@@ -940,6 +967,7 @@ fun ChatScreen(
                     }
                 },
             ) { Text(if (readOnly) stringResource(Res.string.feature_readonly) else stringResource(Res.string.common_send)) }
+        }
         }
         }
         }
@@ -1693,34 +1721,47 @@ private fun StandaloneTaskCard(
         if (it >= 60) stringResource(Res.string.common_hours_minutes, (it / 60).toInt(), (it % 60).toInt())
         else stringResource(Res.string.common_minutes, it.toInt())
     }
-    Surface(
-        modifier = Modifier.fillMaxWidth().padding(start = 40.dp, end = 12.dp).combinedClickable(
-            onClick = {},
-            onLongClick = {
-                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                onLongPress()
-            },
-        ),
-        color = palette.panel,
-        shape = RoundedCornerShape(10.dp),
-        border = androidx.compose.foundation.BorderStroke(1.dp, if (status == "failed" || status == "blocked") palette.danger else palette.borderSubtle),
-    ) {
-        Row(Modifier.padding(horizontal = 10.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(if (status == "done") "✓" else if (status in setOf("failed", "blocked")) "!" else "⟳", color = if (status in setOf("failed", "blocked")) palette.danger else palette.success)
-            Column(Modifier.weight(1f)) {
-                if (status == "done") {
-                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Text(
-                            if (duration.isNullOrBlank()) "$botName · $title" else stringResource(Res.string.block_task_card_done_line, botName, title, duration),
-                            modifier = Modifier.weight(1f),
-                            style = MaterialTheme.typography.labelSmall,
-                            color = palette.textTertiary,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                        assignment?.let { AssignmentRecoveryBadge(it) }
-                    }
-                } else {
+    val messageActions = Modifier.combinedClickable(
+        onClick = {},
+        onLongClick = {
+            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+            onLongPress()
+        },
+    )
+    if (status == "done") {
+        Row(
+            Modifier.fillMaxWidth().padding(start = 40.dp, end = 12.dp).then(messageActions),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Text("✓", color = palette.success, style = MaterialTheme.typography.labelMedium)
+            Text(
+                if (duration.isNullOrBlank()) "$botName · $title" else stringResource(Res.string.block_task_card_done_line, botName, title, duration),
+                modifier = Modifier.weight(1f),
+                style = MaterialTheme.typography.labelSmall,
+                color = palette.textTertiary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            assignment?.let { AssignmentRecoveryBadge(it) }
+            if (assignmentId.isNotBlank()) TextButton(onClick = { onOpenTrace(assignmentId, null) }, contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp)) {
+                Text(stringResource(Res.string.feature_detail), style = MaterialTheme.typography.labelSmall, color = palette.textTertiary)
+            }
+        }
+    } else {
+        val taskShape = RoundedCornerShape(10.dp)
+        Surface(
+            modifier = Modifier.fillMaxWidth().padding(start = 40.dp, end = 12.dp).then(messageActions),
+            color = palette.panel,
+            shape = taskShape,
+            border = androidx.compose.foundation.BorderStroke(
+                1.dp,
+                if (status == "failed" || status == "blocked") palette.danger else palette.borderSubtle,
+            ),
+        ) {
+            Row(Modifier.padding(horizontal = 10.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(if (status in setOf("failed", "blocked")) "!" else "⟳", color = if (status in setOf("failed", "blocked")) palette.danger else palette.accent)
+                Column(Modifier.weight(1f)) {
                     Text(
                         stringResource(Res.string.block_task_card_title, title),
                         style = MaterialTheme.typography.labelMedium,
@@ -1733,9 +1774,9 @@ private fun StandaloneTaskCard(
                         duration?.let { Text(stringResource(Res.string.block_task_card_elapsed, it), style = MaterialTheme.typography.labelSmall, color = palette.textTertiary) }
                     }
                 }
-            }
-            if (assignmentId.isNotBlank()) TextButton(onClick = { onOpenTrace(assignmentId, null) }, contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp)) {
-                Text(stringResource(Res.string.feature_detail), style = MaterialTheme.typography.labelSmall)
+                if (assignmentId.isNotBlank()) TextButton(onClick = { onOpenTrace(assignmentId, null) }, contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp)) {
+                    Text(stringResource(Res.string.feature_detail), style = MaterialTheme.typography.labelSmall)
+                }
             }
         }
     }
