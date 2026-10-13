@@ -22,6 +22,7 @@ pub struct CollaborationIdentity {
     pub bot_id: String,
     pub chat_id: String,
     pub assignment_id: Option<String>,
+    pub source_message_id: Option<String>,
     pub project_id: Option<String>,
     pub is_main: bool,
     pub private: bool,
@@ -989,20 +990,43 @@ impl CollaborationTools {
     }
 
     fn assignment_args(&self, mut args: Map<String, Value>) -> Value {
-        args.entry("origin_chat_id")
-            .or_insert_with(|| json!(self.identity.chat_id));
-        args.entry("from")
-            .or_insert_with(|| json!(if self.identity.is_main { "main" } else { "bot" }));
+        args.insert("origin_chat_id".into(), json!(self.identity.chat_id));
+        args.insert(
+            "from".into(),
+            json!(if self.identity.is_main { "main" } else { "bot" }),
+        );
+        if let Some(assignment_id) = &self.identity.assignment_id {
+            args.insert("parent_assignment_id".into(), json!(assignment_id));
+        } else {
+            args.remove("parent_assignment_id");
+        }
+        if let Some(message_id) = &self.identity.source_message_id {
+            args.insert("trigger_message_id".into(), json!(message_id));
+        } else {
+            args.remove("trigger_message_id");
+        }
         if let Some(project_id) = &self.identity.project_id {
-            args.entry("project_id")
-                .or_insert_with(|| json!(project_id));
+            // A running project incarnation may create work only within its
+            // own immutable project group, even if the model supplied a
+            // different project_id.
+            args.insert("project_id".into(), json!(project_id));
         }
         Value::Object(args)
     }
 
     fn delegate_args(&self, mut args: Map<String, Value>) -> Value {
-        args.entry("origin_chat_id")
-            .or_insert_with(|| json!(self.identity.chat_id));
+        args.insert("origin_chat_id".into(), json!(self.identity.chat_id));
+        args.insert("from".into(), json!("main"));
+        if let Some(assignment_id) = &self.identity.assignment_id {
+            args.insert("parent_assignment_id".into(), json!(assignment_id));
+        } else {
+            args.remove("parent_assignment_id");
+        }
+        if let Some(message_id) = &self.identity.source_message_id {
+            args.insert("trigger_message_id".into(), json!(message_id));
+        } else {
+            args.remove("trigger_message_id");
+        }
         Value::Object(args)
     }
 
@@ -1031,8 +1055,54 @@ impl CollaborationTools {
             }
         };
         if !self.identity.is_main {
-            args.entry("bot_id")
-                .or_insert_with(|| json!(self.identity.bot_id));
+            args.insert("bot_id".into(), json!(self.identity.bot_id));
+            if action == "create" {
+                if let Some(project_id) = &self.identity.project_id {
+                    args.insert("project_id".into(), json!(project_id));
+                } else {
+                    args.remove("project_id");
+                }
+            } else if action == "update" {
+                let mut patch = args
+                    .get("patch")
+                    .and_then(Value::as_object)
+                    .cloned()
+                    .unwrap_or_default();
+                patch.insert("bot_id".into(), json!(self.identity.bot_id));
+                match &self.identity.project_id {
+                    Some(project_id) => {
+                        patch.insert("project_id".into(), json!(project_id));
+                    }
+                    None => {
+                        patch.remove("project_id");
+                        patch.insert("project_id".into(), Value::Null);
+                    }
+                }
+                args.insert("patch".into(), Value::Object(patch));
+            } else if matches!(
+                action.as_str(),
+                "update" | "delete" | "enable" | "set_enabled"
+            ) {
+                let routine_id = args
+                    .get("routine_id")
+                    .and_then(Value::as_str)
+                    .ok_or_else(|| "routine_id is required".to_owned())?;
+                let listed = self
+                    .rpc
+                    .call("routine.list", json!({"bot_id":self.identity.bot_id}))
+                    .await?;
+                if !listed
+                    .get("routines")
+                    .and_then(Value::as_array)
+                    .is_some_and(|routines| {
+                        routines.iter().any(|routine| {
+                            routine.get("id").and_then(Value::as_str) == Some(routine_id)
+                        })
+                    })
+                {
+                    return Err("routine is not owned by this Bot incarnation".into());
+                }
+            }
         }
         self.rpc.call(method, Value::Object(args)).await
     }
@@ -1441,6 +1511,7 @@ mod tests {
                 chat_id: "chat-1".into(),
                 assignment_id: Some("asg-1".into()),
                 project_id: Some("project-1".into()),
+                source_message_id: Some("source-1".into()),
                 is_main: false,
                 private: true,
             },
@@ -1456,14 +1527,49 @@ mod tests {
             )
             .await;
         factory
-            .invoke("routine", &context, json!({"action":"list"}))
+            .invoke(
+                "routine",
+                &context,
+                json!({"action":"create","bot_id":"evil-bot","project_id":"evil-project","name":"x","instructions":"x","schedules":[{"cron":"0 * * * *","label":"hourly"}]}),
+            )
             .await;
         let calls = rpc.0.lock().unwrap();
         assert_eq!(calls[0].0, "assignment.create");
         assert_eq!(calls[0].1["origin_chat_id"], "chat-1");
         assert_eq!(calls[0].1["project_id"], "project-1");
+        assert_eq!(calls[1].0, "routine.create");
         assert_eq!(calls[1].1["bot_id"], "bot-1");
+        assert_eq!(calls[1].1["project_id"], "project-1");
         assert_eq!(calls.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn private_worker_routine_cannot_choose_project_scope() {
+        let rpc = Arc::new(FakeRpc::default());
+        let factory = CollaborationTools::new(
+            rpc.clone(),
+            CollaborationIdentity {
+                bot_id: "bot-private".into(),
+                chat_id: "dm_bot-private".into(),
+                is_main: false,
+                private: true,
+                ..Default::default()
+            },
+            None,
+            None,
+        );
+        factory
+            .invoke(
+                "routine",
+                &ToolContext::new("/tmp", "run-private", "/tmp/runs"),
+                json!({"action":"create","bot_id":"other-bot","project_id":"other-project","name":"x","instructions":"x","schedules":[{"cron":"0 * * * *","label":"hourly"}]}),
+            )
+            .await;
+        let calls = rpc.0.lock().unwrap();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].0, "routine.create");
+        assert_eq!(calls[0].1["bot_id"], "bot-private");
+        assert!(calls[0].1.get("project_id").is_none());
     }
 
     #[tokio::test]

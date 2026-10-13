@@ -1653,10 +1653,25 @@ impl ExecutionEngine {
                             messages.push(tool_message(&call.call_id, &result));
                             continue;
                         }
-                        let chat_id = call.args["chat_id"]
-                            .as_str()
-                            .unwrap_or(&request.chat_id)
-                            .to_owned();
+                        if call
+                            .args
+                            .get("chat_id")
+                            .and_then(Value::as_str)
+                            .is_some_and(|target| target != request.chat_id)
+                        {
+                            let result = ToolResult::error(
+                                "send_msg cannot choose a chat outside its execution scope",
+                            );
+                            messages.push(tool_message(&call.call_id, &result));
+                            self.trace(
+                                &request,
+                                "tool.end",
+                                json!({"call_id":call.call_id,"is_error":true,"preview":"send_msg cannot choose a chat outside its execution scope","details":{},"truncated":false,"full_output":null,"duration_ms":0}),
+                            )
+                            .await?;
+                            continue;
+                        }
+                        let chat_id = request.chat_id.clone();
                         let message_id = call.args["message_id"]
                             .as_str()
                             .map(str::to_owned)
@@ -1665,6 +1680,7 @@ impl ExecutionEngine {
                         if let Some(object) = payload.as_object_mut() {
                             object.insert("message_id".into(), json!(message_id.clone()));
                             object.insert("chat_id".into(), json!(chat_id.clone()));
+                            object.insert("_send_scope_chat_id".into(), json!(chat_id.clone()));
                             object.insert("bot_id".into(), json!(request.bot_id.clone()));
                             object.insert(
                                 "assignment_id".into(),
@@ -2380,10 +2396,25 @@ impl ExecutionEngine {
                     ));
                     continue;
                 }
-                let chat_id = call.args["chat_id"]
-                    .as_str()
-                    .unwrap_or(&request.chat_id)
-                    .to_owned();
+                if call
+                    .args
+                    .get("chat_id")
+                    .and_then(Value::as_str)
+                    .is_some_and(|target| target != request.chat_id)
+                {
+                    let result = ToolResult::error(
+                        "send_msg cannot choose a chat outside its execution scope",
+                    );
+                    messages.push(tool_message(&call.call_id, &result));
+                    self.trace(
+                        request,
+                        "tool.end",
+                        json!({"call_id":call.call_id,"is_error":true,"preview":"send_msg cannot choose a chat outside its execution scope","details":{},"truncated":false,"full_output":null,"duration_ms":0}),
+                    )
+                    .await?;
+                    continue;
+                }
+                let chat_id = request.chat_id.clone();
                 let message_id = call.args["message_id"]
                     .as_str()
                     .map(str::to_owned)
@@ -2392,6 +2423,7 @@ impl ExecutionEngine {
                 if let Some(object) = payload.as_object_mut() {
                     object.insert("message_id".into(), json!(message_id.clone()));
                     object.insert("chat_id".into(), json!(chat_id.clone()));
+                    object.insert("_send_scope_chat_id".into(), json!(chat_id.clone()));
                     object.insert("bot_id".into(), json!(request.bot_id.clone()));
                     object.insert("assignment_id".into(), json!(request.assignment_id.clone()));
                     object.insert("intent".into(), json!(intent));
@@ -2691,14 +2723,14 @@ impl ExecutionEngine {
                 "type":"function",
                 "function":{
                     "name":"send_msg",
-                    "description":"Send a complete message to a group chat. Use decision for a request that needs a response: include options for a user question or mentions for a Bot handoff. Set multi only for a multi-select user question. Attach structured link_previews only when providing real metadata for links in the message. When answering an existing decision, use reply_to and progress or done; do not use decision to report an answer.",
+                    "description":"Send a complete message using this execution's server-bound chat scope. Do not choose or change chat_id, bot_id, or assignment_id. Use decision for a request that needs a response: include options for a user question or mentions for a Bot handoff. Set multi only for a multi-select user question. Attach structured link_previews only when providing real metadata for links in the message. When answering an existing decision, use reply_to and progress or done; do not use decision to report an answer. For compatibility, to may be task_chat or user for this private scope, or {bot_id} for a Bot-to-Bot DM from a private incarnation.",
                     "parameters":{
                         "type":"object",
                         "required":["intent","text"],
                         "properties":{
                             "intent":{"type":"string","enum":["ack","progress","decision","done","blocked"]},
                             "text":{"type":"string"},
-                                "to":{"type":["string","object"]},
+                                "to":{"type":["string","object"],"description":"Omit or use task_chat for this execution's bound chat; use user only for this private scope; use {bot_id} only for a Bot-to-Bot DM from a private incarnation."},
                                 "mentions":{"type":"array","items":{}},
                                 "artifacts":{"type":"array","items":{"type":"object"}},
                                 "options":{"type":"array","items":{"type":"string"}},
@@ -2706,7 +2738,6 @@ impl ExecutionEngine {
                             "allow_free_text":{"type":"boolean","description":"For decision questions, allow a free-text answer in addition to selecting options. Defaults to true."},
                             "projects":{"type":"array","description":"Attach cards for existing groups mentioned by this message. The sending Bot must be a member of each group.","items":{"type":"object","required":["project_id"],"properties":{"project_id":{"type":"string"},"note":{"type":"string"}}}},
                             "link_previews":{"type":"array","description":"Structured link previews attached to this message.","items":{"type":"object","required":["url"],"properties":{"url":{"type":"string"},"site":{"type":"string"},"title":{"type":"string"},"description":{"type":"string"},"image":{"type":"object"}}}},
-                            "chat_id":{"type":"string","description":"An existing Chat.id, not a Project.id. Omit to use the current chat; use an explicit existing chat ID for cross-chat delivery."},
                             "message_id":{"type":"string"},
                             "reply_to":{"type":"string"}
                         }
@@ -4989,9 +5020,19 @@ mod tests {
             schema.pointer("/function/parameters/properties/allow_free_text/type"),
             Some(&json!("boolean"))
         );
+        assert_eq!(
+            schema.pointer("/function/parameters/properties/chat_id"),
+            None,
+            "model calls must not select a send chat"
+        );
+        assert!(schema
+            .pointer("/function/parameters/properties/to/description")
+            .and_then(Value::as_str)
+            .is_some_and(|description| description.contains("bound chat")));
         let description = schema["function"]["description"].as_str().unwrap();
         assert!(description.contains("decision"));
         assert!(description.contains("reply_to"));
+        assert!(description.contains("server-bound chat scope"));
     }
 
     #[tokio::test]
@@ -5080,7 +5121,7 @@ mod tests {
         .unwrap();
         let outcome = engine.run(request(false)).await.unwrap();
         assert_eq!(outcome.status, "done");
-        assert_eq!(sink.rejected.lock().unwrap().len(), 1);
+        assert!(sink.rejected.lock().unwrap().is_empty());
         assert_eq!(sink.groups.lock().unwrap().len(), 1);
         let submissions = engine
             .store
@@ -5088,9 +5129,9 @@ mod tests {
             .unwrap();
         assert_eq!(submissions.len(), 1);
         assert_eq!(submissions[0]["receipt"]["message_id"], "valid-message");
-        assert!(!submissions
+        assert!(submissions
             .iter()
-            .any(|row| { row.pointer("/message/chat_id") == Some(&json!("chat_bad")) }));
+            .all(|row| row.pointer("/receipt/payload/chat_id") == Some(&json!("chat_mock"))));
         let events = sink.events.lock().unwrap();
         assert!(events.iter().any(|event| {
             event.event == "trace.item"
@@ -5179,7 +5220,7 @@ mod tests {
         assert_eq!(sink.rejected.lock().unwrap().len(), 0);
         let outcome = engine.continue_approved(request).await.unwrap();
         assert_eq!(outcome.status, "done");
-        assert_eq!(sink.rejected.lock().unwrap().len(), 1);
+        assert!(sink.rejected.lock().unwrap().is_empty());
         assert_eq!(sink.groups.lock().unwrap().len(), 1);
         assert_eq!(
             std::fs::read_to_string(dir.path().join("approved.txt")).unwrap(),

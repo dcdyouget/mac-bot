@@ -1816,16 +1816,11 @@ impl ProductionBackend {
             };
             if let Some(assignment) = assignment {
                 let id = assignment.get("id").and_then(Value::as_str).unwrap_or("");
-                let raw_chat_id = assignment
-                    .get("origin_chat_id")
-                    .and_then(Value::as_str)
-                    .unwrap_or("chat_main");
-                if !raw_chat_id.starts_with("dm_") {
-                    let chat_id = if raw_chat_id == "main-dm" {
-                        "chat_main"
-                    } else {
-                        raw_chat_id
-                    };
+                let chat_id = self
+                    .orchestrator
+                    .resolve_assignment_return_chat(id)
+                    .map_err(Self::error)?;
+                if !chat_id.starts_with("dm_") {
                     let delegation = method == "delegate"
                         && assignment.get("project_id").is_none_or(Value::is_null);
                     let card = json!({
@@ -1849,6 +1844,78 @@ impl ProductionBackend {
                     if let Some(event) =
                         self.repair_card_event(&format!("{base_key}:assignment-card"), card)?
                     {
+                        events.push(event);
+                    }
+                }
+            }
+        }
+        if method == "send_msg"
+            && matches!(
+                canonical.get("intent").and_then(Value::as_str),
+                Some("done" | "blocked")
+            )
+        {
+            let assignment_id = canonical
+                .get("assignment_id")
+                .and_then(Value::as_str)
+                .unwrap_or("");
+            if snapshot
+                .get("assignments")
+                .and_then(|items| items.get(assignment_id))
+                .is_some()
+            {
+                let return_chat_id = self
+                    .orchestrator
+                    .resolve_assignment_return_chat(assignment_id)
+                    .ok();
+                let execution_chat_id = canonical.get("chat_id").and_then(Value::as_str);
+                if let Some(return_chat_id) =
+                    return_chat_id.filter(|chat_id| Some(chat_id.as_str()) != execution_chat_id)
+                {
+                    let message_id = canonical.get("id").and_then(Value::as_str).unwrap_or("");
+                    let summary = canonical
+                        .get("text")
+                        .and_then(Value::as_str)
+                        .or_else(|| canonical.get("fallback_text").and_then(Value::as_str))
+                        .unwrap_or_default();
+                    let is_done = canonical["intent"] == "done";
+                    let result_artifacts = if is_done {
+                        assignment_result_artifacts(
+                            snapshot,
+                            canonical,
+                            assignment_id,
+                            &return_chat_id,
+                        )
+                    } else {
+                        Vec::new()
+                    };
+                    let result_next = if is_done {
+                        assignment_result_next(snapshot, canonical, summary, &return_chat_id)
+                    } else {
+                        Vec::new()
+                    };
+                    let card = json!({
+                        "id":format!("msg_assignment_result_{assignment_id}_{message_id}"),
+                        "chat_id":return_chat_id,
+                        "seq":0,
+                        "sender":{"kind":"system"},
+                        "created_at":canonical.get("created_at").cloned().unwrap_or_else(|| json!(now())),
+                        "edited_at":null,"deleted":false,"reply_to":null,"thread_count":0,
+                        "mentions":[],
+                        "blocks":if is_done {
+                            json!([{"type":"completion","summary":summary,"artifacts":result_artifacts,"next":result_next,"notify_main":true}])
+                        } else {
+                            json!([{"type":"blocked","reason":summary}])
+                        },
+                        "fallback_text":if is_done { summary.to_owned() } else { format!("任务受阻：{summary}") },
+                        "intent":null,
+                        "assignment_id":assignment_id,
+                        "streaming":false,"delivery":[],"reactions":[]
+                    });
+                    if let Some(event) = self.repair_card_event(
+                        &format!("{base_key}:assignment-result:{message_id}"),
+                        card,
+                    )? {
                         events.push(event);
                     }
                 }
@@ -3413,11 +3480,19 @@ impl ProductionBackend {
         {
             return Ok(None);
         }
-        let queued = self
-            .load_chat_messages(chat_id)?
+        let return_chat_id = self
+            .orchestrator
+            .resolve_assignment_return_chat(assignment_id)
+            .map_err(Self::error)?;
+        let snapshot = self.orchestrator.snapshot().map_err(Self::error)?;
+        let queued = snapshot
+            .get("messages")
+            .and_then(Value::as_object)
             .into_iter()
+            .flat_map(|messages| messages.values())
             .filter(|message| {
-                message.get("deleted").and_then(Value::as_bool) != Some(true)
+                message.get("chat_id").and_then(Value::as_str) == Some(return_chat_id.as_str())
+                    && message.get("deleted").and_then(Value::as_bool) != Some(true)
                     && message
                         .get("delivery")
                         .and_then(Value::as_array)
@@ -3431,6 +3506,7 @@ impl ProductionBackend {
                             })
                         })
             })
+            .cloned()
             .collect::<Vec<_>>();
         if queued.is_empty() {
             return Ok(None);
@@ -3914,17 +3990,6 @@ impl RpcBackend for ProductionBackend {
         if method == "send_msg" {
             append_link_preview_blocks(&mut result, &params)?;
             append_project_card_blocks(self, &mut result, &params).await?;
-            if self.is_main_dm_delegate_message(&params) {
-                // A small task delegated from the main Bot DM is represented
-                // there by its delegation/task card and its result. Keep the
-                // worker's result blocks and text so the main Bot can use the
-                // report, but don't render the worker as a second speaker in
-                // the user's conversation.
-                if let Some(message) = result.as_object_mut() {
-                    message.insert("sender".into(), json!({"kind":"system"}));
-                    message.insert("intent".into(), Value::Null);
-                }
-            }
             result = self.persist_client_message(&result)?;
         } else if method == "chat.send" {
             let canonical = self.persist_client_message(&result["message"])?;
@@ -5637,55 +5702,8 @@ impl ProductionBackend {
             .await;
     }
 
-    /// Pure target validation, also used before the executor's durable receipt.
-    /// Resolve explicit Bot DM routes without creating their metadata or events.
-    fn is_main_dm_delegate_message(&self, params: &Value) -> bool {
-        let Some(assignment_id) = params.get("assignment_id").and_then(Value::as_str) else {
-            return false;
-        };
-        let Some(bot_id) = params.get("bot_id").and_then(Value::as_str) else {
-            return false;
-        };
-        if bot_id == "main" || params.get("chat_id").and_then(Value::as_str) != Some("chat_main") {
-            return false;
-        }
-        self.orchestrator
-            .snapshot()
-            .ok()
-            .and_then(|snapshot| {
-                snapshot
-                    .get("assignments")
-                    .and_then(Value::as_object)
-                    .and_then(|assignments| assignments.get(assignment_id))
-                    .cloned()
-            })
-            .is_some_and(|assignment| {
-                assignment.get("bot_id").and_then(Value::as_str) == Some(bot_id)
-                    && assignment.get("origin_chat_id").and_then(Value::as_str) == Some("chat_main")
-                    && assignment.get("from").and_then(Value::as_str) == Some("main")
-                    && assignment.get("project_id").is_none_or(Value::is_null)
-            })
-    }
-
     pub fn execution_validate_send_msg_target(&self, params: &Value) -> Result<(), RpcError> {
         let mut resolved = params.clone();
-        if params.get("to").is_some() {
-            let source_chat = match params.get("chat_id") {
-                None => "chat_main",
-                Some(Value::String(target)) if !target.trim().is_empty() => target.as_str(),
-                Some(_) => {
-                    return Err(crate::rpc_error(
-                        "invalid_params",
-                        "send_msg.chat_id must be a nonempty Chat.id",
-                        None,
-                    ));
-                }
-            };
-            let source_bot = params.get("bot_id").and_then(Value::as_str).unwrap_or("");
-            self.orchestrator
-                .validate_send_msg_target(source_chat, source_bot)
-                .map_err(Self::error)?;
-        }
         self.prepare_bot_dm_send(&mut resolved)?;
         let chat_id = resolved
             .get("chat_id")
@@ -5705,19 +5723,6 @@ impl ProductionBackend {
     }
 
     fn prepare_bot_dm_send(&self, params: &mut Value) -> Result<Option<BotDmContext>, RpcError> {
-        let Some(to) = params.get("to") else {
-            return Ok(None);
-        };
-        let target_bot_id = to
-            .as_str()
-            .or_else(|| to.get("bot").and_then(Value::as_str))
-            .or_else(|| to.get("bot_id").and_then(Value::as_str))
-            .filter(|id| !id.is_empty())
-            .ok_or_else(|| RpcError {
-                code: "invalid_params".into(),
-                message: "send_msg.to must identify a bot".into(),
-                details: None,
-            })?;
         let source_bot_id = params
             .get("bot_id")
             .and_then(Value::as_str)
@@ -5728,24 +5733,199 @@ impl ProductionBackend {
                 details: None,
             })?
             .to_owned();
+        let assignment_id = params
+            .get("assignment_id")
+            .and_then(Value::as_str)
+            .filter(|id| !id.is_empty());
         let source_chat_id = params
+            .get("_send_scope_chat_id")
+            .and_then(Value::as_str)
+            .or_else(|| params.get("chat_id").and_then(Value::as_str))
+            .filter(|id| !id.trim().is_empty())
+            .ok_or_else(|| {
+                crate::rpc_error(
+                    "invalid_params",
+                    "send_msg execution chat is required",
+                    None,
+                )
+            })?
+            .to_owned();
+        let scope_chat_id = self
+            .orchestrator
+            .resolve_send_scope(assignment_id, &source_bot_id, &source_chat_id)
+            .map_err(Self::error)?;
+        if params
             .get("chat_id")
             .and_then(Value::as_str)
-            .unwrap_or("chat_main")
-            .to_owned();
-        let route = self
-            .orchestrator
-            .bot_dm_route(&source_bot_id, target_bot_id)
-            .map_err(Self::error)?;
-        params["chat_id"] = json!(route.chat_id.clone());
+            .is_some_and(|requested| requested != scope_chat_id)
+        {
+            return Err(crate::rpc_error(
+                "forbidden",
+                "send_msg cannot override its execution chat",
+                None,
+            ));
+        }
+
+        let to = params.get("to").cloned();
+        let mut bot_dm_context = None;
+        let destination = match to {
+            None => scope_chat_id.clone(),
+            Some(Value::String(to)) if to == "task_chat" => scope_chat_id.clone(),
+            Some(Value::String(to)) if to == "user" => {
+                if self.is_project_send_scope(params, &scope_chat_id)? {
+                    return Err(crate::rpc_error(
+                        "forbidden",
+                        "a group incarnation cannot target a private chat",
+                        None,
+                    ));
+                }
+                // `user` is retained for older prompts. Its canonical private
+                // destination is still the scope assigned to this run.
+                scope_chat_id.clone()
+            }
+            Some(Value::String(to)) if to == scope_chat_id => scope_chat_id.clone(),
+            Some(Value::Object(to)) => {
+                let target_chat_id = to
+                    .get("chat_id")
+                    .and_then(Value::as_str)
+                    .filter(|id| !id.trim().is_empty());
+                let target_bot_id = to
+                    .get("bot")
+                    .or_else(|| to.get("bot_id"))
+                    .and_then(Value::as_str)
+                    .filter(|id| !id.trim().is_empty());
+                if let Some(target_chat_id) = target_chat_id {
+                    if target_chat_id != scope_chat_id {
+                        return Err(crate::rpc_error(
+                            "forbidden",
+                            "send_msg cannot target another chat incarnation",
+                            None,
+                        ));
+                    }
+                    scope_chat_id.clone()
+                } else if let Some(target_bot_id) = target_bot_id {
+                    bot_dm_context = Some(self.resolve_bot_dm_context(
+                        params,
+                        &source_bot_id,
+                        &scope_chat_id,
+                        target_bot_id,
+                    )?);
+                    bot_dm_context
+                        .as_ref()
+                        .expect("Bot DM context was just resolved")
+                        .route
+                        .chat_id
+                        .clone()
+                } else {
+                    return Err(crate::rpc_error(
+                        "invalid_params",
+                        "send_msg.to must identify the bound chat or a bot_id",
+                        None,
+                    ));
+                }
+            }
+            Some(Value::String(to)) => {
+                let snapshot = self.orchestrator.snapshot().map_err(Self::error)?;
+                let is_bot_id = snapshot
+                    .get("bots")
+                    .and_then(Value::as_object)
+                    .is_some_and(|bots| bots.contains_key(&to));
+                if !is_bot_id {
+                    return Err(crate::rpc_error(
+                        "forbidden",
+                        "send_msg cannot target another private or group chat",
+                        None,
+                    ));
+                }
+                bot_dm_context = Some(self.resolve_bot_dm_context(
+                    params,
+                    &source_bot_id,
+                    &scope_chat_id,
+                    &to,
+                )?);
+                bot_dm_context
+                    .as_ref()
+                    .expect("Bot DM context was just resolved")
+                    .route
+                    .chat_id
+                    .clone()
+            }
+            Some(_) => {
+                return Err(crate::rpc_error(
+                    "invalid_params",
+                    "send_msg.to must be task_chat, user, a bound chat id, or {bot_id}",
+                    None,
+                ));
+            }
+        };
+
         if let Some(object) = params.as_object_mut() {
+            object.insert("chat_id".into(), json!(destination));
+            object.insert("_send_scope_chat_id".into(), json!(scope_chat_id));
             object.remove("to");
         }
-        Ok(Some(BotDmContext {
-            source_chat_id,
-            source_bot_id,
+        Ok(bot_dm_context)
+    }
+
+    fn resolve_bot_dm_context(
+        &self,
+        params: &Value,
+        source_bot_id: &str,
+        source_chat_id: &str,
+        target_bot_id: &str,
+    ) -> Result<BotDmContext, RpcError> {
+        if self.is_project_send_scope(params, source_chat_id)? {
+            return Err(crate::rpc_error(
+                "forbidden",
+                "a group incarnation can only send to its bound group chat",
+                None,
+            ));
+        }
+        let route = self
+            .orchestrator
+            .bot_dm_route(source_bot_id, target_bot_id)
+            .map_err(Self::error)?;
+        Ok(BotDmContext {
+            source_chat_id: source_chat_id.to_owned(),
+            source_bot_id: source_bot_id.to_owned(),
             route,
-        }))
+        })
+    }
+
+    fn is_project_send_scope(
+        &self,
+        params: &Value,
+        source_chat_id: &str,
+    ) -> Result<bool, RpcError> {
+        let snapshot = self.orchestrator.snapshot().map_err(Self::error)?;
+        if let Some(project_id) = params
+            .get("assignment_id")
+            .and_then(Value::as_str)
+            .and_then(|assignment_id| {
+                snapshot
+                    .get("assignments")?
+                    .get(assignment_id)?
+                    .get("project_id")
+                    .and_then(Value::as_str)
+            })
+        {
+            if snapshot
+                .get("projects")
+                .and_then(Value::as_object)
+                .and_then(|projects| projects.get(project_id))
+                .is_some()
+            {
+                return Ok(true);
+            }
+        }
+        Ok(snapshot
+            .get("projects")
+            .and_then(Value::as_object)
+            .is_some_and(|projects| {
+                projects.values().any(|project| {
+                    project.get("chat_id").and_then(Value::as_str) == Some(source_chat_id)
+                })
+            }))
     }
 
     fn ensure_bot_dm_chat(&self, route: &BotDmRoute) -> Result<bool, RpcError> {
@@ -6531,14 +6711,15 @@ impl ProductionBackend {
             })?;
         let is_delegation =
             method == "delegate" && assignment.get("project_id").is_none_or(Value::is_null);
+        let assignment_id = assignment["id"].as_str().unwrap_or_default();
+        let return_chat_id = self
+            .orchestrator
+            .resolve_assignment_return_chat(assignment_id)
+            .ok();
         if is_delegation {
             self.ensure_assignment_card_with_event_index(state, assignment, true, event_index)
                 .await?;
-        } else if assignment
-            .get("origin_chat_id")
-            .and_then(Value::as_str)
-            .is_some_and(|chat_id| !chat_id.starts_with("dm_"))
-        {
+        } else if return_chat_id.is_some_and(|chat_id| !chat_id.starts_with("dm_")) {
             self.ensure_assignment_card_with_event_index(state, assignment, false, event_index)
                 .await?;
         }
@@ -6560,15 +6741,11 @@ impl ProductionBackend {
                 message: "assignment result has no id".into(),
                 details: None,
             })?;
-        let raw_chat_id = assignment
-            .get("origin_chat_id")
-            .and_then(Value::as_str)
-            .unwrap_or("chat_main");
-        let chat_id = if raw_chat_id == "main-dm" {
-            "chat_main"
-        } else {
-            raw_chat_id
-        };
+        let resolved_chat_id = self
+            .orchestrator
+            .resolve_assignment_return_chat(assignment_id)
+            .map_err(Self::error)?;
+        let chat_id = resolved_chat_id.as_str();
         let message_id = if delegation {
             format!("msg_delegation_{assignment_id}")
         } else {
@@ -9351,6 +9528,159 @@ fn deduplicate_review_card_artifacts(message: &mut Value) {
     }
 }
 
+/// Copy only artifacts that are part of this completion and visible from its
+/// return chat. Project results stay inside their project; private artifacts
+/// can be surfaced to the user's main chat, but never leaked into another
+/// Bot's private DM.
+fn assignment_result_artifacts(
+    snapshot: &Value,
+    canonical: &Value,
+    assignment_id: &str,
+    target_chat_id: &str,
+) -> Vec<Value> {
+    let target_project_id = snapshot
+        .get("projects")
+        .and_then(Value::as_object)
+        .and_then(|projects| {
+            projects.iter().find_map(|(project_id, project)| {
+                (project.get("chat_id").and_then(Value::as_str) == Some(target_chat_id))
+                    .then_some(project_id.as_str())
+            })
+        });
+    let target_dm_bot = snapshot
+        .get("bots")
+        .and_then(Value::as_object)
+        .and_then(|bots| {
+            bots.values()
+                .find(|bot| bot.get("dm_chat_id").and_then(Value::as_str) == Some(target_chat_id))
+        });
+    let Some(requested) = canonical.get("artifacts").and_then(Value::as_array) else {
+        return Vec::new();
+    };
+    let Some(artifacts) = snapshot.get("artifacts").and_then(Value::as_object) else {
+        return Vec::new();
+    };
+    let mut copied = Vec::new();
+    let mut seen = HashSet::new();
+    for reference in requested {
+        let Some(path_or_url) = reference.get("path_or_url").and_then(Value::as_str) else {
+            continue;
+        };
+        let title = reference.get("title").and_then(Value::as_str).unwrap_or("");
+        let found = artifacts.iter().find(|(_, artifact)| {
+            artifact.get("assignment_id").and_then(Value::as_str) == Some(assignment_id)
+                && artifact.get("path_or_url").and_then(Value::as_str) == Some(path_or_url)
+                && artifact.get("title").and_then(Value::as_str) == Some(title)
+        });
+        let Some((artifact_id, artifact)) = found else {
+            continue;
+        };
+        let project_id = artifact.get("project_id").and_then(Value::as_str);
+        let visible = if let Some(target_project_id) = target_project_id {
+            project_id == Some(target_project_id)
+        } else if target_chat_id == "chat_main" {
+            project_id.is_none()
+        } else if let Some(target_bot_id) = target_dm_bot
+            .and_then(|bot| bot.get("id"))
+            .and_then(Value::as_str)
+        {
+            project_id.is_none()
+                && artifact.get("bot_id").and_then(Value::as_str) == Some(target_bot_id)
+        } else {
+            false
+        };
+        if !visible || !seen.insert(artifact_id) {
+            continue;
+        }
+        copied.push(json!({
+            "artifact_id":artifact_id,
+            "title":artifact.get("title").cloned().unwrap_or_else(|| json!(title)),
+            "path_or_url":path_or_url,
+            "bot_id":artifact.get("bot_id").cloned().unwrap_or(Value::Null),
+            "kind":artifact.get("kind").cloned().unwrap_or_else(|| json!("file"))
+        }));
+    }
+    copied
+}
+
+/// `next` is derived from canonical message mentions, never arbitrary client
+/// completion payloads. Keep it within the return chat's existing audience.
+fn assignment_result_next(
+    snapshot: &Value,
+    canonical: &Value,
+    summary: &str,
+    target_chat_id: &str,
+) -> Vec<Value> {
+    let target_project = snapshot
+        .get("projects")
+        .and_then(Value::as_object)
+        .and_then(|projects| {
+            projects.values().find(|project| {
+                project.get("chat_id").and_then(Value::as_str) == Some(target_chat_id)
+            })
+        });
+    let target_dm_bot_id = snapshot
+        .get("bots")
+        .and_then(Value::as_object)
+        .and_then(|bots| {
+            bots.values().find_map(|bot| {
+                (bot.get("dm_chat_id").and_then(Value::as_str) == Some(target_chat_id))
+                    .then(|| bot.get("id").and_then(Value::as_str))
+                    .flatten()
+            })
+        });
+    let Some(mentions) = canonical.get("mentions").and_then(Value::as_array) else {
+        return Vec::new();
+    };
+    let Some(bots) = snapshot.get("bots").and_then(Value::as_object) else {
+        return Vec::new();
+    };
+    let mut next = Vec::new();
+    let mut seen = HashSet::new();
+    for mention in mentions {
+        if mention.get("kind").and_then(Value::as_str) != Some("bot") {
+            continue;
+        }
+        let Some(bot_id) = mention.get("bot_id").and_then(Value::as_str) else {
+            continue;
+        };
+        if bot_id == "main" || !seen.insert(bot_id) {
+            continue;
+        }
+        let Some(bot) = bots.get(bot_id) else {
+            continue;
+        };
+        let visible = if let Some(project) = target_project {
+            project
+                .get("members")
+                .and_then(Value::as_array)
+                .is_some_and(|members| {
+                    members
+                        .iter()
+                        .filter(|member| {
+                            member.get("bot_id").and_then(Value::as_str) == Some(bot_id)
+                        })
+                        .count()
+                        == 1
+                })
+        } else if target_chat_id == "chat_main" {
+            true
+        } else {
+            target_dm_bot_id == Some(bot_id)
+        };
+        if !visible {
+            continue;
+        }
+        let instruction = mention
+            .get("instruction")
+            .and_then(Value::as_str)
+            .filter(|instruction| !instruction.trim().is_empty())
+            .unwrap_or(summary);
+        next.push(json!({"bot_id":bot.get("id").cloned().unwrap_or_else(|| json!(bot_id)),"instruction":instruction}));
+    }
+    next
+}
+
 fn normalize_message(value: &mut Value) {
     let o = obj(value);
     o.entry("seq").or_insert(json!(0));
@@ -11908,13 +12238,12 @@ mod tests {
             ..Default::default()
         });
         let backend = ProductionBackend::open(home.path()).unwrap();
-        let from = backend
+        let from_bot = backend
             .call("bot.create", json!({"name":"loop-from"}), &gateway.state)
             .await
-            .unwrap()["bot"]["id"]
-            .as_str()
-            .unwrap()
-            .to_owned();
+            .unwrap();
+        let from = from_bot["bot"]["id"].as_str().unwrap().to_owned();
+        let from_dm = from_bot["bot"]["dm_chat_id"].as_str().unwrap().to_owned();
         let to = backend
             .call("bot.create", json!({"name":"loop-to"}), &gateway.state)
             .await
@@ -11924,7 +12253,7 @@ mod tests {
             .to_owned();
         let assignment = backend.call("assignment.create", json!({"origin_chat_id":"chat_main","bot_id":from,"title":"loop root","instruction":"handoff","from":"main","root_message_id":"root-loop","loop_hops":8}), &gateway.state).await.unwrap();
         let assignment_id = assignment["id"].as_str().unwrap();
-        let sent = backend.call("send_msg", json!({"bot_id":from,"chat_id":"chat_main","assignment_id":assignment_id,"text":"继续交接","intent":"done","mentions":[{"kind":"bot","bot_id":to,"instruction":"下一跳"}]}), &gateway.state).await.unwrap();
+        let sent = backend.call("send_msg", json!({"bot_id":from,"chat_id":from_dm,"assignment_id":assignment_id,"text":"继续交接","intent":"done","mentions":[{"kind":"bot","bot_id":to,"instruction":"下一跳"}]}), &gateway.state).await.unwrap();
         let sent_message: Message = serde_json::from_value(sent.clone()).unwrap();
         assert_eq!(sent["blocks"][0]["type"], "loop_paused");
         let resolved = backend
@@ -11963,7 +12292,7 @@ mod tests {
         let history = backend
             .call(
                 "chat.history",
-                json!({"chat_id":"chat_main","limit":20}),
+                json!({"chat_id":from_dm,"limit":20}),
                 &gateway.state,
             )
             .await
@@ -11985,6 +12314,23 @@ mod tests {
                 ..
             }
         ));
+        let main_history = backend
+            .call(
+                "chat.history",
+                json!({"chat_id":"chat_main","limit":20}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        assert!(main_history["messages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|item| {
+                item["assignment_id"] == assignment_id
+                    && item["sender"]["kind"] == "system"
+                    && item["blocks"][0]["type"] == "completion"
+            }));
         drop(backend);
         drop(gateway);
         let restarted_gateway = Gateway::new(GatewayConfig {
@@ -11995,7 +12341,7 @@ mod tests {
         let replay = restarted
             .call(
                 "chat.history",
-                json!({"chat_id":"chat_main","limit":20}),
+                json!({"chat_id":from_dm,"limit":20}),
                 &restarted_gateway.state,
             )
             .await
@@ -12391,12 +12737,18 @@ mod tests {
             .unwrap();
         let params = json!({"chat_id":project_id,"bot_id":"main","intent":"progress",
             "text":"Do not create an orphan handoff", "mentions":[bot_id]});
-        // A valid `to` may create a Bot DM later, but its preflight is pure.
+        // A private incarnation may address a Bot DM; a group incarnation
+        // remains locked to its project chat.
         backend
+            .execution_validate_send_msg_target(&json!({
+                "chat_id":"chat_main","bot_id":"main","to":{"bot":bot_id}
+            }))
+            .unwrap();
+        assert!(backend
             .execution_validate_send_msg_target(&json!({
                 "chat_id":chat_id,"bot_id":"main","to":{"bot":bot_id}
             }))
-            .unwrap();
+            .is_err());
         for invalid_source in [json!(project_id), json!(42), Value::Null, json!("")] {
             let invalid = json!({"chat_id":invalid_source,"bot_id":"main",
                 "to":{"bot":bot_id},"intent":"progress","text":"No invalid source ref"});
@@ -12459,9 +12811,14 @@ mod tests {
         assert_eq!(handoff["origin_chat_id"], chat_id);
         backend
             .execution_validate_send_msg_target(&json!({
-                "bot_id":"main","chat_id":bot["bot"]["dm_chat_id"]
+                "bot_id":"main","chat_id":"chat_main"
             }))
             .unwrap();
+        assert!(backend
+            .execution_validate_send_msg_target(&json!({
+                "bot_id":"main","chat_id":bot["bot"]["dm_chat_id"]
+            }))
+            .is_err());
     }
 
     #[tokio::test]
@@ -12784,7 +13141,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn delegated_worker_messages_in_main_dm_are_system_attributed_with_result_preserved() {
+    async fn private_worker_messages_stay_in_dm_and_results_return_to_main() {
         let home = tempdir().unwrap();
         let gateway = Gateway::new(GatewayConfig {
             home: home.path().to_path_buf(),
@@ -12795,7 +13152,13 @@ mod tests {
             .call("bot.create", json!({"name":"委派 worker"}), &gateway.state)
             .await
             .unwrap();
+        let peer = backend
+            .call("bot.create", json!({"name":"交付复核 Bot"}), &gateway.state)
+            .await
+            .unwrap();
         let worker_id = worker["bot"]["id"].as_str().unwrap();
+        let worker_dm = worker["bot"]["dm_chat_id"].as_str().unwrap();
+        let peer_id = peer["bot"]["id"].as_str().unwrap();
         let delegated = backend
             .call(
                 "delegate",
@@ -12820,7 +13183,7 @@ mod tests {
                     "receipt":{"run_id":"delegate-worker-run","call_id":"ack"},
                     "message":{
                         "bot_id":worker_id,
-                        "chat_id":"chat_main",
+                        "chat_id":worker_dm,
                         "assignment_id":assignment_id,
                         "text":"已开始整理",
                         "intent":"ack",
@@ -12830,9 +13193,47 @@ mod tests {
             )
             .await
             .unwrap();
-        assert_eq!(ack["sender"]["kind"], "system");
-        assert!(ack["sender"]["bot_id"].is_null());
-        assert!(ack["intent"].is_null());
+        assert_eq!(ack["sender"]["kind"], "bot");
+        assert_eq!(ack["sender"]["bot_id"], worker_id);
+        assert_eq!(ack["intent"], "ack");
+
+        let queued = backend
+            .call(
+                "chat.send",
+                json!({
+                    "chat_id":"chat_main",
+                    "text":"补充一项资料",
+                    "mentions":[]
+                }),
+                &gateway.state,
+            )
+            .await
+            .unwrap()["message"]
+            .clone();
+        assert_eq!(queued["delivery"][0]["assignment_id"], assignment_id);
+        assert_eq!(queued["delivery"][0]["state"], "queued");
+        let reviewed = backend
+            .execution_send_msg(
+                &gateway.state,
+                json!({
+                    "receipt":{"run_id":"delegate-worker-run","call_id":"done-review"},
+                    "message":{
+                        "bot_id":worker_id,
+                        "chat_id":worker_dm,
+                        "assignment_id":assignment_id,
+                        "text":"检查待处理补充",
+                        "intent":"done",
+                        "mentions":[]
+                    }
+                }),
+            )
+            .await
+            .unwrap();
+        assert!(reviewed["_queue_review"].is_object());
+        assert_eq!(
+            reviewed["_queue_review"]["messages"][0]["delivery"][0]["state"],
+            "read"
+        );
 
         let completion = backend
             .execution_send_msg(
@@ -12841,23 +13242,20 @@ mod tests {
                     "receipt":{"run_id":"delegate-worker-run","call_id":"done"},
                     "message":{
                         "bot_id":worker_id,
-                        "chat_id":"chat_main",
+                        "chat_id":worker_dm,
                         "assignment_id":assignment_id,
                         "text":"整理完成：找到三份可用资料",
                         "intent":"done",
-                        "mentions":[]
+                        "mentions":[{"kind":"bot","bot_id":peer_id,"instruction":"复核交付报告"}],
+                        "artifacts":[{"title":"交付报告","path_or_url":"reports/summary.md"}]
                     }
                 }),
             )
             .await
             .unwrap();
-        assert_eq!(completion["sender"]["kind"], "system");
-        assert!(completion["intent"].is_null());
-        assert_eq!(completion["blocks"][0]["type"], "completion");
-        assert_eq!(
-            completion["blocks"][0]["summary"],
-            "整理完成：找到三份可用资料"
-        );
+        assert_eq!(completion["sender"]["kind"], "bot");
+        assert_eq!(completion["sender"]["bot_id"], worker_id);
+        assert_eq!(completion["intent"], "done");
 
         let assignment = backend
             .call(
@@ -12880,11 +13278,43 @@ mod tests {
             .await
             .unwrap();
         let messages = history["messages"].as_array().unwrap();
-        assert!(messages.iter().any(|message| {
-            message["id"] == completion["id"]
-                && message["sender"]["kind"] == "system"
-                && message["blocks"][0]["type"] == "completion"
-        }));
+        let result_card = messages
+            .iter()
+            .find(|message| {
+                message["assignment_id"] == assignment_id
+                    && message["sender"]["kind"] == "system"
+                    && message["blocks"][0]["type"] == "completion"
+            })
+            .expect("main receives a server-generated completion summary");
+        assert_ne!(result_card["id"], completion["id"]);
+        assert_eq!(
+            result_card["blocks"][0]["summary"],
+            "整理完成：找到三份可用资料"
+        );
+        assert_eq!(result_card["assignment_id"], assignment_id);
+        assert_ne!(result_card["id"], assignment["result_message_id"]);
+        assert_eq!(
+            result_card["blocks"][0]["artifacts"]
+                .as_array()
+                .unwrap()
+                .len(),
+            1
+        );
+        assert_eq!(
+            result_card["blocks"][0]["artifacts"][0]["title"],
+            "交付报告"
+        );
+        assert_eq!(
+            result_card["blocks"][0]["artifacts"][0]["path_or_url"],
+            "reports/summary.md"
+        );
+        assert_eq!(
+            result_card["blocks"][0]["next"],
+            json!([{
+                "bot_id":peer_id,
+                "instruction":"复核交付报告"
+            }])
+        );
         assert!(messages.iter().any(|message| {
             message["blocks"].as_array().is_some_and(|blocks| {
                 blocks.iter().any(|block| {
@@ -12897,31 +13327,102 @@ mod tests {
                 && message["sender"]["kind"] == "bot"
                 && message["sender"]["bot_id"] == worker_id
         }));
-
-        // A worker explicitly addressed by the user in the main chat remains
-        // that worker's message; only main-originated private delegations are
-        // presented as system task output.
-        let direct = backend
+        let worker_history = backend
             .call(
-                "assignment.create",
+                "chat.history",
+                json!({"chat_id":worker_dm,"limit":100}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        assert!(worker_history["messages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|message| {
+                message["id"] == completion["id"]
+                    && message["sender"]["kind"] == "bot"
+                    && message["sender"]["bot_id"] == worker_id
+            }));
+
+        let completion_replay = backend
+            .execution_send_msg(
+                &gateway.state,
                 json!({
-                    "origin_chat_id":"chat_main",
-                    "bot_id":worker_id,
-                    "title":"用户直接交办",
-                    "instruction":"直接向用户答复",
-                    "from":"user"
+                    "receipt":{"run_id":"delegate-worker-run","call_id":"done"},
+                    "message":{
+                        "bot_id":worker_id,
+                        "chat_id":worker_dm,
+                        "assignment_id":assignment_id,
+                        "text":"整理完成：找到三份可用资料",
+                        "intent":"done",
+                        "mentions":[{"kind":"bot","bot_id":peer_id,"instruction":"复核交付报告"}],
+                        "artifacts":[{"title":"交付报告","path_or_url":"reports/summary.md"}]
+                    }
+                }),
+            )
+            .await
+            .unwrap();
+        assert_eq!(completion_replay["id"], completion["id"]);
+        let main_after_replay = backend
+            .call(
+                "chat.history",
+                json!({"chat_id":"chat_main","limit":100}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            main_after_replay["messages"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|message| message["id"] == result_card["id"])
+                .count(),
+            1,
+            "replaying completion must not duplicate its result card"
+        );
+
+        // An explicit user message in the main chat routes execution to the
+        // worker DM, while its result is returned to the source chat.
+        let direct_message = backend
+            .call(
+                "chat.send",
+                json!({
+                    "chat_id":"chat_main",
+                    "text":"用户直接交办",
+                    "mentions":[{"kind":"bot","bot_id":worker_id}]
                 }),
                 &gateway.state,
             )
             .await
             .unwrap();
-        let direct_id = direct["id"].as_str().unwrap();
+        let direct_id = direct_message["message"]["delivery"][0]["assignment_id"]
+            .as_str()
+            .unwrap();
+        let direct_assignment = backend
+            .call(
+                "assignment.get",
+                json!({"assignment_id":direct_id}),
+                &gateway.state,
+            )
+            .await
+            .unwrap()["assignment"]
+            .clone();
+        assert_eq!(direct_assignment["origin_chat_id"], worker_dm);
+        assert_eq!(
+            backend
+                .orchestrator
+                .resolve_assignment_return_chat(direct_id)
+                .unwrap(),
+            "chat_main"
+        );
         let direct_reply = backend
             .call(
                 "send_msg",
                 json!({
                     "bot_id":worker_id,
-                    "chat_id":"chat_main",
+                    "chat_id":worker_dm,
                     "assignment_id":direct_id,
                     "text":"这是用户直接交办的答复",
                     "intent":"done",
@@ -12933,6 +13434,286 @@ mod tests {
             .unwrap();
         assert_eq!(direct_reply["sender"]["kind"], "bot");
         assert_eq!(direct_reply["sender"]["bot_id"], worker_id);
+        let main_after_direct = backend
+            .call(
+                "chat.history",
+                json!({"chat_id":"chat_main","limit":100}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        assert!(main_after_direct["messages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|message| {
+                message["assignment_id"] == direct_id
+                    && message["sender"]["kind"] == "system"
+                    && message["blocks"][0]["type"] == "completion"
+            }));
+
+        // Release the durable store lock before reopening the same data root.
+        drop(backend);
+        drop(gateway);
+        let reopened_gateway = Gateway::new(GatewayConfig {
+            home: home.path().to_path_buf(),
+            ..Default::default()
+        });
+        let reopened = ProductionBackend::open(home.path()).unwrap();
+        let restored_main = reopened
+            .call(
+                "chat.history",
+                json!({"chat_id":"chat_main","limit":100}),
+                &reopened_gateway.state,
+            )
+            .await
+            .unwrap();
+        let restored_messages = restored_main["messages"].as_array().unwrap();
+        let restored_result_cards = restored_messages
+            .iter()
+            .filter(|message| {
+                message["assignment_id"] == assignment_id
+                    && message["sender"]["kind"] == "system"
+                    && message["blocks"][0]["type"] == "completion"
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(restored_result_cards.len(), 1);
+        assert_eq!(restored_result_cards[0]["id"], result_card["id"]);
+        assert_eq!(
+            restored_result_cards[0]["blocks"][0]["artifacts"],
+            result_card["blocks"][0]["artifacts"]
+        );
+        assert_eq!(
+            restored_result_cards[0]["blocks"][0]["next"],
+            result_card["blocks"][0]["next"]
+        );
+        assert_eq!(restored_result_cards[0]["assignment_id"], assignment_id);
+        let restored_assignment = reopened
+            .call(
+                "assignment.get",
+                json!({"assignment_id":assignment_id}),
+                &reopened_gateway.state,
+            )
+            .await
+            .unwrap()["assignment"]
+            .clone();
+        assert_eq!(restored_assignment["result_message_id"], completion["id"]);
+        let restored_worker = reopened
+            .call(
+                "chat.history",
+                json!({"chat_id":worker_dm,"limit":100}),
+                &reopened_gateway.state,
+            )
+            .await
+            .unwrap();
+        assert!(restored_worker["messages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|message| {
+                message["id"] == completion["id"] && message["assignment_id"] == assignment_id
+            }));
+        let replay_after_restart = reopened
+            .execution_send_msg(
+                &reopened_gateway.state,
+                json!({
+                    "receipt":{"run_id":"delegate-worker-run","call_id":"done"},
+                    "message":{
+                        "bot_id":worker_id,
+                        "chat_id":worker_dm,
+                        "assignment_id":assignment_id,
+                        "text":"整理完成：找到三份可用资料",
+                        "intent":"done",
+                        "mentions":[{"kind":"bot","bot_id":peer_id,"instruction":"复核交付报告"}],
+                        "artifacts":[{"title":"交付报告","path_or_url":"reports/summary.md"}]
+                    }
+                }),
+            )
+            .await
+            .unwrap();
+        assert_eq!(replay_after_restart["id"], completion["id"]);
+        let after_restart = reopened
+            .call(
+                "chat.history",
+                json!({"chat_id":"chat_main","limit":100}),
+                &reopened_gateway.state,
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            after_restart["messages"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|message| message["id"] == result_card["id"])
+                .count(),
+            1,
+            "retry after restart must preserve one assignment-linked summary"
+        );
+        assert!(restored_messages.iter().any(|message| {
+            message["id"] == queued["id"] && message["delivery"][0]["state"] == "read"
+        }));
+    }
+
+    #[test]
+    fn assignment_result_payload_respects_return_chat_permissions() {
+        let snapshot = json!({
+            "projects":{
+                "project-a":{"id":"project-a","chat_id":"group-a","members":[{"bot_id":"peer"}]},
+                "project-b":{"id":"project-b","chat_id":"group-b","members":[]}
+            },
+            "bots":{
+                "worker":{"id":"worker","dm_chat_id":"dm_worker"},
+                "peer":{"id":"peer","dm_chat_id":"dm_peer"},
+                "outsider":{"id":"outsider","dm_chat_id":"dm_outsider"}
+            },
+            "artifacts":{
+                "group-a-artifact":{"id":"group-a-artifact","assignment_id":"assignment","project_id":"project-a","bot_id":"worker","title":"A","path_or_url":"a.md","kind":"file"},
+                "group-b-artifact":{"id":"group-b-artifact","assignment_id":"assignment","project_id":"project-b","bot_id":"worker","title":"B","path_or_url":"b.md","kind":"file"},
+                "private-artifact":{"id":"private-artifact","assignment_id":"assignment","project_id":null,"bot_id":"worker","title":"Private","path_or_url":"private.md","kind":"file"}
+            }
+        });
+        let canonical = json!({
+            "artifacts":[
+                {"title":"A","path_or_url":"a.md"},
+                {"title":"B","path_or_url":"b.md"},
+                {"title":"Private","path_or_url":"private.md"}
+            ],
+            "mentions":[
+                {"kind":"bot","bot_id":"peer","instruction":"review"},
+                {"kind":"bot","bot_id":"outsider","instruction":"review"}
+            ]
+        });
+
+        let group_artifacts =
+            assignment_result_artifacts(&snapshot, &canonical, "assignment", "group-a");
+        assert_eq!(group_artifacts.len(), 1);
+        assert_eq!(group_artifacts[0]["artifact_id"], "group-a-artifact");
+        let other_group_artifacts =
+            assignment_result_artifacts(&snapshot, &canonical, "assignment", "group-b");
+        assert_eq!(other_group_artifacts.len(), 1);
+        assert_eq!(other_group_artifacts[0]["artifact_id"], "group-b-artifact");
+        let main_artifacts =
+            assignment_result_artifacts(&snapshot, &canonical, "assignment", "chat_main");
+        assert_eq!(main_artifacts.len(), 1);
+        assert_eq!(main_artifacts[0]["artifact_id"], "private-artifact");
+        assert_eq!(
+            assignment_result_artifacts(&snapshot, &canonical, "assignment", "dm_peer"),
+            Vec::<Value>::new()
+        );
+
+        assert_eq!(
+            assignment_result_next(&snapshot, &canonical, "summary", "group-a"),
+            vec![json!({"bot_id":"peer","instruction":"review"})]
+        );
+        assert_eq!(
+            assignment_result_next(&snapshot, &canonical, "summary", "group-b"),
+            Vec::<Value>::new()
+        );
+        assert_eq!(
+            assignment_result_next(&snapshot, &canonical, "summary", "dm_peer"),
+            vec![json!({"bot_id":"peer","instruction":"review"})]
+        );
+    }
+
+    #[tokio::test]
+    async fn cross_scope_blocked_result_preserves_blocked_reason_only() {
+        let home = tempdir().unwrap();
+        let gateway = Gateway::new(GatewayConfig {
+            home: home.path().to_path_buf(),
+            ..Default::default()
+        });
+        let backend = ProductionBackend::open(home.path()).unwrap();
+        let worker = backend
+            .call(
+                "bot.create",
+                json!({"name":"阻塞结果 worker"}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        let worker_id = worker["bot"]["id"].as_str().unwrap();
+        let worker_dm = worker["bot"]["dm_chat_id"].as_str().unwrap();
+        let delegated = backend
+            .call(
+                "delegate",
+                json!({
+                    "origin_chat_id":"chat_main",
+                    "bot_id":worker_id,
+                    "title":"可能阻塞的工作",
+                    "instruction":"尝试完成",
+                    "from":"main",
+                    "client_request_id":"cross-scope-blocked-delegate"
+                }),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        let assignment_id = delegated["id"].as_str().unwrap();
+        let blocked = backend
+            .execution_send_msg(
+                &gateway.state,
+                json!({
+                    "receipt":{"run_id":"cross-scope-blocked-run","call_id":"blocked"},
+                    "message":{
+                        "bot_id":worker_id,
+                        "chat_id":worker_dm,
+                        "assignment_id":assignment_id,
+                        "text":"缺少外部授权，无法继续",
+                        "intent":"blocked",
+                        "mentions":[],
+                        "artifacts":[{"title":"临时证据","path_or_url":"private/evidence.txt"}]
+                    }
+                }),
+            )
+            .await
+            .unwrap();
+        assert_eq!(blocked["intent"], "blocked");
+        let history = backend
+            .call(
+                "chat.history",
+                json!({"chat_id":"chat_main","limit":100}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        let result = history["messages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|message| {
+                message["assignment_id"] == assignment_id
+                    && message["sender"]["kind"] == "system"
+                    && message["fallback_text"] == "任务受阻：缺少外部授权，无法继续"
+            })
+            .expect("blocked result should be linked to its assignment");
+        assert_eq!(
+            result["blocks"],
+            json!([{
+                "type":"blocked",
+                "reason":"缺少外部授权，无法继续"
+            }])
+        );
+        assert_eq!(result["assignment_id"], assignment_id);
+        assert!(result["blocks"][0].get("artifacts").is_none());
+        assert!(result["blocks"][0].get("next").is_none());
+        let worker_history = backend
+            .call(
+                "chat.history",
+                json!({"chat_id":worker_dm,"limit":100}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        assert!(worker_history["messages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|message| {
+                message["id"] == blocked["id"]
+                    && message["chat_id"] == worker_dm
+                    && message["sender"]["kind"] == "bot"
+            }));
     }
 
     #[tokio::test]
@@ -13666,7 +14447,7 @@ mod tests {
                 "send_msg",
                 json!({
                     "bot_id":from_id,
-                    "chat_id":"chat_main",
+                    "chat_id":from["bot"]["dm_chat_id"],
                     "to":{"bot":to_id},
                     "text":"私信",
                     "intent":"ack",
@@ -13690,15 +14471,15 @@ mod tests {
             .unwrap();
         let _: Chat = serde_json::from_value(bot_dm.clone()).unwrap();
         assert_eq!(bot_dm["kind"], "bot_dm");
-        let main_history = backend
+        let sender_history = backend
             .call(
                 "chat.history",
-                json!({"chat_id":"chat_main","limit":100}),
+                json!({"chat_id":from["bot"]["dm_chat_id"],"limit":100}),
                 &gateway.state,
             )
             .await
             .unwrap();
-        assert!(main_history["messages"]
+        assert!(sender_history["messages"]
             .as_array()
             .unwrap()
             .iter()

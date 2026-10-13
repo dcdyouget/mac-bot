@@ -390,9 +390,74 @@ impl Orchestrator {
         restore_map(&mut i.projects, value.get("projects"))?;
         restore_map(&mut i.announcement_text, value.get("announcement_text"))?;
         for project in i.projects.values_mut() {
+            normalize_project_members(project);
             ensure_main_project_member(project);
         }
         restore_map(&mut i.assignments, value.get("assignments"))?;
+        let restored_assignment_scopes = i
+            .assignments
+            .values()
+            .map(|assignment| {
+                let terminal = matches!(
+                    assignment.status.as_str(),
+                    "done" | "failed" | "cancelled"
+                );
+                let scope = if let Some(project_id) = assignment.project_id.as_deref() {
+                    if terminal {
+                        // Completed history keeps its already-canonical send
+                        // scope even if the project record has since been
+                        // removed. It is never retargeted to the Bot DM.
+                        i.projects
+                            .get(project_id)
+                            .map(|project| project.chat_id.clone())
+                            .unwrap_or_else(|| assignment.origin_chat_id.clone())
+                    } else {
+                        let project = i.projects.get(project_id).ok_or_else(|| {
+                            OrchestratorError::NotFound(format!(
+                                "project {project_id} for recoverable assignment {}",
+                                assignment.id
+                            ))
+                        })?;
+                        if !i.bots.contains_key(&assignment.bot_id) {
+                            return Err(OrchestratorError::NotFound(format!(
+                                "Bot {} for recoverable assignment {}",
+                                assignment.bot_id, assignment.id
+                            )));
+                        }
+                        let member_count = project
+                            .members
+                            .iter()
+                            .filter(|member| member.bot_id == assignment.bot_id)
+                            .count();
+                        if member_count != 1 {
+                            return Err(OrchestratorError::Forbidden(format!(
+                                "cannot restore recoverable assignment {}: Bot {} must have exactly one membership in project {}",
+                                assignment.id, assignment.bot_id, project_id
+                            )));
+                        }
+                        project.chat_id.clone()
+                    }
+                } else {
+                    match i.bots.get(&assignment.bot_id) {
+                        Some(bot) if bot.is_main || bot.id == "main" => "chat_main".into(),
+                        Some(bot) => bot.dm_chat_id.clone(),
+                        None if terminal => assignment.origin_chat_id.clone(),
+                        None => {
+                            return Err(OrchestratorError::NotFound(format!(
+                                "Bot {} for recoverable assignment {}",
+                                assignment.bot_id, assignment.id
+                            )));
+                        }
+                    }
+                };
+                Ok((assignment.id.clone(), scope))
+            })
+            .collect::<Result<Vec<_>>>()?;
+        for (assignment_id, chat_id) in restored_assignment_scopes {
+            if let Some(assignment) = i.assignments.get_mut(&assignment_id) {
+                assignment.origin_chat_id = chat_id;
+            }
+        }
         restore_map(
             &mut i.assignment_retry_requests,
             value.get("assignment_retry_requests"),
@@ -458,6 +523,39 @@ impl Orchestrator {
         restore_map(&mut i.question_scopes, value.get("question_scopes"))?;
         restore_map(&mut i.routines, value.get("routines"))?;
         restore_map(&mut i.routine_runs, value.get("routine_runs"))?;
+        let invalid_routines = i
+            .routines
+            .values()
+            .filter(|routine| routine.enabled)
+            .filter_map(|routine| {
+                i.resolve_routine_delivery(&routine.bot_id, routine.project_id.as_deref())
+                    .err()
+                    .map(|error| (routine.id.clone(), error.to_string()))
+            })
+            .collect::<Vec<_>>();
+        for (routine_id, error) in invalid_routines {
+            let timestamp = now();
+            let run = RoutineRun {
+                id: new_id(),
+                routine_id: routine_id.clone(),
+                assignment_id: None,
+                trigger: "restore".into(),
+                status: "failed".into(),
+                started_at: timestamp.clone(),
+                finished_at: Some(timestamp.clone()),
+                error: Some(format!("routine disabled during restore: {error}")),
+            };
+            i.routine_runs
+                .entry(routine_id.clone())
+                .or_default()
+                .push(run.clone());
+            if let Some(routine) = i.routines.get_mut(&routine_id) {
+                routine.enabled = false;
+                routine.next_run_at = None;
+                routine.last_run = Some(run);
+                routine.updated_at = timestamp;
+            }
+        }
         if let Some(v) = value.get("approval_rules") {
             i.approval_rules = serde_json::from_value(v.clone())
                 .map_err(|e| OrchestratorError::Invalid(e.to_string()))?;
@@ -574,6 +672,26 @@ impl Orchestrator {
     pub fn validate_send_msg_target(&self, chat_id: &str, bot_id: &str) -> Result<()> {
         let inner = self.lock()?;
         inner.validate_send_msg_target(chat_id, bot_id)
+    }
+
+    /// Resolve the chat bound to this execution incarnation. The caller's
+    /// current chat is checked against the assignment's persisted origin so a
+    /// resumed run cannot change its destination after a restart.
+    pub fn resolve_send_scope(
+        &self,
+        assignment_id: Option<&str>,
+        bot_id: &str,
+        current_chat_id: &str,
+    ) -> Result<Id> {
+        let inner = self.lock()?;
+        inner.resolve_send_scope(assignment_id, bot_id, current_chat_id)
+    }
+
+    /// Resolve the chat where a task's outcome belongs. This is independent
+    /// of the assignment's immutable execution/send scope.
+    pub fn resolve_assignment_return_chat(&self, assignment_id: &str) -> Result<Id> {
+        let inner = self.lock()?;
+        inner.resolve_assignment_return_chat(assignment_id)
     }
 
     pub fn queue_steer(&self, request: SteerRequest) -> Result<SteerDelivery> {
@@ -771,6 +889,23 @@ fn normalize_bot_dm_chat_id(bot: &mut Bot) {
         bot.dm_chat_id = "chat_main".into();
     } else if bot.dm_chat_id.trim().is_empty() {
         bot.dm_chat_id = format!("dm_{}", bot.id);
+    }
+}
+
+fn normalize_project_members(project: &mut Project) {
+    let mut seen = HashSet::new();
+    project.members.retain(|member| {
+        let bot_id = if matches!(member.bot_id.as_str(), "main" | "bot_main") {
+            "main"
+        } else {
+            member.bot_id.as_str()
+        };
+        seen.insert(bot_id.to_owned())
+    });
+    for member in &mut project.members {
+        if member.bot_id == "bot_main" {
+            member.bot_id = "main".into();
+        }
     }
 }
 
@@ -1126,20 +1261,72 @@ pub struct RunSubagentHandle {
 }
 
 impl Inner {
-    fn resolve_routine_delivery(&self, bot_id: &str, project_id: Option<&str>) -> Result<Id> {
-        if let Some(project_id) = project_id {
-            if let Some(project) = self.projects.get(project_id) {
-                if project.status != "archived" {
+    fn resolve_assignment_return_chat(&self, assignment_id: &str) -> Result<Id> {
+        let mut current = self
+            .assignments
+            .get(assignment_id)
+            .ok_or_else(|| OrchestratorError::NotFound(format!("assignment {assignment_id}")))?;
+        let mut seen = HashSet::new();
+        loop {
+            if !seen.insert(current.id.clone()) {
+                return Err(OrchestratorError::Conflict(
+                    "assignment parent route contains a cycle".into(),
+                ));
+            }
+            if let Some(project_id) = current.project_id.as_deref() {
+                if let Some(project) = self.projects.get(project_id) {
                     return Ok(project.chat_id.clone());
                 }
             }
+            if let Some(parent_id) = current.parent_assignment_id.as_deref() {
+                if let Some(parent) = self.assignments.get(parent_id) {
+                    current = parent;
+                    continue;
+                }
+            }
+            if let Some(chat_id) = current
+                .trigger_message_id
+                .as_deref()
+                .and_then(|message_id| self.messages.get(message_id))
+                .map(|message| message.chat_id.clone())
+            {
+                return Ok(chat_id);
+            }
+            if current.from == "main" {
+                return Ok("chat_main".into());
+            }
+            if let Some(bot) = self.bots.get(&current.bot_id) {
+                return Ok(bot.dm_chat_id.clone());
+            }
+            return Err(OrchestratorError::NotFound(format!(
+                "Bot {} for assignment {}",
+                current.bot_id, current.id
+            )));
         }
-        Ok(self
-            .bots
-            .get(bot_id)
-            .map(|bot| bot.dm_chat_id.clone())
-            .filter(|chat_id| !chat_id.trim().is_empty())
-            .unwrap_or_else(|| "chat_main".into()))
+    }
+
+    fn resolve_routine_delivery(&self, bot_id: &str, project_id: Option<&str>) -> Result<Id> {
+        if let Some(project_id) = project_id {
+            let project = self.project(project_id)?;
+            let member_count = project
+                .members
+                .iter()
+                .filter(|member| member.bot_id == bot_id)
+                .count();
+            if member_count != 1 {
+                return Err(OrchestratorError::Forbidden(format!(
+                    "Bot {bot_id} must have exactly one membership in project {project_id}"
+                )));
+            }
+            // Archive changes project lifecycle, not the identity of its chat.
+            return Ok(project.chat_id.clone());
+        }
+        let bot = self.bot(bot_id)?;
+        Ok(if bot.is_main || bot.id == "main" {
+            "chat_main".into()
+        } else {
+            bot.dm_chat_id.clone()
+        })
     }
 
     fn project_id_for_chat(&self, chat_id: &str) -> Option<Id> {
@@ -1171,6 +1358,181 @@ impl Inner {
         Err(OrchestratorError::NotFound(format!(
             "unknown chat target {chat_id}"
         )))
+    }
+
+    fn resolve_send_scope(
+        &self,
+        assignment_id: Option<&str>,
+        bot_id: &str,
+        current_chat_id: &str,
+    ) -> Result<Id> {
+        let bot = self.bot(bot_id)?;
+        let scope = if let Some(assignment_id) = assignment_id {
+            let assignment = self.assignment(assignment_id)?;
+            if assignment.bot_id != bot.id {
+                return Err(OrchestratorError::Forbidden(
+                    "assignment does not belong to the sending Bot".into(),
+                ));
+            }
+            if let Some(project_id) = assignment.project_id.as_deref() {
+                let project = self.project(project_id)?;
+                let member_count = project
+                    .members
+                    .iter()
+                    .filter(|member| member.bot_id == bot.id)
+                    .count();
+                if member_count != 1 {
+                    return Err(OrchestratorError::Forbidden(
+                        "the sending Bot must have exactly one incarnation in the project".into(),
+                    ));
+                }
+                if assignment.origin_chat_id != project.chat_id {
+                    return Err(OrchestratorError::Conflict(
+                        "assignment send scope does not match its project chat".into(),
+                    ));
+                }
+                project.chat_id.clone()
+            } else {
+                let expected_scope = if bot.is_main || bot.id == "main" {
+                    "chat_main".into()
+                } else {
+                    bot.dm_chat_id.clone()
+                };
+                if assignment.origin_chat_id != expected_scope {
+                    return Err(OrchestratorError::Conflict(
+                        "assignment send scope does not match its Bot incarnation".into(),
+                    ));
+                }
+                expected_scope
+            }
+        } else {
+            if (bot.is_main || bot.id == "main") && current_chat_id == "chat_main" {
+                "chat_main".into()
+            } else if current_chat_id == bot.dm_chat_id {
+                bot.dm_chat_id.clone()
+            } else if let Some(project) = self
+                .projects
+                .values()
+                .find(|project| project.chat_id == current_chat_id)
+            {
+                let member_count = project
+                    .members
+                    .iter()
+                    .filter(|member| member.bot_id == bot.id)
+                    .count();
+                if member_count != 1 {
+                    return Err(OrchestratorError::Forbidden(
+                        "the sending Bot must have exactly one incarnation in the project".into(),
+                    ));
+                }
+                project.chat_id.clone()
+            } else {
+                return Err(OrchestratorError::Forbidden(
+                    "private incarnation is bound to its Bot direct chat".into(),
+                ));
+            }
+        };
+        if scope != current_chat_id {
+            return Err(OrchestratorError::Forbidden(format!(
+                "execution is bound to chat {scope}"
+            )));
+        }
+        Ok(scope)
+    }
+
+    fn validate_send_msg_destination(
+        &self,
+        chat_id: &str,
+        bot_id: &str,
+        assignment_id: Option<&str>,
+    ) -> Result<()> {
+        self.validate_send_msg_target(chat_id, bot_id)?;
+        if let Some(assignment_id) = assignment_id {
+            let assignment = self.assignment(assignment_id)?;
+            if assignment.bot_id != bot_id {
+                return Err(OrchestratorError::Forbidden(
+                    "assignment does not belong to the sending Bot".into(),
+                ));
+            }
+            if let Some(project_id) = assignment.project_id.as_deref() {
+                let project = self.project(project_id)?;
+                let member_count = project
+                    .members
+                    .iter()
+                    .filter(|member| member.bot_id == bot_id)
+                    .count();
+                if member_count != 1 {
+                    return Err(OrchestratorError::Forbidden(
+                        "the sending Bot must have exactly one membership in the project".into(),
+                    ));
+                }
+                if chat_id != project.chat_id {
+                    return Err(OrchestratorError::Forbidden(
+                        "a project incarnation can only send to its project chat".into(),
+                    ));
+                }
+                if assignment.origin_chat_id != project.chat_id {
+                    return Err(OrchestratorError::Conflict(
+                        "assignment send scope does not match its project chat".into(),
+                    ));
+                }
+                return Ok(());
+            }
+            if chat_id != assignment.origin_chat_id && !self.is_bot_dm_target(chat_id, bot_id) {
+                return Err(OrchestratorError::Forbidden(
+                    "a private task can only send to its bound chat or a Bot-to-Bot DM".into(),
+                ));
+            }
+            return Ok(());
+        }
+
+        let bot = self.bot(bot_id)?;
+        if chat_id != bot.dm_chat_id && !self.is_bot_dm_target(chat_id, bot_id) {
+            return Err(OrchestratorError::Forbidden(
+                "a private incarnation can only send to its own direct chat or a Bot-to-Bot DM"
+                    .into(),
+            ));
+        }
+        Ok(())
+    }
+
+    fn validate_send_msg_scope(
+        &self,
+        destination_chat_id: &str,
+        bot_id: &str,
+        assignment_id: Option<&str>,
+        send_scope_chat_id: &str,
+    ) -> Result<()> {
+        let scope = self.resolve_send_scope(assignment_id, bot_id, send_scope_chat_id)?;
+        if destination_chat_id == scope {
+            return Ok(());
+        }
+        let assignment_is_project = assignment_id
+            .and_then(|id| self.assignments.get(id))
+            .and_then(|assignment| assignment.project_id.as_deref())
+            .and_then(|project_id| self.projects.get(project_id))
+            .is_some();
+        let scope_is_project = self
+            .projects
+            .values()
+            .any(|project| project.chat_id == send_scope_chat_id);
+        if assignment_is_project || scope_is_project {
+            return Err(OrchestratorError::Forbidden(
+                "a project incarnation can only send to its project chat".into(),
+            ));
+        }
+        if self.is_bot_dm_target(destination_chat_id, bot_id) {
+            return Ok(());
+        }
+        Err(OrchestratorError::Forbidden(format!(
+            "execution is bound to chat {scope}"
+        )))
+    }
+
+    fn is_bot_dm_target(&self, chat_id: &str, bot_id: &str) -> bool {
+        self.bots.values().any(|target| {
+            target.id != bot_id && canonical_bot_dm_chat_id(bot_id, &target.id) == chat_id
+        })
     }
 
     fn rpc(&mut self, method: &str, p: Value) -> Result<Value> {
@@ -1319,12 +1681,11 @@ impl Inner {
                             .unwrap_or("转交任务")
                             .into(),
                         instruction,
-                        from: p
-                            .get("from")
+                        from: "main".into(),
+                        trigger_message_id: p
+                            .get("trigger_message_id")
                             .and_then(Value::as_str)
-                            .unwrap_or("main")
-                            .into(),
-                        trigger_message_id: None,
+                            .map(str::to_owned),
                         parent_assignment_id: p
                             .get("parent_assignment_id")
                             .and_then(Value::as_str)
@@ -1429,11 +1790,16 @@ impl Inner {
                         .get(id)
                         .and_then(|assignment| assignment.root_message_id.clone())
                 });
-                let message = self.send_msg_with_options(
+                let send_scope_chat_id = p
+                    .get("_send_scope_chat_id")
+                    .and_then(Value::as_str)
+                    .map(str::to_owned);
+                let message = self.send_msg_with_scoped_options(
                     serde_json::from_value(p)
                         .map_err(|e| OrchestratorError::Invalid(e.to_string()))?,
                     multi,
                     allow_free_text,
+                    send_scope_chat_id.as_deref(),
                 )?;
                 let mut value = serde_json::to_value(message)
                     .map_err(|e| OrchestratorError::Invalid(e.to_string()))?;
@@ -1594,6 +1960,13 @@ impl Inner {
                     .get("enabled")
                     .and_then(Value::as_bool)
                     .ok_or_else(|| OrchestratorError::Invalid("enabled is required".into()))?;
+                if enabled {
+                    let routine = self
+                        .routines
+                        .get(&id)
+                        .ok_or_else(|| OrchestratorError::NotFound(format!("routine {id}")))?;
+                    self.resolve_routine_delivery(&routine.bot_id, routine.project_id.as_deref())?;
+                }
                 let r = self.routine_mut(&id)?;
                 r.enabled = enabled;
                 if enabled {
@@ -1801,6 +2174,16 @@ impl Inner {
                 "bot id {id} already exists"
             )));
         }
+        if let Some(routine) = self
+            .routines
+            .values()
+            .find(|routine| routine.bot_id == source_id && routine.project_id.is_some())
+        {
+            return Err(OrchestratorError::Forbidden(format!(
+                "cannot duplicate Bot with project-scoped routine {}: add the new Bot to the project and create its routine explicitly",
+                routine.id
+            )));
+        }
         let timestamp = now();
         let bot = Bot {
             id: id.clone(),
@@ -1917,9 +2300,51 @@ impl Inner {
                 "Bot has active assignments".into(),
             ));
         }
-        self.bots
-            .remove(id)
-            .ok_or_else(|| OrchestratorError::NotFound(format!("bot {id}")))?;
+        if !self.bots.contains_key(id) {
+            return Err(OrchestratorError::NotFound(format!("bot {id}")));
+        }
+
+        // Keep terminal assignment/routine history, but detach the deleted Bot
+        // from current projects and make its schedules permanently inactive.
+        // This keeps old project scopes auditable without reviving work after
+        // restart or silently converting it to a different DM scope.
+        let timestamp = now();
+        for project in self.projects.values_mut() {
+            let old_len = project.members.len();
+            project.members.retain(|member| member.bot_id != id);
+            if project.members.len() != old_len {
+                project.updated_at = timestamp.clone();
+            }
+        }
+        let routine_ids = self
+            .routines
+            .values()
+            .filter(|routine| routine.enabled && routine.bot_id == id)
+            .map(|routine| routine.id.clone())
+            .collect::<Vec<_>>();
+        for routine_id in routine_ids {
+            let run = RoutineRun {
+                id: new_id(),
+                routine_id: routine_id.clone(),
+                assignment_id: None,
+                trigger: "bot_deleted".into(),
+                status: "failed".into(),
+                started_at: timestamp.clone(),
+                finished_at: Some(timestamp.clone()),
+                error: Some(format!("routine disabled: Bot {id} was deleted")),
+            };
+            self.routine_runs
+                .entry(routine_id.clone())
+                .or_default()
+                .push(run.clone());
+            if let Some(routine) = self.routines.get_mut(&routine_id) {
+                routine.enabled = false;
+                routine.next_run_at = None;
+                routine.last_run = Some(run);
+                routine.updated_at = timestamp.clone();
+            }
+        }
+        self.bots.remove(id);
         Ok(())
     }
 
@@ -1970,11 +2395,23 @@ impl Inner {
             role_note: String::new(),
             joined_at: now(),
         });
+        let mut requested_member_ids = HashSet::new();
         for id in members {
             let id = str_value(id)?;
-            let _ = self.bot(&id)?;
+            let bot = self.bot(&id)?;
+            if bot.is_main || bot.id == "main" {
+                return Err(OrchestratorError::Invalid(
+                    "main Bot is added to every project automatically".into(),
+                ));
+            }
+            if !requested_member_ids.insert(bot.id.clone()) {
+                return Err(OrchestratorError::Invalid(format!(
+                    "Bot {} appears more than once in project members",
+                    bot.id
+                )));
+            }
             pm.push(ProjectMember {
-                bot_id: id,
+                bot_id: bot.id.clone(),
                 role_note: "".into(),
                 joined_at: now(),
             });
@@ -2121,6 +2558,41 @@ impl Inner {
         let p = self.project_mut(project_id)?;
         p.members.retain(|m| m.bot_id != bot_id);
         p.updated_at = now();
+        let disabled_at = now();
+        let affected_routines = self
+            .routines
+            .values()
+            .filter(|routine| {
+                routine.enabled
+                    && routine.bot_id == bot_id
+                    && routine.project_id.as_deref() == Some(project_id)
+            })
+            .map(|routine| routine.id.clone())
+            .collect::<Vec<_>>();
+        for routine_id in affected_routines {
+            let run = RoutineRun {
+                id: new_id(),
+                routine_id: routine_id.clone(),
+                assignment_id: None,
+                trigger: "schedule".into(),
+                status: "failed".into(),
+                started_at: disabled_at.clone(),
+                finished_at: Some(disabled_at.clone()),
+                error: Some(format!(
+                    "routine disabled: Bot {bot_id} was removed from project {project_id}"
+                )),
+            };
+            self.routine_runs
+                .entry(routine_id.clone())
+                .or_default()
+                .push(run.clone());
+            if let Some(routine) = self.routines.get_mut(&routine_id) {
+                routine.enabled = false;
+                routine.next_run_at = None;
+                routine.last_run = Some(run);
+                routine.updated_at = disabled_at.clone();
+            }
+        }
         Ok(())
     }
 
@@ -2584,13 +3056,31 @@ impl Inner {
         })
     }
 
-    fn create_assignment(&mut self, request: AssignmentRequest) -> Result<Assignment> {
-        let _ = self.bot(&request.bot_id)?;
-        let bot_model = self.bot(&request.bot_id)?.model.clone();
-        if request.from != "routine" {
-            if let Some(pid) = &request.project_id {
-                let _ = self.project(pid)?;
+    fn create_assignment(&mut self, mut request: AssignmentRequest) -> Result<Assignment> {
+        let bot = self.bot(&request.bot_id)?.clone();
+        let bot_model = bot.model.clone();
+        if let Some(project_id) = request.project_id.as_deref() {
+            let project = self.project(project_id)?;
+            let member_count = project
+                .members
+                .iter()
+                .filter(|member| member.bot_id == bot.id)
+                .count();
+            if member_count != 1 {
+                return Err(OrchestratorError::Forbidden(
+                    "a Bot must have exactly one membership in a project before assignment".into(),
+                ));
             }
+            // Lifecycle status does not change the group's identity. The
+            // group chat remains the immutable scope for archived projects.
+            request.origin_chat_id = project.chat_id.clone();
+        } else if bot.is_main || bot.id == "main" {
+            request.origin_chat_id = "chat_main".into();
+        } else {
+            // Every non-main private execution incarnation is bound to its
+            // Bot's stable DM. Return-to-parent routing is derived separately
+            // from parent_assignment_id / trigger_message_id by the gateway.
+            request.origin_chat_id = bot.dm_chat_id.clone();
         }
         let active_global = self
             .assignments
@@ -2821,7 +3311,32 @@ impl Inner {
         multi: bool,
         allow_free_text: bool,
     ) -> Result<Message> {
+        self.send_msg_with_scoped_options(req, multi, allow_free_text, None)
+    }
+
+    fn send_msg_with_scoped_options(
+        &mut self,
+        req: SendMessageRequest,
+        multi: bool,
+        allow_free_text: bool,
+        send_scope_chat_id: Option<&str>,
+    ) -> Result<Message> {
         self.validate_send_msg_target(&req.chat_id, &req.bot_id)?;
+        if req.assignment_id.is_some() {
+            self.validate_send_msg_destination(
+                &req.chat_id,
+                &req.bot_id,
+                req.assignment_id.as_deref(),
+            )?;
+        }
+        if let Some(send_scope_chat_id) = send_scope_chat_id {
+            self.validate_send_msg_scope(
+                &req.chat_id,
+                &req.bot_id,
+                req.assignment_id.as_deref(),
+                send_scope_chat_id,
+            )?;
+        }
         if multi && (req.intent != "decision" || req.options.is_empty()) {
             return Err(OrchestratorError::Invalid(
                 "multi is only valid for a decision with options".into(),
@@ -2923,23 +3438,25 @@ impl Inner {
             })
             .collect::<Vec<_>>();
         let sent_at = now();
-        let queued_deliveries =
-            if req.bot_id == "user" && req.mentions.is_empty() && project_id.is_some() {
-                self.assignments
-                    .values()
-                    .filter(|assignment| {
-                        assignment.origin_chat_id == req.chat_id && assignment.status == "working"
-                    })
-                    .map(|assignment| Delivery {
-                        bot_id: assignment.bot_id.clone(),
-                        assignment_id: Some(assignment.id.clone()),
-                        state: "queued".into(),
-                        at: sent_at.clone(),
-                    })
-                    .collect()
-            } else {
-                Vec::new()
-            };
+        let queued_deliveries = if req.bot_id == "user" && req.mentions.is_empty() {
+            self.assignments
+                .values()
+                .filter(|assignment| {
+                    assignment.status == "working"
+                        && self
+                            .resolve_assignment_return_chat(&assignment.id)
+                            .is_ok_and(|chat_id| chat_id == req.chat_id)
+                })
+                .map(|assignment| Delivery {
+                    bot_id: assignment.bot_id.clone(),
+                    assignment_id: Some(assignment.id.clone()),
+                    state: "queued".into(),
+                    at: sent_at.clone(),
+                })
+                .collect()
+        } else {
+            Vec::new()
+        };
         for delivery in &queued_deliveries {
             if let Some(assignment_id) = delivery.assignment_id.as_deref() {
                 if let Some(assignment) = self.assignments.get_mut(assignment_id) {
@@ -3344,7 +3861,9 @@ impl Inner {
             .filter(|a| {
                 a.bot_id == req.bot_id
                     && a.project_id == req.project_id
-                    && a.origin_chat_id == req.chat_id
+                    && self
+                        .resolve_assignment_return_chat(&a.id)
+                        .is_ok_and(|chat_id| chat_id == req.chat_id)
                     && selected_assignment.is_none_or(|selected| selected == a.id)
                     && matches!(
                         a.status.as_str(),
@@ -3467,7 +3986,11 @@ impl Inner {
             ));
         }
         let assignment = self.assignment(assignment_id)?.clone();
-        if assignment.bot_id != bot_id || assignment.origin_chat_id != message.chat_id {
+        if assignment.bot_id != bot_id
+            || self
+                .resolve_assignment_return_chat(assignment_id)
+                .map_or(true, |chat_id| chat_id != message.chat_id)
+        {
             return Err(OrchestratorError::Forbidden(
                 "message is not queued for this Bot task".into(),
             ));
@@ -3499,7 +4022,7 @@ impl Inner {
             SteerRequest {
                 bot_id: bot_id.to_owned(),
                 project_id: assignment.project_id.clone(),
-                chat_id: assignment.origin_chat_id.clone(),
+                chat_id: message.chat_id.clone(),
                 text: message.text.clone(),
                 message_id: Some(message_id.to_owned()),
             },
@@ -4288,18 +4811,17 @@ impl Inner {
             .unwrap_or("Asia/Shanghai");
         parse_timezone(timezone)?;
         validate_schedules(&schedules, timezone)?;
-        if let Some(project_id) = p.get("project_id").and_then(Value::as_str) {
-            self.project(project_id)?;
-        }
+        let project_id = p
+            .get("project_id")
+            .and_then(Value::as_str)
+            .map(str::to_owned);
+        self.resolve_routine_delivery(&bot, project_id.as_deref())?;
         let next_run_at = next_routine_at(&schedules, timezone, Utc::now())?.to_rfc3339();
         let ts = now();
         let r = Routine {
             id: new_id(),
             bot_id: bot,
-            project_id: p
-                .get("project_id")
-                .and_then(Value::as_str)
-                .map(str::to_owned),
+            project_id,
             name: str_param(p, "name")?,
             instructions: str_param(p, "instructions")?,
             schedules,
@@ -4340,11 +4862,9 @@ impl Inner {
         }
         if let Some(x) = patch.get("project_id") {
             let project_id = x.as_str().map(str::to_owned);
-            if let Some(project_id) = &project_id {
-                self.project(project_id)?;
-            }
             updated.project_id = project_id;
         }
+        self.resolve_routine_delivery(&updated.bot_id, updated.project_id.as_deref())?;
         validate_schedules(&updated.schedules, &updated.timezone)?;
         updated.next_run_at =
             Some(next_routine_at(&updated.schedules, &updated.timezone, Utc::now())?.to_rfc3339());
@@ -4431,7 +4951,35 @@ impl Inner {
                     r.instructions.clone(),
                 )
             };
-            let origin_chat_id = self.resolve_routine_delivery(&bot_id, project_id.as_deref())?;
+            let origin_chat_id = match self.resolve_routine_delivery(&bot_id, project_id.as_deref())
+            {
+                Ok(chat_id) => chat_id,
+                Err(error) => {
+                    let ts = at.to_rfc3339();
+                    let run = RoutineRun {
+                        id: new_id(),
+                        routine_id: id.clone(),
+                        assignment_id: None,
+                        trigger: "schedule".into(),
+                        status: "failed".into(),
+                        started_at: ts.clone(),
+                        finished_at: Some(ts.clone()),
+                        error: Some(format!("routine disabled: {error}")),
+                    };
+                    self.routine_runs
+                        .entry(id.clone())
+                        .or_default()
+                        .push(run.clone());
+                    if let Some(routine) = self.routines.get_mut(&id) {
+                        routine.enabled = false;
+                        routine.next_run_at = None;
+                        routine.last_run = Some(run.clone());
+                        routine.updated_at = ts;
+                    }
+                    runs.push(run);
+                    continue;
+                }
+            };
             let assignment = self.create_assignment(AssignmentRequest {
                 project_id,
                 origin_chat_id,
@@ -5143,6 +5691,12 @@ mod tests {
     fn bot(o: &Orchestrator, name: &str) -> Id {
         futures_create_bot(o, name)
     }
+    fn dm_chat(o: &Orchestrator, bot_id: &str) -> Id {
+        o.snapshot().unwrap()["bots"][bot_id]["dm_chat_id"]
+            .as_str()
+            .unwrap()
+            .to_owned()
+    }
     fn futures_create_bot(o: &Orchestrator, name: &str) -> Id {
         let v = o.rpc("bot.create", json!({"name":name}));
         let v = tokio::runtime::Runtime::new().unwrap().block_on(v).unwrap();
@@ -5465,7 +6019,7 @@ mod tests {
             .unwrap();
         let question = o
             .create_question(QuestionRequest {
-                bot_id: worker_id,
+                bot_id: worker_id.clone(),
                 assignment_id: Some(assignment.id.clone()),
                 chat_id: "dm_main".into(),
                 text: "旧问题".into(),
@@ -5485,7 +6039,7 @@ mod tests {
         );
         assert_eq!(
             restored_snapshot["assignments"][&assignment.id]["origin_chat_id"],
-            "chat_main"
+            dm_chat(&restored, &worker_id)
         );
         assert_eq!(
             restored_snapshot["approvals"][&approval.id]["chat_id"],
@@ -5513,6 +6067,7 @@ mod tests {
             ))
             .unwrap();
         let pid = p["project"]["id"].as_str().unwrap().to_string();
+        let project_chat_id = p["project"]["chat_id"].as_str().unwrap().to_owned();
         let a = o
             .create_assignment(AssignmentRequest {
                 project_id: Some(pid),
@@ -5530,7 +6085,7 @@ mod tests {
             .unwrap();
         let req = SendMessageRequest {
             bot_id: b.clone(),
-            chat_id: "chat_main".into(),
+            chat_id: project_chat_id,
             assignment_id: Some(a.id.clone()),
             run_id: Some("r".into()),
             call_id: Some("c".into()),
@@ -5880,6 +6435,7 @@ mod tests {
     fn user_chat_send_routes_mentions_and_persists_delivery() {
         let o = Orchestrator::default();
         let worker = bot(&o, "chat send worker");
+        let worker_dm = dm_chat(&o, &worker);
         let assignment = o
             .create_assignment(AssignmentRequest {
                 project_id: None,
@@ -5897,7 +6453,7 @@ mod tests {
             .unwrap();
         o.send_msg(SendMessageRequest {
             bot_id: worker.clone(),
-            chat_id: "chat_main".into(),
+            chat_id: worker_dm,
             assignment_id: Some(assignment.id.clone()),
             run_id: None,
             call_id: None,
@@ -5988,7 +6544,9 @@ mod tests {
                 }),
             ))
             .unwrap();
-        assert!(plain["delivery"].as_array().unwrap().is_empty());
+        assert_eq!(plain["delivery"].as_array().unwrap().len(), 1);
+        assert_eq!(plain["delivery"][0]["assignment_id"], assignment.id);
+        assert_eq!(plain["delivery"][0]["state"], "queued");
 
         let fresh = bot(&o, "chat send fresh");
         let fresh_response = rt
@@ -6195,7 +6753,7 @@ mod tests {
     }
 
     #[test]
-    fn rpc_assignment_routes_project_work_to_project_chat_and_standalone_to_main_dm() {
+    fn rpc_assignment_routes_project_work_to_project_chat_and_standalone_to_worker_dm() {
         let o = Orchestrator::default();
         let worker = bot(&o, "路由 worker");
         let rt = tokio::runtime::Runtime::new().unwrap();
@@ -6238,7 +6796,7 @@ mod tests {
                 }),
             ))
             .unwrap();
-        assert_eq!(delegated["origin_chat_id"], "chat_main");
+        assert_eq!(delegated["origin_chat_id"], dm_chat(&o, &worker));
     }
 
     #[test]
@@ -6396,7 +6954,348 @@ mod tests {
     }
 
     #[test]
-    fn bot_dm_handoff_keeps_source_project_and_target_dm_scope() {
+    fn project_incarnations_bind_one_bot_to_one_canonical_group_scope() {
+        let o = Orchestrator::default();
+        let worker = bot(&o, "作用域 worker");
+        let other = bot(&o, "另一个 worker");
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let first = rt
+            .block_on(o.rpc(
+                "project.create",
+                json!({"name":"scope one","member_bot_ids":[worker]}),
+            ))
+            .unwrap();
+        let second = rt
+            .block_on(o.rpc(
+                "project.create",
+                json!({"name":"scope two","member_bot_ids":[worker]}),
+            ))
+            .unwrap();
+        let first_chat = first["project"]["chat_id"].as_str().unwrap().to_owned();
+        let second_chat = second["project"]["chat_id"].as_str().unwrap().to_owned();
+        let assignment = o
+            .create_assignment(AssignmentRequest {
+                project_id: Some(first["project"]["id"].as_str().unwrap().into()),
+                origin_chat_id: second_chat.clone(),
+                bot_id: worker.clone(),
+                title: "bound task".into(),
+                instruction: "send only to first group".into(),
+                from: "main".into(),
+                trigger_message_id: None,
+                parent_assignment_id: None,
+                priority: 1,
+                root_message_id: None,
+                loop_hops: 0,
+            })
+            .unwrap();
+        assert_eq!(assignment.origin_chat_id, first_chat);
+        assert!(o
+            .resolve_send_scope(Some(&assignment.id), &worker, &first_chat)
+            .is_ok());
+        assert!(matches!(
+            o.resolve_send_scope(Some(&assignment.id), &worker, &second_chat),
+            Err(OrchestratorError::Forbidden(_))
+        ));
+        assert!(matches!(
+            o.resolve_send_scope(Some(&assignment.id), &other, &first_chat),
+            Err(OrchestratorError::Forbidden(_))
+        ));
+        let cross_group = o.send_msg(SendMessageRequest {
+            bot_id: worker.clone(),
+            chat_id: second_chat.clone(),
+            assignment_id: Some(assignment.id.clone()),
+            run_id: None,
+            call_id: None,
+            text: "must stay in the assigned project".into(),
+            intent: "ack".into(),
+            mentions: vec![],
+            artifacts: vec![],
+            options: vec![],
+        });
+        assert!(matches!(cross_group, Err(OrchestratorError::Forbidden(_))));
+        let snapshot = o.snapshot().unwrap();
+        assert_eq!(
+            snapshot["projects"][first["project"]["id"].as_str().unwrap()]["members"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|member| member["bot_id"] == worker)
+                .count(),
+            1
+        );
+
+        // Older snapshots may contain duplicate memberships and a stale
+        // caller-supplied origin chat. Restore repairs both from the
+        // canonical project record before any resumed send is admitted.
+        let mut legacy_snapshot = snapshot;
+        let first_project_id = first["project"]["id"].as_str().unwrap();
+        let members = legacy_snapshot["projects"][first_project_id]["members"]
+            .as_array_mut()
+            .unwrap();
+        let duplicate_member = members[1].clone();
+        members.push(duplicate_member);
+        legacy_snapshot["assignments"][&assignment.id]["origin_chat_id"] = json!(second_chat);
+        let restored = Orchestrator::default();
+        restored.restore(legacy_snapshot).unwrap();
+        let restored_snapshot = restored.snapshot().unwrap();
+        assert_eq!(
+            restored_snapshot["assignments"][&assignment.id]["origin_chat_id"],
+            first_chat
+        );
+        assert_eq!(
+            restored_snapshot["projects"][first_project_id]["members"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|member| member["bot_id"] == worker)
+                .count(),
+            1
+        );
+        assert!(restored
+            .resolve_send_scope(Some(&assignment.id), &worker, &first_chat)
+            .is_ok());
+    }
+
+    #[test]
+    fn duplicate_membership_is_rejected_and_repeated_add_is_idempotent() {
+        let o = Orchestrator::default();
+        let worker = bot(&o, "唯一成员");
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let duplicate = rt.block_on(o.rpc(
+            "project.create",
+            json!({"name":"duplicate","member_bot_ids":[worker,worker]}),
+        ));
+        assert!(matches!(duplicate, Err(OrchestratorError::Invalid(_))));
+        assert!(o.snapshot().unwrap()["projects"]
+            .as_object()
+            .unwrap()
+            .is_empty());
+
+        let project = rt
+            .block_on(o.rpc(
+                "project.create",
+                json!({"name":"unique","member_bot_ids":[worker]}),
+            ))
+            .unwrap();
+        let project_id = project["project"]["id"].as_str().unwrap();
+        rt.block_on(o.rpc(
+            "project.add_member",
+            json!({"project_id":project_id,"bot_id":worker}),
+        ))
+        .unwrap();
+        let members = o.snapshot().unwrap()["projects"][project_id]["members"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|member| member["bot_id"] == worker)
+            .count();
+        assert_eq!(members, 1);
+    }
+
+    #[test]
+    fn private_scope_and_main_delegate_scope_are_canonical() {
+        let o = Orchestrator::default();
+        let worker = bot(&o, "私聊作用域");
+        let snapshot = o.snapshot().unwrap();
+        let initial_dm = snapshot["bots"][&worker]["dm_chat_id"].as_str().unwrap();
+        assert_eq!(
+            o.resolve_send_scope(None, &worker, initial_dm).unwrap(),
+            initial_dm
+        );
+        assert!(o.resolve_send_scope(None, &worker, "chat_main").is_err());
+
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let delegated = rt
+            .block_on(o.rpc(
+                "delegate",
+                json!({"bot_id":worker,"instruction":"report back"}),
+            ))
+            .unwrap();
+        let assignment = &delegated;
+        let worker_dm = dm_chat(&o, &worker);
+        assert_eq!(assignment["origin_chat_id"], worker_dm);
+        assert_eq!(
+            o.resolve_send_scope(
+                Some(assignment["id"].as_str().unwrap()),
+                &worker,
+                assignment["origin_chat_id"].as_str().unwrap()
+            )
+            .unwrap(),
+            worker_dm
+        );
+        assert_eq!(
+            o.resolve_assignment_return_chat(assignment["id"].as_str().unwrap())
+                .unwrap(),
+            "chat_main"
+        );
+    }
+
+    #[test]
+    fn assignment_return_routes_are_distinct_and_stable_after_restore() {
+        let o = Orchestrator::default();
+        let worker = bot(&o, "回传路由");
+        let worker_dm = dm_chat(&o, &worker);
+        let user_message = o
+            .send_msg(SendMessageRequest {
+                bot_id: "user".into(),
+                chat_id: "chat_main".into(),
+                assignment_id: None,
+                run_id: None,
+                call_id: None,
+                text: "在主会话开始任务".into(),
+                intent: "ack".into(),
+                mentions: vec![],
+                artifacts: vec![],
+                options: vec![],
+            })
+            .unwrap();
+        let root = o
+            .create_assignment(AssignmentRequest {
+                project_id: None,
+                origin_chat_id: "chat_main".into(),
+                bot_id: worker.clone(),
+                title: "私聊执行".into(),
+                instruction: "执行任务".into(),
+                from: "user".into(),
+                trigger_message_id: Some(user_message.id.clone()),
+                parent_assignment_id: None,
+                priority: 1,
+                root_message_id: None,
+                loop_hops: 0,
+            })
+            .unwrap();
+        assert_eq!(root.origin_chat_id, worker_dm);
+        assert_eq!(
+            o.resolve_assignment_return_chat(&root.id).unwrap(),
+            "chat_main"
+        );
+
+        let worker_message = o
+            .send_msg(SendMessageRequest {
+                bot_id: worker.clone(),
+                chat_id: worker_dm.clone(),
+                assignment_id: Some(root.id.clone()),
+                run_id: None,
+                call_id: None,
+                text: "子任务交接".into(),
+                intent: "progress".into(),
+                mentions: vec![],
+                artifacts: vec![],
+                options: vec![],
+            })
+            .unwrap();
+        let child = o
+            .create_assignment(AssignmentRequest {
+                project_id: None,
+                origin_chat_id: worker_dm.clone(),
+                bot_id: worker.clone(),
+                title: "子任务".into(),
+                instruction: "继续执行".into(),
+                from: worker.clone(),
+                trigger_message_id: Some(worker_message.id),
+                parent_assignment_id: Some(root.id.clone()),
+                priority: 1,
+                root_message_id: None,
+                loop_hops: 1,
+            })
+            .unwrap();
+        // Parent return routing outranks the child message's worker-DM chat.
+        assert_eq!(
+            o.resolve_assignment_return_chat(&child.id).unwrap(),
+            "chat_main"
+        );
+
+        let missing_trigger_main = o
+            .create_assignment(AssignmentRequest {
+                project_id: None,
+                origin_chat_id: worker_dm.clone(),
+                bot_id: worker.clone(),
+                title: "main fallback".into(),
+                instruction: "trigger 已不存在".into(),
+                from: "main".into(),
+                trigger_message_id: Some("missing-trigger".into()),
+                parent_assignment_id: None,
+                priority: 1,
+                root_message_id: None,
+                loop_hops: 0,
+            })
+            .unwrap();
+        let missing_trigger_worker = o
+            .create_assignment(AssignmentRequest {
+                project_id: None,
+                origin_chat_id: "chat_main".into(),
+                bot_id: worker.clone(),
+                title: "worker fallback".into(),
+                instruction: "trigger 已不存在".into(),
+                from: worker.clone(),
+                trigger_message_id: Some("also-missing".into()),
+                parent_assignment_id: None,
+                priority: 1,
+                root_message_id: None,
+                loop_hops: 0,
+            })
+            .unwrap();
+        assert_eq!(
+            o.resolve_assignment_return_chat(&missing_trigger_main.id)
+                .unwrap(),
+            "chat_main"
+        );
+        assert_eq!(
+            o.resolve_assignment_return_chat(&missing_trigger_worker.id)
+                .unwrap(),
+            worker_dm
+        );
+
+        let project = tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(o.rpc(
+                "project.create",
+                json!({"name":"回传优先级","member_bot_ids":[worker]}),
+            ))
+            .unwrap();
+        let project_chat = project["project"]["chat_id"].as_str().unwrap().to_owned();
+        let project_assignment = o
+            .create_assignment(AssignmentRequest {
+                project_id: Some(project["project"]["id"].as_str().unwrap().to_owned()),
+                origin_chat_id: worker_dm,
+                bot_id: worker,
+                title: "群内执行".into(),
+                instruction: "项目路由优先".into(),
+                from: "main".into(),
+                trigger_message_id: Some(user_message.id),
+                parent_assignment_id: Some(root.id.clone()),
+                priority: 1,
+                root_message_id: None,
+                loop_hops: 1,
+            })
+            .unwrap();
+        assert_eq!(
+            o.resolve_assignment_return_chat(&project_assignment.id)
+                .unwrap(),
+            project_chat
+        );
+
+        let before_restart = o.snapshot().unwrap();
+        let restored = Orchestrator::default();
+        restored.restore(before_restart).unwrap();
+        for assignment_id in [
+            root.id,
+            child.id,
+            missing_trigger_main.id,
+            missing_trigger_worker.id,
+            project_assignment.id,
+        ] {
+            assert_eq!(
+                restored
+                    .resolve_assignment_return_chat(&assignment_id)
+                    .unwrap(),
+                o.resolve_assignment_return_chat(&assignment_id).unwrap()
+            );
+        }
+    }
+
+    #[test]
+    fn project_incarnation_cannot_send_to_bot_dm() {
         let o = Orchestrator::default();
         let from = bot(&o, "私信发起者");
         let to = bot(&o, "私信接收者");
@@ -6431,46 +7330,39 @@ mod tests {
         assert!(route.chat_id.starts_with("bot_dm_"));
         assert_eq!(o.bot_dm_route(&to, &from).unwrap(), route);
         assert!(o.bot_dm_route(&from, &from).is_err());
-        let private = o
-            .send_msg(SendMessageRequest {
-                bot_id: from,
-                chat_id: route.chat_id.clone(),
-                assignment_id: Some(source.id.clone()),
-                run_id: None,
-                call_id: None,
-                text: "请在私信里接手验证".into(),
-                intent: "progress".into(),
-                mentions: vec![MentionInput::Bot {
-                    bot_id: to.clone(),
-                    instruction: Some("接手私信验证".into()),
-                }],
-                artifacts: vec![],
-                options: vec![],
-            })
-            .unwrap();
-        assert_eq!(private.chat_id, route.chat_id);
+        let denied = o.send_msg(SendMessageRequest {
+            bot_id: from,
+            chat_id: route.chat_id.clone(),
+            assignment_id: Some(source.id.clone()),
+            run_id: None,
+            call_id: None,
+            text: "请在私信里接手验证".into(),
+            intent: "progress".into(),
+            mentions: vec![MentionInput::Bot {
+                bot_id: to.clone(),
+                instruction: Some("接手私信验证".into()),
+            }],
+            artifacts: vec![],
+            options: vec![],
+        });
+        assert!(matches!(denied, Err(OrchestratorError::Forbidden(_))));
         let snapshot = o.snapshot().unwrap();
-        let target = snapshot["assignments"]
-            .as_object()
-            .unwrap()
-            .values()
-            .find(|assignment| {
-                assignment["bot_id"] == to
-                    && assignment["origin_chat_id"] == route.chat_id
-                    && assignment["project_id"] == project_id
-            })
-            .expect("Bot DM handoff assignment");
+        assert_eq!(snapshot["assignments"].as_object().unwrap().len(), 1);
         assert_eq!(
             snapshot["assignments"][&source.id]["origin_chat_id"],
             source_chat
         );
-        assert_eq!(target["parent_assignment_id"], source.id);
+        assert_eq!(
+            snapshot["assignments"][&source.id]["project_id"],
+            project_id
+        );
     }
 
     #[test]
     fn decision_steer_resumes_waiting_assignment() {
         let o = Orchestrator::default();
         let b = bot(&o, "编码");
+        let worker_dm = dm_chat(&o, &b);
         let a = o
             .create_assignment(AssignmentRequest {
                 project_id: None,
@@ -6489,7 +7381,7 @@ mod tests {
         let message = o
             .send_msg(SendMessageRequest {
                 bot_id: b.clone(),
-                chat_id: "chat_main".into(),
+                chat_id: worker_dm.clone(),
                 assignment_id: Some(a.id.clone()),
                 run_id: None,
                 call_id: None,
@@ -6533,6 +7425,7 @@ mod tests {
     fn decision_without_recipient_or_options_rejects_without_mutating_state() {
         let o = Orchestrator::default();
         let bot_id = bot(&o, "无收件人");
+        let worker_dm = dm_chat(&o, &bot_id);
         let assignment = o
             .create_assignment(AssignmentRequest {
                 project_id: None,
@@ -6552,7 +7445,7 @@ mod tests {
         let error = o
             .send_msg(SendMessageRequest {
                 bot_id: bot_id.clone(),
-                chat_id: "chat_main".into(),
+                chat_id: worker_dm,
                 assignment_id: Some(assignment.id.clone()),
                 run_id: None,
                 call_id: None,
@@ -6597,6 +7490,7 @@ mod tests {
         let o = Orchestrator::default();
         let source = bot(&o, "JSON 发起方");
         let target = bot(&o, "JSON 目标");
+        let source_dm = dm_chat(&o, &source);
         let first = o
             .create_assignment(AssignmentRequest {
                 project_id: None,
@@ -6618,7 +7512,7 @@ mod tests {
                 "send_msg",
                 json!({
                     "bot_id":source,
-                    "chat_id":"chat_main",
+                    "chat_id":source_dm.clone(),
                     "assignment_id":first.id.clone(),
                     "text":"请用户选择",
                     "intent":"decision",
@@ -6652,7 +7546,7 @@ mod tests {
                 "send_msg",
                 json!({
                     "bot_id":user_message["sender"],
-                    "chat_id":"chat_main",
+                    "chat_id":source_dm,
                     "assignment_id":second.id.clone(),
                     "text":"请目标 Bot 回答",
                     "intent":"decision",
@@ -6678,6 +7572,7 @@ mod tests {
     fn json_string_self_mention_is_rejected_before_state_change() {
         let o = Orchestrator::default();
         let source = bot(&o, "JSON 自提及");
+        let source_dm = dm_chat(&o, &source);
         let assignment = o
             .create_assignment(AssignmentRequest {
                 project_id: None,
@@ -6700,7 +7595,7 @@ mod tests {
                 "send_msg",
                 json!({
                     "bot_id":source.clone(),
-                    "chat_id":"chat_main",
+                    "chat_id":source_dm,
                     "assignment_id":assignment.id.clone(),
                     "text":"不能自提及",
                     "intent":"decision",
@@ -6781,6 +7676,7 @@ mod tests {
         let o = Orchestrator::default();
         let source = bot(&o, "提问方");
         let target = bot(&o, "回答方");
+        let source_dm = dm_chat(&o, &source);
         let assignment = o
             .create_assignment(AssignmentRequest {
                 project_id: None,
@@ -6799,7 +7695,7 @@ mod tests {
         let message = o
             .send_msg(SendMessageRequest {
                 bot_id: source,
-                chat_id: "chat_main".into(),
+                chat_id: source_dm,
                 assignment_id: Some(assignment.id.clone()),
                 run_id: None,
                 call_id: None,
@@ -6848,6 +7744,7 @@ mod tests {
     fn restore_relinks_legacy_decision_message_to_question() {
         let o = Orchestrator::default();
         let bot_id = bot(&o, "恢复提问");
+        let worker_dm = dm_chat(&o, &bot_id);
         let assignment = o
             .create_assignment(AssignmentRequest {
                 project_id: None,
@@ -6866,7 +7763,7 @@ mod tests {
         let message = o
             .send_msg(SendMessageRequest {
                 bot_id,
-                chat_id: "chat_main".into(),
+                chat_id: worker_dm,
                 assignment_id: Some(assignment.id.clone()),
                 run_id: None,
                 call_id: None,
@@ -6900,6 +7797,7 @@ mod tests {
     fn reconcile_legacy_working_decision_is_idempotent() {
         let source = Orchestrator::default();
         let bot_id = bot(&source, "迁移决策");
+        let worker_dm = dm_chat(&source, &bot_id);
         let assignment = source
             .create_assignment(AssignmentRequest {
                 project_id: None,
@@ -6918,7 +7816,7 @@ mod tests {
         let message = source
             .send_msg(SendMessageRequest {
                 bot_id: bot_id.clone(),
-                chat_id: "chat_main".into(),
+                chat_id: worker_dm.clone(),
                 assignment_id: Some(assignment.id.clone()),
                 run_id: None,
                 call_id: None,
@@ -6942,7 +7840,7 @@ mod tests {
         let restored = Orchestrator::default();
         restored.restore(snapshot).unwrap();
         assert!(restored
-            .reconcile_waiting_decision(&message.id, Some(&assignment.id), &bot_id, "chat_main",)
+            .reconcile_waiting_decision(&message.id, Some(&assignment.id), &bot_id, &worker_dm,)
             .unwrap());
         let after = restored.snapshot().unwrap();
         let question_id = format!("decision:{}", message.id);
@@ -6960,7 +7858,7 @@ mod tests {
             message.id
         );
         assert!(!restored
-            .reconcile_waiting_decision(&message.id, Some(&assignment.id), &bot_id, "chat_main",)
+            .reconcile_waiting_decision(&message.id, Some(&assignment.id), &bot_id, &worker_dm,)
             .unwrap());
         assert_eq!(restored.snapshot().unwrap(), after);
     }
@@ -6969,6 +7867,7 @@ mod tests {
     fn reconcile_answered_question_relinks_without_reopening_or_duplicating() {
         let source = Orchestrator::default();
         let bot_id = bot(&source, "已回答迁移");
+        let worker_dm = dm_chat(&source, &bot_id);
         let assignment = source
             .create_assignment(AssignmentRequest {
                 project_id: None,
@@ -6987,7 +7886,7 @@ mod tests {
         let message = source
             .send_msg(SendMessageRequest {
                 bot_id: bot_id.clone(),
-                chat_id: "chat_main".into(),
+                chat_id: worker_dm.clone(),
                 assignment_id: Some(assignment.id.clone()),
                 run_id: None,
                 call_id: None,
@@ -7019,7 +7918,7 @@ mod tests {
         let restored = Orchestrator::default();
         restored.restore(legacy).unwrap();
         assert!(restored
-            .reconcile_waiting_decision(&message.id, Some(&assignment.id), &bot_id, "chat_main")
+            .reconcile_waiting_decision(&message.id, Some(&assignment.id), &bot_id, &worker_dm)
             .unwrap());
         let after = restored.snapshot().unwrap();
         assert_eq!(after["messages"][&message.id]["question_id"], question_id);
@@ -7031,7 +7930,7 @@ mod tests {
             message.id
         );
         assert!(!restored
-            .reconcile_waiting_decision(&message.id, Some(&assignment.id), &bot_id, "chat_main")
+            .reconcile_waiting_decision(&message.id, Some(&assignment.id), &bot_id, &worker_dm)
             .unwrap());
         assert_eq!(restored.snapshot().unwrap(), after);
     }
@@ -7040,6 +7939,7 @@ mod tests {
     fn reconcile_decision_rejects_terminal_and_does_not_infer_without_options() {
         let source = Orchestrator::default();
         let bot_id = bot(&source, "迁移校验");
+        let worker_dm = dm_chat(&source, &bot_id);
         let assignment = source
             .create_assignment(AssignmentRequest {
                 project_id: None,
@@ -7058,7 +7958,7 @@ mod tests {
         let message = source
             .send_msg(SendMessageRequest {
                 bot_id: bot_id.clone(),
-                chat_id: "chat_main".into(),
+                chat_id: worker_dm.clone(),
                 assignment_id: Some(assignment.id.clone()),
                 run_id: None,
                 call_id: None,
@@ -7081,7 +7981,7 @@ mod tests {
         let restored = Orchestrator::default();
         restored.restore(terminal).unwrap();
         assert!(restored
-            .reconcile_waiting_decision(&message.id, Some(&assignment.id), &bot_id, "chat_main")
+            .reconcile_waiting_decision(&message.id, Some(&assignment.id), &bot_id, &worker_dm)
             .is_err());
         assert!(restored.snapshot().unwrap()["questions"]
             .as_object()
@@ -7101,7 +8001,7 @@ mod tests {
         let restored = Orchestrator::default();
         restored.restore(no_options).unwrap();
         assert!(restored
-            .reconcile_waiting_decision(&message.id, Some(&assignment.id), &bot_id, "chat_main")
+            .reconcile_waiting_decision(&message.id, Some(&assignment.id), &bot_id, &worker_dm)
             .unwrap());
         let after = restored.snapshot().unwrap();
         assert!(after["questions"].as_object().unwrap().is_empty());
@@ -7120,6 +8020,7 @@ mod tests {
         let source = Orchestrator::default();
         let bot_id = bot(&source, "提问 Bot");
         let target_id = bot(&source, "回答 Bot");
+        let worker_dm = dm_chat(&source, &bot_id);
         let assignment = source
             .create_assignment(AssignmentRequest {
                 project_id: None,
@@ -7138,7 +8039,7 @@ mod tests {
         let message = source
             .send_msg(SendMessageRequest {
                 bot_id: bot_id.clone(),
-                chat_id: "chat_main".into(),
+                chat_id: worker_dm.clone(),
                 assignment_id: Some(assignment.id.clone()),
                 run_id: None,
                 call_id: None,
@@ -7164,7 +8065,7 @@ mod tests {
         let restored = Orchestrator::default();
         restored.restore(snapshot).unwrap();
         assert!(restored
-            .reconcile_waiting_decision(&message.id, Some(&assignment.id), &bot_id, "chat_main")
+            .reconcile_waiting_decision(&message.id, Some(&assignment.id), &bot_id, &worker_dm)
             .unwrap());
         assert_eq!(
             restored.snapshot().unwrap()["assignments"][&assignment.id]["status"],
@@ -7173,6 +8074,7 @@ mod tests {
 
         let source = Orchestrator::default();
         let bot_id = bot(&source, "歧义决策");
+        let worker_dm = dm_chat(&source, &bot_id);
         let assignment = source
             .create_assignment(AssignmentRequest {
                 project_id: None,
@@ -7191,7 +8093,7 @@ mod tests {
         let message = source
             .send_msg(SendMessageRequest {
                 bot_id: bot_id.clone(),
-                chat_id: "chat_main".into(),
+                chat_id: worker_dm.clone(),
                 assignment_id: Some(assignment.id.clone()),
                 run_id: None,
                 call_id: None,
@@ -7206,7 +8108,7 @@ mod tests {
             .create_question(QuestionRequest {
                 bot_id: bot_id.clone(),
                 assignment_id: Some(assignment.id.clone()),
-                chat_id: "chat_main".into(),
+                chat_id: worker_dm.clone(),
                 text: message.text.clone(),
                 options: message.options.clone(),
                 allow_free_text: true,
@@ -7223,7 +8125,7 @@ mod tests {
         let restored = Orchestrator::default();
         restored.restore(snapshot).unwrap();
         assert!(!restored
-            .reconcile_waiting_decision(&message.id, Some(&assignment.id), &bot_id, "chat_main")
+            .reconcile_waiting_decision(&message.id, Some(&assignment.id), &bot_id, &worker_dm)
             .unwrap());
         assert_eq!(
             restored.snapshot().unwrap()["assignments"][&assignment.id]["wait"],
@@ -7235,6 +8137,7 @@ mod tests {
     fn restore_legacy_question_link_uses_creation_time_for_duplicate_text() {
         let o = Orchestrator::default();
         let bot_id = bot(&o, "重复问题");
+        let worker_dm = dm_chat(&o, &bot_id);
         let assignment = o
             .create_assignment(AssignmentRequest {
                 project_id: None,
@@ -7253,7 +8156,7 @@ mod tests {
         let message = o
             .send_msg(SendMessageRequest {
                 bot_id: bot_id.clone(),
-                chat_id: "chat_main".into(),
+                chat_id: worker_dm.clone(),
                 assignment_id: Some(assignment.id.clone()),
                 run_id: None,
                 call_id: None,
@@ -7269,7 +8172,7 @@ mod tests {
             .create_question(QuestionRequest {
                 bot_id,
                 assignment_id: Some(assignment.id),
-                chat_id: "chat_main".into(),
+                chat_id: worker_dm,
                 text: "重复选项".into(),
                 options: vec!["A".into(), "B".into()],
                 allow_free_text: true,
@@ -7292,6 +8195,7 @@ mod tests {
     fn restore_does_not_guess_ambiguous_decision_wait_message() {
         let o = Orchestrator::default();
         let bot_id = bot(&o, "歧义恢复");
+        let worker_dm = dm_chat(&o, &bot_id);
         let assignment = o
             .create_assignment(AssignmentRequest {
                 project_id: None,
@@ -7310,7 +8214,7 @@ mod tests {
         let message = o
             .send_msg(SendMessageRequest {
                 bot_id,
-                chat_id: "chat_main".into(),
+                chat_id: worker_dm,
                 assignment_id: Some(assignment.id.clone()),
                 run_id: None,
                 call_id: None,
@@ -7436,6 +8340,7 @@ mod tests {
         });
         let from = bot(&o, "A");
         let to = bot(&o, "B");
+        let from_dm = dm_chat(&o, &from);
         let assignment = o
             .create_assignment(AssignmentRequest {
                 project_id: None,
@@ -7457,7 +8362,7 @@ mod tests {
                 "send_msg",
                 json!({
                     "bot_id": from,
-                    "chat_id": "chat_main",
+                    "chat_id": from_dm,
                     "assignment_id": assignment.id,
                     "text": "继续交接",
                     "intent": "done",
@@ -7771,6 +8676,23 @@ mod tests {
         assert_eq!(assignment["assignment"]["origin_chat_id"], project_chat);
         assert_eq!(assignment["assignment"]["project_id"], project_id);
 
+        // An archived group remains the routine's canonical send scope.
+        rt.block_on(o.rpc("project.archive", json!({"project_id":project_id})))
+            .unwrap();
+        let archived_run = rt
+            .block_on(o.rpc("routine.test_run", json!({"routine_id":routine_id})))
+            .unwrap();
+        let archived_assignment = rt
+            .block_on(o.rpc(
+                "assignment.get",
+                json!({"assignment_id":archived_run["run"]["assignment_id"]}),
+            ))
+            .unwrap();
+        assert_eq!(
+            archived_assignment["assignment"]["origin_chat_id"],
+            project_chat
+        );
+
         let dm_routine = rt
             .block_on(o.rpc(
                 "routine.create",
@@ -7840,18 +8762,281 @@ mod tests {
             .unwrap()
             .remove(project_id);
         let deleted_project = Orchestrator::default();
-        deleted_project.restore(deleted_project_snapshot).unwrap();
-        let deleted_run = rt
-            .block_on(deleted_project.rpc("routine.test_run", json!({"routine_id":routine_id})))
+        assert!(deleted_project
+            .restore(deleted_project_snapshot.clone())
+            .is_err());
+
+        // A disabled historical routine may keep a missing project id so its
+        // history remains inspectable. It cannot be re-enabled or run.
+        deleted_project_snapshot["assignments"] = json!({});
+        deleted_project_snapshot["messages"] = json!({});
+        deleted_project_snapshot["routine_runs"] = json!({});
+        let deleted_routine_project = Orchestrator::default();
+        deleted_routine_project
+            .restore(deleted_project_snapshot)
             .unwrap();
-        let deleted_assignment = rt
-            .block_on(deleted_project.rpc(
-                "assignment.get",
-                json!({"assignment_id":deleted_run["run"]["assignment_id"]}),
+        let orphan = deleted_routine_project.snapshot().unwrap();
+        assert_eq!(orphan["routines"][routine_id]["enabled"], false);
+        assert_eq!(orphan["routines"][routine_id]["project_id"], project_id);
+        assert!(rt
+            .block_on(deleted_routine_project.rpc(
+                "routine.set_enabled",
+                json!({"routine_id":routine_id,"enabled":true})
+            ))
+            .is_err());
+
+        // Removing the member cancels current work and makes the routine
+        // visibly failed/disabled instead of retargeting it to the Bot DM.
+        rt.block_on(o.rpc("project.reopen", json!({"project_id":project_id})))
+            .unwrap();
+        rt.block_on(o.rpc(
+            "project.remove_member",
+            json!({"project_id":project_id,"bot_id":worker}),
+        ))
+        .unwrap();
+        let disabled = rt
+            .block_on(o.rpc("routine.list", json!({"bot_id":worker})))
+            .unwrap();
+        let disabled_routine = disabled["routines"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|r| r["id"] == routine_id)
+            .unwrap();
+        assert_eq!(disabled_routine["enabled"], false);
+        assert!(disabled_routine["last_run"]["error"]
+            .as_str()
+            .unwrap()
+            .contains("removed from project"));
+        assert!(rt
+            .block_on(o.rpc(
+                "routine.set_enabled",
+                json!({"routine_id":routine_id,"enabled":true})
+            ))
+            .is_err());
+        assert!(rt
+            .block_on(o.rpc("routine.test_run", json!({"routine_id":routine_id})))
+            .is_err());
+
+        // Removing a member makes execution history terminal but must not
+        // make restoring that history depend on current membership.
+        let after_removal = o.snapshot().unwrap();
+        let restored_after_removal = Orchestrator::default();
+        restored_after_removal.restore(after_removal).unwrap();
+        let restored = restored_after_removal.snapshot().unwrap();
+        assert_eq!(
+            restored["assignments"][assignment_id]["origin_chat_id"],
+            project_chat
+        );
+        assert_eq!(restored["routines"][routine_id]["enabled"], false);
+        assert_eq!(restored["routines"][routine_id]["project_id"], project_id);
+    }
+
+    #[test]
+    fn deleting_bot_keeps_terminal_history_and_disables_orphan_routines_on_restore() {
+        let o = Orchestrator::default();
+        let worker = bot(&o, "历史保留 Bot");
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let project = rt
+            .block_on(o.rpc(
+                "project.create",
+                json!({"name":"保留历史项目","goal":"x","member_bot_ids":[worker]}),
             ))
             .unwrap();
-        assert_eq!(deleted_assignment["assignment"]["origin_chat_id"], dm_chat);
-        assert_eq!(deleted_assignment["assignment"]["project_id"], project_id);
+        let project_id = project["project"]["id"].as_str().unwrap().to_owned();
+        let project_chat = project["chat"]["id"].as_str().unwrap().to_owned();
+        let project_assignment = o
+            .create_assignment(AssignmentRequest {
+                project_id: Some(project_id.clone()),
+                origin_chat_id: "caller-scope-is-ignored".into(),
+                bot_id: worker.clone(),
+                title: "历史群任务".into(),
+                instruction: "完成后保留".into(),
+                from: "main".into(),
+                trigger_message_id: None,
+                parent_assignment_id: None,
+                priority: 1,
+                root_message_id: None,
+                loop_hops: 0,
+            })
+            .unwrap();
+        o.finish_assignment(&project_assignment.id, "done").unwrap();
+        let private_assignment = o
+            .create_assignment(AssignmentRequest {
+                project_id: None,
+                origin_chat_id: "caller-scope-is-ignored".into(),
+                bot_id: worker.clone(),
+                title: "历史私聊任务".into(),
+                instruction: "完成后保留".into(),
+                from: "main".into(),
+                trigger_message_id: None,
+                parent_assignment_id: None,
+                priority: 1,
+                root_message_id: None,
+                loop_hops: 0,
+            })
+            .unwrap();
+        o.finish_assignment(&private_assignment.id, "done").unwrap();
+
+        let project_routine = rt
+            .block_on(o.rpc(
+                "routine.create",
+                json!({"bot_id":worker,"project_id":project_id,"name":"历史群计划","instructions":"x","schedules":[{"cron":"*/5 * * * *","label":"five"}]}),
+            ))
+            .unwrap();
+        let private_routine = rt
+            .block_on(o.rpc(
+                "routine.create",
+                json!({"bot_id":worker,"name":"历史私聊计划","instructions":"x","schedules":[{"cron":"*/5 * * * *","label":"five"}]}),
+            ))
+            .unwrap();
+        let project_routine_id = project_routine["routine"]["id"].as_str().unwrap();
+        let private_routine_id = private_routine["routine"]["id"].as_str().unwrap();
+
+        rt.block_on(o.rpc("bot.delete", json!({"bot_id":worker})))
+            .unwrap();
+        let snapshot = o.snapshot().unwrap();
+        assert!(snapshot["bots"].get(&worker).is_none());
+        assert!(!snapshot["projects"][&project_id]["members"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|member| member["bot_id"] == worker));
+        assert_eq!(snapshot["routines"][project_routine_id]["enabled"], false);
+        assert_eq!(snapshot["routines"][private_routine_id]["enabled"], false);
+
+        let restored = Orchestrator::default();
+        restored.restore(snapshot).unwrap();
+        let snapshot = restored.snapshot().unwrap();
+        assert_eq!(
+            snapshot["assignments"][&project_assignment.id]["origin_chat_id"],
+            project_chat
+        );
+        assert_eq!(
+            snapshot["assignments"][&private_assignment.id]["origin_chat_id"],
+            format!("dm_{worker}")
+        );
+        assert_eq!(
+            snapshot["routines"][project_routine_id]["project_id"],
+            project_id
+        );
+        assert_eq!(snapshot["routines"][project_routine_id]["enabled"], false);
+        assert_eq!(snapshot["routines"][private_routine_id]["enabled"], false);
+        assert!(rt
+            .block_on(restored.rpc(
+                "routine.set_enabled",
+                json!({"routine_id":project_routine_id,"enabled":true})
+            ))
+            .is_err());
+        assert!(rt
+            .block_on(restored.rpc("routine.test_run", json!({"routine_id":private_routine_id})))
+            .is_err());
+
+        // Terminal history retains its durable canonical scope for audit even
+        // if the project object is no longer present.
+        let mut without_project = restored.snapshot().unwrap();
+        without_project["projects"]
+            .as_object_mut()
+            .unwrap()
+            .remove(&project_id);
+        let historical_restore = Orchestrator::default();
+        historical_restore.restore(without_project).unwrap();
+        let historical = historical_restore.snapshot().unwrap();
+        assert_eq!(
+            historical["assignments"][&project_assignment.id]["origin_chat_id"],
+            project_chat
+        );
+        assert_eq!(
+            historical["assignments"][&project_assignment.id]["project_id"],
+            project_id
+        );
+    }
+
+    #[test]
+    fn project_assignments_reject_missing_project_or_membership_on_create_and_restore() {
+        let o = Orchestrator::default();
+        let worker = bot(&o, "严格项目路由");
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let project = rt
+            .block_on(o.rpc(
+                "project.create",
+                json!({"name":"严格项目","goal":"x","member_bot_ids":[worker]}),
+            ))
+            .unwrap();
+        let project_id = project["project"]["id"].as_str().unwrap();
+        let chat_id = project["chat"]["id"].as_str().unwrap();
+        let assignment = o
+            .create_assignment(AssignmentRequest {
+                project_id: Some(project_id.into()),
+                origin_chat_id: "caller-controlled-chat".into(),
+                bot_id: worker.clone(),
+                title: "canonical route".into(),
+                instruction: "work".into(),
+                from: "main".into(),
+                trigger_message_id: None,
+                parent_assignment_id: None,
+                priority: 1,
+                root_message_id: None,
+                loop_hops: 0,
+            })
+            .unwrap();
+        assert_eq!(assignment.origin_chat_id, chat_id);
+
+        let missing = o.create_assignment(AssignmentRequest {
+            project_id: Some("missing-project".into()),
+            origin_chat_id: format!("dm_{worker}"),
+            bot_id: worker.clone(),
+            title: "must reject".into(),
+            instruction: "work".into(),
+            from: "main".into(),
+            trigger_message_id: None,
+            parent_assignment_id: None,
+            priority: 1,
+            root_message_id: None,
+            loop_hops: 0,
+        });
+        assert!(matches!(missing, Err(OrchestratorError::NotFound(_))));
+
+        let mut missing_project_snapshot = o.snapshot().unwrap();
+        missing_project_snapshot["projects"]
+            .as_object_mut()
+            .unwrap()
+            .remove(project_id);
+        assert!(Orchestrator::default()
+            .restore(missing_project_snapshot)
+            .is_err());
+
+        let mut missing_member_snapshot = o.snapshot().unwrap();
+        let members = missing_member_snapshot["projects"][project_id]["members"]
+            .as_array_mut()
+            .unwrap();
+        members.retain(|member| member["bot_id"] != worker);
+        assert!(Orchestrator::default()
+            .restore(missing_member_snapshot)
+            .is_err());
+
+        rt.block_on(o.rpc(
+            "project.remove_member",
+            json!({"project_id":project_id,"bot_id":worker}),
+        ))
+        .unwrap();
+        let no_longer_member = o.create_assignment(AssignmentRequest {
+            project_id: Some(project_id.into()),
+            origin_chat_id: format!("dm_{worker}"),
+            bot_id: worker,
+            title: "must reject".into(),
+            instruction: "work".into(),
+            from: "main".into(),
+            trigger_message_id: None,
+            parent_assignment_id: None,
+            priority: 1,
+            root_message_id: None,
+            loop_hops: 0,
+        });
+        assert!(matches!(
+            no_longer_member,
+            Err(OrchestratorError::Forbidden(_))
+        ));
     }
 
     #[test]
@@ -8002,9 +9187,21 @@ mod tests {
             .unwrap();
         assert_eq!(updated["project"]["name"], "新名称");
 
+        let project_routine = rt
+            .block_on(o.rpc(
+                "routine.create",
+                json!({"bot_id":worker,"project_id":project_id,"name":"原定时","instructions":"巡检","schedules":[{"cron":"0 * * * *","label":"hourly"}]}),
+            ))
+            .unwrap();
+
+        let unsafe_duplicate = rt.block_on(o.rpc(
+            "bot.duplicate",
+            json!({"bot_id":worker,"name":"复制 Bot","target_bot_id":"bot-copy-target"}),
+        ));
+        assert!(unsafe_duplicate.is_err());
         rt.block_on(o.rpc(
-            "routine.create",
-            json!({"bot_id":worker,"project_id":project_id,"name":"原定时","instructions":"巡检","schedules":[{"cron":"0 * * * *","label":"hourly"}]}),
+            "routine.delete",
+            json!({"routine_id":project_routine["routine"]["id"]}),
         ))
         .unwrap();
 
@@ -8024,8 +9221,7 @@ mod tests {
             .values()
             .filter(|routine| routine["bot_id"] == duplicate_id)
             .collect::<Vec<_>>();
-        assert_eq!(routines.len(), 1);
-        assert!(routines[0]["last_run"].is_null());
+        assert!(routines.is_empty());
         assert!(rt
             .block_on(o.rpc(
                 "bot.duplicate",

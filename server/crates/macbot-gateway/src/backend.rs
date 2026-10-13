@@ -6496,6 +6496,7 @@ impl RuntimeExecution {
             bot_id: request.bot_id.clone(),
             chat_id: request.chat_id.clone(),
             assignment_id: request.assignment_id.clone(),
+            source_message_id: request.source_message_id.clone(),
             project_id: request.project_id.clone(),
             is_main,
             private: request.private,
