@@ -26,8 +26,7 @@ import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
-import android.security.keystore.KeyGenParameterSpec
-import android.security.keystore.KeyProperties
+import javax.crypto.spec.SecretKeySpec
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -35,8 +34,10 @@ private val contextRef = AtomicReference<Context?>()
 private val filePickerProvider = AtomicReference<(suspend (FilePickerMode) -> PickedFile?)?>(null)
 private val fileExporterProvider = AtomicReference<(suspend (PickedFile) -> Boolean)?>(null)
 private const val CREDENTIAL_PREFS = "macbot_credentials"
+private const val CREDENTIAL_VAULT_PREFS = "macbot_credential_vault"
+private const val CREDENTIAL_VAULT_KEY = "aes_key_v1"
 private const val STATE_PREFS = "macbot_state"
-private const val KEY_ALIAS = "macbot.credentials.v1"
+private val credentialVaultLock = Any()
 
 actual fun initializePlatform(context: Any) {
     val appContext = context as? Context ?: error("initializePlatform expects an Android Context")
@@ -137,6 +138,7 @@ actual fun platformAnimationsEnabled(): Boolean {
 
 private class AndroidCredentialStore(context: Context) : CredentialStore {
     private val prefs = context.getSharedPreferences(CREDENTIAL_PREFS, Context.MODE_PRIVATE)
+    private val vaultPrefs = context.getSharedPreferences(CREDENTIAL_VAULT_PREFS, Context.MODE_PRIVATE)
 
     override suspend fun read(hostId: String): String? = withContext(Dispatchers.IO) {
         val encoded = prefs.getString(hostId, null) ?: return@withContext null
@@ -153,8 +155,7 @@ private class AndroidCredentialStore(context: Context) : CredentialStore {
 
     override suspend fun write(hostId: String, password: String) = withContext(Dispatchers.IO) {
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
-        // AndroidKeyStore AES keys require randomized encryption. Let the
-        // provider choose the IV, then persist cipher.iv with the ciphertext.
+        // Persist the provider-generated random IV with the ciphertext.
         cipher.init(Cipher.ENCRYPT_MODE, key())
         val iv = cipher.iv
         val ciphertext = cipher.doFinal(password.toByteArray(Charsets.UTF_8))
@@ -168,19 +169,27 @@ private class AndroidCredentialStore(context: Context) : CredentialStore {
     }
 
     private fun key(): SecretKey {
-        val keyStore = java.security.KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
-        (keyStore.getKey(KEY_ALIAS, null) as? SecretKey)?.let { return it }
-        val generator = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, "AndroidKeyStore")
-        generator.init(
-            KeyGenParameterSpec.Builder(
-                KEY_ALIAS,
-                KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT,
-            ).setBlockModes(KeyProperties.BLOCK_MODE_GCM)
-                .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
-                .setUserAuthenticationRequired(false)
-                .build(),
-        )
-        return generator.generateKey()
+        return synchronized(credentialVaultLock) {
+            val encoded = vaultPrefs.getString(CREDENTIAL_VAULT_KEY, null)
+            if (encoded != null) {
+                return@synchronized SecretKeySpec(Base64.getDecoder().decode(encoded), "AES")
+            }
+
+            // Threat model: the random key is stored in a separate MODE_PRIVATE app
+            // preferences file from the ciphertext. This protects against casual
+            // inspection and other apps, but is not hardware-backed: an attacker who
+            // extracts this app's private files or compromises its process can recover
+            // both the key and the credentials.
+            val generator = KeyGenerator.getInstance("AES")
+            generator.init(256)
+            val generated = generator.generateKey()
+            check(
+                vaultPrefs.edit()
+                    .putString(CREDENTIAL_VAULT_KEY, Base64.getEncoder().encodeToString(generated.encoded))
+                    .commit(),
+            ) { "Unable to persist credential vault key" }
+            generated
+        }
     }
 }
 

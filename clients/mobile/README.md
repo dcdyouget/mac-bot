@@ -42,7 +42,7 @@ The fixture contract test fails if the corpus is missing; no-fixture builds are 
 "$ANDROID_HOME/platform-tools/adb" exec-out screencap -p > verification/S0.png
 ```
 
-Add a Host using `10.0.2.2:7789`, password `dev`, for mock; real host uses `10.0.2.2:7788`. Physical devices can use any reachable IP/domain, including `192.168.31.162:7788`. Each Host accepts multiple ordered addresses, `ws`/`wss`/`http`/`https`, proxy prefixes and IPv6. Passwords are encrypted with Android Keystore; Host snapshots, drafts and replay cursors persist separately per Host.
+Add a Host using `10.0.2.2:7789`, password `dev`, for mock; real host uses `10.0.2.2:7788`. Physical devices can use any reachable IP/domain, including `192.168.31.162:7788`. Each Host accepts multiple ordered addresses, `ws`/`wss`/`http`/`https`, proxy prefixes and IPv6. Host passwords use AES/GCM with a random key and ciphertext in separate app-private `MODE_PRIVATE` preferences. This is not hardware-backed: someone who extracts the app's private files or compromises its process can recover them. Host snapshots, drafts and replay cursors persist separately per Host.
 
 Debug APK: `androidApp/build/outputs/apk/debug/androidApp-debug.apk`. Signed release APK: `androidApp/build/outputs/apk/release/androidApp-release.apk` (R8 + resource shrinking). Supply `MACBOT_ANDROID_KEYSTORE`, `MACBOT_ANDROID_STORE_PASSWORD`, `MACBOT_ANDROID_KEY_ALIAS`, `MACBOT_ANDROID_KEY_PASSWORD` before `./gradlew :androidApp:assembleRelease`. Without these variables, the output is `androidApp-release-unsigned.apk`.
 
