@@ -31,7 +31,7 @@ import { isLatestLocalPreferenceSave, mergeLocalPreferences, rollbackLocalPrefer
 import { captureChatScrollPosition, restoreChatScrollTop, type ChatScrollPosition } from './components/chatScrollPosition.model'
 import { taskCardAvatarOwnerBotId } from './components/pendingChatActions.model'
 import { resolveHostStartup } from './components/hostStartup.model.mjs'
-import { isMessageVisibleInChat } from './components/chatMessageVisibility.model'
+import { isMessageVisibleInChat, mainBotIdForChat } from './components/chatMessageVisibility.model'
 import { pendingDecisionsForContext, type PendingDecision } from './components/pendingApprovalDecisions.model'
 import { CreateGroupDialog, MessageContextMenu, type ChatEntryMessage, type QuoteTarget } from './components/ChatEntry'
 import './components/ChatEntry.css'
@@ -2974,7 +2974,7 @@ function App() {
           </div>}
         </div>
           : currentMessages.length ? <div className="message-list">
-          {buildMessageTimeline(currentMessages, state.assignments, currentChat?.id, isMainChat ? currentChatBotId ?? undefined : undefined).filter((entry) => entry.visible).map((entry, index) => <Fragment key={entry.message.id}>
+          {buildMessageTimeline(currentMessages, state.assignments, currentChat?.id, mainBotIdForChat(currentChat, state.bots)).filter((entry) => entry.visible).map((entry, index) => <Fragment key={entry.message.id}>
           {entry.dayLabel && <div className="day-separator">{entry.dayLabel}</div>}
           <div id={`message-${entry.message.id}`} data-message-id={entry.message.id} className={`timeline-fragment ${messageMenu?.message.id === entry.message.id ? 'message-context-selected' : ''}`} tabIndex={focusedMessageId ? (focusedMessageId === entry.message.id ? 0 : -1) : (index === 0 ? 0 : -1)} role="group" aria-label={t('chat.message.keyboard_actions')} onFocus={() => setFocusedMessageId(entry.message.id)} onKeyDown={(event) => {
             if (event.target !== event.currentTarget || messageMenu || (entry.message as Message & { deleted?: boolean }).deleted) return
