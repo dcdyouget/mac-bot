@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
-import { Activity, Check, Copy, CornerUpLeft, Forward, Link2, Megaphone, Trash2, X } from 'lucide-react'
+import { Check, CornerUpLeft, Forward, X } from 'lucide-react'
 import { t } from '../i18n'
 import { messageShortcutAction } from './messageActions.model'
 
 export type ChatEntryBot = { id: string; name?: string; is_main?: boolean; description?: string }
-export type ChatEntryMessage = { id: string; chat_id?: string; assignment_id?: string | null; sender?: { kind?: string; bot_id?: string }; fallback_text?: string; blocks?: { text?: string; markdown?: string }[] }
+export type ChatEntryMessage = { id: string; chat_id?: string; sender?: { kind?: string; bot_id?: string }; fallback_text?: string; blocks?: { text?: string; markdown?: string }[] }
 export type QuoteTarget = { messageId: string; senderName: string; excerpt: string; mode: 'reply' | 'reference'; botId?: string }
 
 export function CreateGroupDialog({ bots, busy, error, onClose, onCreate }: {
@@ -53,26 +53,18 @@ export function CreateGroupDialog({ bots, busy, error, onClose, onCreate }: {
 
 const quickReactions = ['👍', '❤️', '😂', '🎉', '👀', '✅']
 
-export function MessageContextMenu({ message, ownMessage, x, y, senderName, canQuoteToAnnouncement, onReply, onQuote, onCopy, onReact, onQuoteToAnnouncement, onViewTrace, onCopyLink, onDelete, onClose }: {
+export function MessageContextMenu({ message, x, y, onReply, onQuote, onReact, onClose }: {
   message: ChatEntryMessage
-  ownMessage: boolean
   x: number
   y: number
-  senderName: string
-  canQuoteToAnnouncement: boolean
   onReply: () => void
   onQuote: () => void
-  onCopy: () => void
   onReact: (emoji: string) => void
-  onQuoteToAnnouncement: () => void
-  onViewTrace: () => void
-  onCopyLink: () => void
-  onDelete: () => void
   onClose: () => void
 }) {
   const menu = useRef<HTMLDivElement>(null)
-  const callbacks = useRef({ onClose, onCopy, onQuote, onReply })
-  callbacks.current = { onClose, onCopy, onQuote, onReply }
+  const callbacks = useRef({ onClose, onQuote, onReply })
+  callbacks.current = { onClose, onQuote, onReply }
   const [position, setPosition] = useState({ left: x, top: y })
   useEffect(() => {
     const rect = menu.current?.getBoundingClientRect()
@@ -95,8 +87,6 @@ export function MessageContextMenu({ message, ownMessage, x, y, senderName, canQ
         event.preventDefault(); event.stopPropagation(); callbacks.current.onReply()
       } else if (action === 'reference') {
         event.preventDefault(); event.stopPropagation(); callbacks.current.onQuote()
-      } else if (action === 'copy') {
-        event.preventDefault(); event.stopPropagation(); callbacks.current.onCopy()
       }
     }
     window.addEventListener('pointerdown', close)
@@ -122,11 +112,5 @@ export function MessageContextMenu({ message, ownMessage, x, y, senderName, canQ
     <div className="message-context-divider" />
     <button role="menuitem" onClick={onReply}><CornerUpLeft size={14} /><span>{t('chat.menu.reply')}</span><kbd>R</kbd></button>
     <button role="menuitem" onClick={onQuote}><Forward size={14} /><span>{t('chat.menu.quote')}</span><kbd>Q</kbd></button>
-    <button role="menuitem" onClick={onCopy}><Copy size={14} /><span>{t('chat.menu.copy_text')}</span><kbd>⌘C</kbd></button>
-    {canQuoteToAnnouncement && <button role="menuitem" onClick={onQuoteToAnnouncement}><Megaphone size={14} /><span>{t('chat.menu.quote_to_announcement')}</span></button>}
-    {message.assignment_id && <button role="menuitem" onClick={onViewTrace}><Activity size={14} /><span>{t('chat.menu.view_trace')}</span></button>}
-    <button role="menuitem" onClick={onCopyLink}><Link2 size={14} /><span>{t('chat.menu.copy_link')}</span></button>
-    {ownMessage && <><div className="message-context-divider" /><button role="menuitem" className="danger" onClick={onDelete}><Trash2 size={14} /><span>{t('chat.menu.delete')}</span></button></>}
-    <span className="sr-only">{senderName} · {message.id}</span>
   </div>
 }

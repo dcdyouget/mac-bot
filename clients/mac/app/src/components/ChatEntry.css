@@ -84,10 +84,6 @@
 .message-context-menu button kbd { color: var(--text-tertiary); font: inherit; font-size: 10px; }
 .message-context-menu button.danger { color: var(--danger); }
 .message-context-divider { height: 1px; margin: 4px 2px; background: var(--border-subtle); }
-.message-hover-tools { position: absolute; z-index: 2; top: -14px; right: 8px; display: flex; gap: 2px; padding: 2px; border: 1px solid var(--border-subtle); border-radius: 9px; background: var(--bg-elevated); box-shadow: var(--shadow-e2, 0 4px 12px rgb(0 0 0 / 14%)); opacity: 0; pointer-events: none; transition: opacity 120ms ease 300ms; }
-.message-hover-tools button { display: grid; width: 26px; height: 26px; place-items: center; padding: 0; border: 0; border-radius: 6px; background: transparent; color: var(--text-secondary); cursor: pointer; }
-.message-hover-tools button:hover, .message-hover-tools button:focus-visible { background: var(--bg-hover); color: var(--text-primary); }
-.bubble:hover .message-hover-tools, .message-hover-tools:hover, .message-hover-tools:focus-within { opacity: 1; pointer-events: auto; transition-delay: 300ms; }
 .message-reactions { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
 .message-reaction-pill { display: inline-flex; min-width: 30px; height: 22px; align-items: center; justify-content: center; gap: 3px; padding: 0 7px; border: 0; border-radius: 11px; background: var(--accent-soft); color: var(--accent); font: inherit; font-size: 12px; cursor: pointer; }
 .message-reaction-pill.active { box-shadow: inset 0 0 0 1px var(--accent); }

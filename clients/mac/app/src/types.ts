@@ -14,6 +14,7 @@ export type Message = {
   assignment_id?: string | null
   sender_id?: string
   fallback_text?: string
+  streaming?: boolean
   blocks?: { type?: string; text?: string; [key: string]: Json | undefined }[]
   created_at?: string
   reactions?: { emoji: string; by: { kind?: string; bot_id?: string }[] }[]

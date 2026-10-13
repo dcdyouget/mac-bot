@@ -6,8 +6,10 @@ import {
   isMessageMenuActionCurrent,
   messageDeepLink,
   messageAssignmentId,
+  messageRenderMode,
   messageShortcutAction,
   quoteSendFields,
+  shouldSendOnCommandEnter,
   userHasReaction,
 } from './messageActions.model.ts'
 
@@ -18,6 +20,22 @@ test('message keyboard actions ignore editable and composing focus', () => {
   assert.equal(messageShortcutAction({ key: 'r', editable: true }), null)
   assert.equal(messageShortcutAction({ key: 'q', isComposing: true }), null)
   assert.equal(messageShortcutAction({ key: 'r', shiftKey: true }), null)
+})
+
+test('Command+Enter submits the composer without intercepting newlines or IME confirmation', () => {
+  assert.equal(shouldSendOnCommandEnter({ key: 'Enter', metaKey: true }), true)
+  assert.equal(shouldSendOnCommandEnter({ key: 'Enter', ctrlKey: true }), true)
+  assert.equal(shouldSendOnCommandEnter({ key: 'Enter', metaKey: true, shiftKey: true }), false)
+  assert.equal(shouldSendOnCommandEnter({ key: 'Enter', metaKey: true, altKey: true }), false)
+  assert.equal(shouldSendOnCommandEnter({ key: 'Enter', metaKey: true, isComposing: true }), false)
+  assert.equal(shouldSendOnCommandEnter({ key: 'Enter', metaKey: true, keyCode: 229 }), false)
+  assert.equal(shouldSendOnCommandEnter({ key: 'Enter' }), false)
+})
+
+test('streaming messages use a placeholder until final content arrives', () => {
+  assert.equal(messageRenderMode({ streaming: true }), 'streaming')
+  assert.equal(messageRenderMode({ streaming: false }), 'content')
+  assert.equal(messageRenderMode({ streaming: true, deleted: true }), 'deleted')
 })
 
 test('reply quotes target bot while references never add an automatic mention', () => {

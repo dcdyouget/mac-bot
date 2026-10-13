@@ -11,7 +11,22 @@ export type MessageShortcutInput = {
   altKey?: boolean
   shiftKey?: boolean
   isComposing?: boolean
+  keyCode?: number
   editable?: boolean
+}
+
+export function shouldSendOnCommandEnter(input: MessageShortcutInput): boolean {
+  return input.key === 'Enter'
+    && (input.metaKey === true || input.ctrlKey === true)
+    && input.altKey !== true
+    && input.shiftKey !== true
+    && input.isComposing !== true
+    && input.keyCode !== 229
+}
+
+export function messageRenderMode(message: { streaming?: boolean; deleted?: boolean }): 'deleted' | 'streaming' | 'content' {
+  if (message.deleted) return 'deleted'
+  return message.streaming === true ? 'streaming' : 'content'
 }
 
 export function messageShortcutAction(input: MessageShortcutInput): 'reply' | 'reference' | 'copy' | null {
