@@ -136,7 +136,7 @@ Bot（主要是主 Bot，也包括普通 Bot 提到某个群时）发出的消�
 | 审批（只出现在发起审批的那个 Bot 的私聊里） | shield · `warning` | 深色命令块 + 11px 说明（Bot · 群 · 命中的规则） | [允许一次] primary · [总是允许] secondary · [拒绝] danger；描边 `warning.soft` |
 | 提问 | message · `text.secondary` | 问题 14px；选项按钮纵向排列，高 32，左对齐，「A」前缀 600 | 选择后折叠成一行：「已选择 B · 不锁账号」 |
 | 产物行 | — | 高 40：28×28 图标块（圆角 6，`accent.soft` / `accent`）+ 名称 13 + 路径 11 mono `text.tertiary`；右侧 [打开] ghost sm；行间 1px `border.subtle` | — |
-| 卡住 | alert · `danger` | 原因 + 「需要：@你 / @总管」 | [重试] [换模型] |
+| 卡住 | alert · `danger` | 原因 + 「需要：@你 / @秘书长」 | [重试] [换模型] |
 | Bot 间私信 | mail · `text.secondary`「A 私信了 B（N 条）」 | 默认折叠 | [展开] ghost |
 
 ## 7. 任务卡片（系统生成，不是气泡）

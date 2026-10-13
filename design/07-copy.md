@@ -97,7 +97,7 @@
 | sidebar.completed | 已完成 |
 | sidebar.archived_hint | 已归档 {count} · 在搜索里查看 |
 | sidebar.approval_line | ⚠ 需要你审批 · {summary} |
-| sidebar.empty_groups | 还没有群。对总管说「帮我做…」，它会拉群去做。 |
+| sidebar.empty_groups | 还没有群。对秘书长说「帮我做…」，它会拉群去做。 |
 | sidebar.hidden_bots | 隐藏的 Bot {count} › |
 | sidebar.menu.pin | 置顶 |
 | sidebar.menu.rename | 重命名 |
@@ -136,7 +136,7 @@
 |-----|-------|
 | onboarding.welcome | 欢迎使用 Mac Bot |
 | onboarding.connect_subtitle | 连接你的 Bot 主机 |
-| onboarding.meet_main | 认识你的主 Bot：总管 |
+| onboarding.meet_main | 认识你的主 Bot：秘书长 |
 | onboarding.meet_main_desc | 日常和它聊；有事它会拉群。选一个团队模板： |
 | onboarding.template.only_main | 先只用主 Bot |
 | onboarding.template.loading | 正在连接主机并获取团队模板… |
@@ -146,8 +146,8 @@
 | onboarding.host_changed | 当前主机已切换。请返回后重新选择主机，再继续首次设置。 |
 | onboarding.retry | 重试 |
 | onboarding.edit_connection | 返回连接设置 |
-| onboarding.footer | 对总管说「帮我做…」，它会拉群去做 |
-| onboarding.empty.title | 你好，我是总管 |
+| onboarding.footer | 对秘书长说「帮我做…」，它会拉群去做 |
+| onboarding.empty.title | 你好，我是秘书长 |
 | onboarding.empty.desc | 把要做的事交给我：需要几个 Bot 配合的，我会拉群分工，做完提醒你验收；小事我直接转给合适的 Bot。 |
 | onboarding.suggest.login | 帮我给 App 加个登录 |
 | onboarding.suggest.research | 调研 3 个竞品 |
@@ -227,7 +227,7 @@
 | block.question.tap_to_submit | 点一项就提交 |
 | chat.queue.hint | {bots} 正在干活，这条消息不会打断{count, plural, one {它} other {它们}}，会在交付前看到 |
 | chat.queue.at_now | @{bot} 立即生效 |
-| chat.delivery.main_received | 总管 已收到 |
+| chat.delivery.main_received | 秘书长 已收到 |
 | chat.delivery.queued_for | {bot} 交付前会看到 |
 | chat.delivery.queue_seen | {bot} 交付前已查看 ✓ |
 | trace.queue.title | 待看消息 |
@@ -260,7 +260,7 @@
 | block.review_card.confirmed | 你已确认完成 · {time} |
 | block.review_card.changes_requested | 你提了修改意见 · 已派给对应的 Bot |
 | block.review_card.changes_dialog_title | 提修改意见 · {project} |
-| block.review_card.changes_dialog_hint | 意见会发到群里并 @总管，由总管派给对应的 Bot；群回到「进行中」。 |
+| block.review_card.changes_dialog_hint | 意见会发到群里并 @秘书长，由秘书长派给对应的 Bot；群回到「进行中」。 |
 | block.delegation.text | 交给 {bot} 处理（不建群） |
 | block.approval.title | 需要审批 · {tool} |
 | block.approval.meta | 来自 {project} · 命中规则「{rule}」 |
@@ -290,7 +290,7 @@
 | block.loop_paused.ended | 你结束了这一轮 |
 | block.system.announcement_updated | {who} 更新了公告 |
 | block.system.member_added | {bot} 加入了群 |
-| block.system.created | 总管 创建了群，拉入 {members} |
+| block.system.created | 秘书长 创建了群，拉入 {members} |
 | block.fallback.hint | 这类消息需要更新客户端才能完整显示 |
 
 ## group · 群、公告、产物
@@ -351,12 +351,12 @@
 | new.title | 新建 |
 | new.input.placeholder | 输入一件事（建群），或一个名字（新建 Bot） |
 | new.group | 新建群「{name}」 |
-| new.group.hint | 总管会自动加入并担任负责人 |
+| new.group.hint | 秘书长会自动加入并担任负责人 |
 | new.bot | 新建 Bot「{name}」 |
-| new.members | 选择成员（1–6 个，已选 {count}，另加总管） |
+| new.members | 选择成员（1–6 个，已选 {count}，另加秘书长） |
 | new.note | 说明（会写进公告） |
 | new.create_group | 建群 |
-| new.footer | 建群后，总管会写好公告，在群里发开场并 @ 第一个 Bot |
+| new.footer | 建群后，秘书长会写好公告，在群里发开场并 @ 第一个 Bot |
 
 ## search · 搜索（⌘K）
 
@@ -435,7 +435,7 @@
 | workbench.waiting_review | 等你验收 |
 | workbench.waiting_approval | 等你审批 |
 | workbench.concurrency | {running}/{max} 并发 |
-| workbench.main_not_counted | 总管只协调，不占并发名额 |
+| workbench.main_not_counted | 秘书长只协调，不占并发名额 |
 | workbench.done_today | 今天完成 {count} |
 
 ## dashboard · 仪表盘
@@ -693,7 +693,7 @@
 |-----|-------|
 | notify.need_you.title | 需要你 · {bot} |
 | notify.approval.body | 审批：{summary} |
-| notify.review.title | 待验收 · 总管 |
+| notify.review.title | 待验收 · 秘书长 |
 | notify.review.body | 「{project}」做完了，请你验收 |
 | notify.action.allow_once | 允许一次 |
 | notify.action.deny | 拒绝 |

@@ -268,22 +268,23 @@ send_msg(
 
 #### 5.3.5 主 Bot
 
-- **只协调，不干活**：没有文件、bash、浏览器、子代理工具。在群里同样只通过 `send_msg` 说话（开场、转派、待验收、总结）；和用户的私聊是对话模式。phase=`coordinate`，**不占任务并发名额**。
+- **只协调，不干活**：没有文件写入、bash、浏览器、技能、网页、记忆或检索工具。在群里同样只通过 `send_msg` 说话（开场、转派、待验收、总结）；和用户的私聊是对话模式。phase=`coordinate`，**不占任务并发名额**。私聊中可启动隔离的只读 `subagent` 做拆解和分析，但真正执行必须 `delegate` / `assign` 给普通 Bot。
 - **工具**：
-  - `list_bots`、`create_project(name, members, announcement)`（announcement 是公告初稿：这件事要做什么、截止时间、谁负责什么，自由书写）
+  - `list_bots`、`create_project(name, members, announcement)`（announcement 是群信息里的公告初稿：这件事要做什么、截止时间、谁负责什么，自由书写）
   - `assign(project, bot, instruction)`、`delegate(bot, instruction)`（小事不建群，结果回到主 Bot 私聊）
   - `project_status(project)`
   - `request_review(project, summary)`、`finish_project(project, summary)`（只能在用户确认之后调用）
   - `propose_bot(name, label, description)`（必须经过用户同意）
-  - `notify_user(text)`、`send_msg`
-  - 记忆和检索工具
+  - `question`、`send_msg`
+  - 私聊协调 run 可用 `subagent`；子运行只有 `read` / `ls` / `find` / `grep`，不能写入、执行、发消息、访问记忆或再次派生
+  - 首次用户档案初始化 run 临时追加 `set_user_profile`，其余时候不开放
 - **被唤醒的时机**：
   - 用户私聊。
   - 群里没有 @ 任何人的消息。
   - 被 @。
   - 有成员 `blocked` 或 `failed`。
   - 某个任务 2 小时没有进展。
-- **普通 Bot 转交给主 Bot**：用户在和普通 Bot 的私聊里提出一件需要别人配合的事时，这个 Bot 用 `send_msg(to: {bot: 主 Bot}, mentions: ["main"])` 把事情转给主 Bot，并在私聊里告诉用户「已交给总管拉群处理」；之后由主 Bot 建群。
+- **普通 Bot 转交给主 Bot**：用户在和普通 Bot 的私聊里提出一件需要别人配合的事时，这个 Bot 用 `send_msg(to: {bot: 主 Bot}, mentions: ["main"])` 把事情转给主 Bot，并在私聊里告诉用户「已交给秘书长拉群处理」；之后由主 Bot 建群。
 - **提议新建 Bot**：`propose_bot` 会在主 Bot 私聊里生成一个提问卡片（「要不要新建『测试』Bot？」）。用户选「新建」后，服务端创建这个 Bot，主 Bot 继续。
 - **建群规则**：满足任一条件就建群：需要其他 Bot、要跨多次对话、有需要沉淀的产出、用户要求建群。小事用 `delegate`；闲聊和知识问答直接回答。设置 `main_bot.auto_create_project=false` 时，建群前先问用户。用户说「不用建群」时，解散群，事情回到私聊。
 

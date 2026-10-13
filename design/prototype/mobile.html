@@ -79,7 +79,7 @@
 <script src="blocks.js"></script>
 <script>
 const C = (i) => `var(--avatar-${i})`;
-const BOT = { Z: ['总管', 0], P: ['产品', 1], C: ['编码', 2], T: ['测试', 3], R: ['调研', 4], X: ['X 侦察', 5], B: ['比价', 6] };
+const BOT = { Z: ['秘书长', 0], P: ['产品', 1], C: ['编码', 2], T: ['测试', 3], R: ['调研', 4], X: ['X 侦察', 5], B: ['比价', 6] };
 const av = (k, s = 32, ring) => `<div class="av s${s}" style="--c:${C(BOT[k][1])}">${k === 'Z' ? GLASSES : ''}${ring ? '<span class="ring-working"></span>' : ''}</div>`;
 const gav = (ks, s = 48) => `<div class="gav s${s} n${Math.min(ks.length, 4)}">${ks.map((k) => `<div class="av" style="--c:${C(BOT[k][1])}"></div>`).join('')}</div>`;
 const I = (n, c = '') => `<svg class="ic ${c}"><use href="#i-${n}"/></svg>`;
@@ -102,7 +102,7 @@ const S = {};
 S.list = (p) => sbar(p) + header(p, p === 'a' ? `<span class="row gap6"><span class="sdot" style="color:var(--success)"></span>Mac mini（家）${I('chevD', 's18')}</span>` : '消息', { large: 1, actions: ['search', 'edit'] }) +
   (p === 'i' ? `<div class="row gap6 t-foot" style="padding:0 16px 8px"><span class="sdot" style="color:var(--success)"></span>Mac mini（家）${I('chevD', 's14')}</div>` : '') + `
   <div class="content">
-    <div class="lrow" style="background:var(--bg-selected)">${av('Z', p === 'a' ? 48 : 52)}<div class="bd"><div class="l1">总管<span class="t3" style="font-weight:400;font-size:13px">主 Bot</span><span class="tm">11:42</span></div><div class="l2"><span class="ellipsis" style="color:var(--review)">◎ 登录功能 待你验收</span><span class="badge">1</span></div></div></div>
+    <div class="lrow" style="background:var(--bg-selected)">${av('Z', p === 'a' ? 48 : 52)}<div class="bd"><div class="l1">秘书长<span class="t3" style="font-weight:400;font-size:13px">主 Bot</span><span class="tm">11:42</span></div><div class="l2"><span class="ellipsis" style="color:var(--review)">◎ 登录功能 待你验收</span><span class="badge">1</span></div></div></div>
     <div class="shead">群</div>
     ${[[['Z', 'P', 'C', 'T'], '登录功能', '编码：收到，改为只做邮箱登录', '10:32', '<span class="chip working"><span class="spinner"></span>1</span>'], [['Z', 'R'], '竞品调研', '调研：正在整理对比表…', '10:12', '<span class="chip working"><span class="spinner"></span>1</span>'], [['Z', 'B'], '换新 MacBook', '<span class="waitline">⚠ 需要你审批 · 下单</span>', '09:40', '<span class="badge" style="background:var(--warning)">1</span>']].map(([ks, n, m, t, r]) =>
       `<div class="lrow">${gav(ks, p === 'a' ? 48 : 52)}<div class="bd"><div class="l1">${n}<span class="tm">${t}</span></div><div class="l2"><span class="ellipsis">${m}</span>${r}</div></div></div>`).join('')}
@@ -115,7 +115,6 @@ S.list = (p) => sbar(p) + header(p, p === 'a' ? `<span class="row gap6"><span cl
 S.group = (p) => sbar(p) + header(p, `${p === 'i' ? gav(['Z', 'P', 'C', 'T'], 24) : ''}登录功能`, { back: 1, backLabel: '消息', lead: p === 'i' ? 1 : 0, small: 1, sub: '进行中 · 4 位成员', actions: ['panelR'] }).replace('<span class="t"', p === 'a' ? `${gav(['Z', 'P', 'C', 'T'], 40)}<span style="width:12px"></span><span class="t"` : '<span class="t"') + `
   <div class="row gap6" style="padding:6px 12px;overflow:hidden;flex:none;border-bottom:1px solid var(--border-subtle)">
     ${[['Z', '★', ''], ['P', '✓', 'ok'], ['C', '工作中', 'working'], ['T', '待命', '']].map(([k, s, c]) => `<span class="chip ${c}" style="height:26px;padding:0 9px 0 3px;border-radius:13px;font-size:12px">${av(k, 20)}${BOT[k][0]} ${c === 'working' ? '<span class="spinner"></span>' : ''}${s}</span>`).join('')}</div>
-  <div class="row gap8" style="height:44px;padding:0 12px;flex:none;border-bottom:1px solid var(--border-subtle);font-size:13px"><span style="width:2px;height:28px;border-radius:1px;background:var(--accent)"></span><div class="grow"><div style="color:var(--accent);font-weight:600;line-height:17px">公告</div><div class="ellipsis t2" style="line-height:17px">给 App 加邮箱登录，10/12 前上线 · 只做邮箱登录</div></div>${I('chevR', 's18 t3')}</div>
   <div class="content chat"><div class="msgs">
     ${MB.msg('P', ['✓ 已完成 PRD 和原型：', MB.artifacts([['PRD', 'product/prd.md', 'P', 'file']]), `${MB.at('C')} 请按 PRD 实现`], { time: '10:18' })}
     ${MB.msg('me', [`${MB.at('C')} 只做邮箱登录`], { time: '10:31', delivery: '已送达 · <span style="color:var(--success)">编码 已读取 ✓</span>' })}
@@ -123,13 +122,13 @@ S.group = (p) => sbar(p) + header(p, `${p === 'i' ? gav(['Z', 'P', 'C', 'T'], 24
     ${MB.task({ title: '实现登录', state: 'working', time: '25 分' })}
   </div></div>` + comp(p, '发消息，@ 指定 Bot');
 
-S.mainchat = (p) => sbar(p) + header(p, `${p === 'i' ? av('Z', 24) : ''}总管`, { back: 1, backLabel: '消息', lead: p === 'i' ? 1 : 0, small: 1, sub: '主 Bot · 只协调，不干活', actions: ['panelR'] }).replace('<span class="t"', p === 'a' ? `${av('Z', 40)}<span style="width:12px"></span><span class="t"` : '<span class="t"') + `
+S.mainchat = (p) => sbar(p) + header(p, `${p === 'i' ? av('Z', 24) : ''}秘书长`, { back: 1, backLabel: '消息', lead: p === 'i' ? 1 : 0, small: 1, sub: '主 Bot · 只协调，不干活', actions: ['panelR'] }).replace('<span class="t"', p === 'a' ? `${av('Z', 40)}<span style="width:12px"></span><span class="t"` : '<span class="t"') + `
   ${pinbar('review', 'target', '等你处理 1', '登录功能：验收')}
   <div class="content chat"><div class="msgs">
     ${MB.msg('me', ['给 App 加个邮箱登录，周六前上线'], { time: '09:58', tapback: [['👍', 1]] })}
     ${MB.msg('Z', ['好的，我拉了产品、编码、测试建群。', MB.group({ members: ['Z', 'P', 'C', 'T'], title: '登录功能', created: true, note: '给 App 加邮箱登录，周六前上线' })], { time: '09:58' })}
     ${MB.msg('Z', ['「登录功能」做完了，请你验收：', MB.review({ title: '登录功能', list: [['PRD', 'product/prd.md', 'P', 'file'], ['代码', 'code/', 'C', 'folder']] })], { time: '11:42' })}
-  </div></div>` + comp(p, '给 总管 发消息');
+  </div></div>` + comp(p, '给 秘书长 发消息');
 
 S.botchat = (p) => sbar(p) + header(p, `${p === 'i' ? av('C', 24) : ''}编码`, { back: 1, backLabel: '消息', lead: p === 'i' ? 1 : 0, small: 1, sub: '写代码、部署 · 工作中 2 个活', actions: ['monitor', 'panelR'] }).replace('<span class="t"', p === 'a' ? `${av('C', 40)}<span style="width:12px"></span><span class="t"` : '<span class="t"') + `
   ${pinbar('warning', 'shield', '待审批 1', 'bash · git push · 登录功能')}
@@ -179,7 +178,7 @@ S.approve = (p) => S.list(p).replace(/<div class="(anav|inav)[\s\S]*$/, '') + `<
 
 S.notify = (p) => `<div style="position:absolute;inset:0;background:linear-gradient(160deg,#5a6f8f,#a89b8a)"></div><div style="position:relative;z-index:2">${sbar(p)}
   <div style="text-align:center;color:#fff;margin:${p === 'a' ? 40 : 20}px 0 28px"><div style="font-size:${p === 'a' ? 64 : 84}px;font-weight:${p === 'a' ? 400 : 600};line-height:1">9:41</div><div style="font-size:17px;margin-top:8px">10月10日 星期六</div></div>
-  ${[['alert', 'warning', '需要你 · 编码', '审批：git push origin feature/email-login', ['允许一次', '拒绝']], ['target', 'review', '待验收 · 总管', '「登录功能」做完了，请你验收', ['确认完成', '打开']], ['message', 'accent', '登录功能 · 测试', '✓ 测试 20/20 通过 @总管', []]].map(([i, c, t, b, acts]) =>
+  ${[['alert', 'warning', '需要你 · 编码', '审批：git push origin feature/email-login', ['允许一次', '拒绝']], ['target', 'review', '待验收 · 秘书长', '「登录功能」做完了，请你验收', ['确认完成', '打开']], ['message', 'accent', '登录功能 · 测试', '✓ 测试 20/20 通过 @秘书长', []]].map(([i, c, t, b, acts]) =>
     `<div class="notif glass-pop" style="${p === 'a' ? 'border-radius:24px' : ''}"><div class="row gap8 t-foot" style="margin-bottom:4px"><span style="width:20px;height:20px;border-radius:5px;background:var(--accent);color:var(--accent-on);display:flex;align-items:center;justify-content:center">${I('bot', 's14')}</span>Mac Bot<span style="margin-left:auto">现在</span></div>
      <div style="font-weight:600;display:flex;gap:6px;align-items:center"><span style="color:var(--${c})">${I(i, 's14')}</span>${t}</div><div>${b}</div>
      ${acts.length ? `<div class="row gap8" style="margin-top:10px">${acts.map((a, k) => `<span class="btn ${k ? 'secondary' : 'primary'}" style="flex:1;height:32px;border-radius:${p === 'a' ? 16 : 10}px">${a}</span>`).join('')}</div>` : ''}</div>`).join('')}</div>
@@ -203,7 +202,7 @@ const sec = (t, r = '') => `<div class="row" style="height:36px;align-items:flex
 const rowH = (p) => p === 'a' ? 56 : 48;
 const fi = (ic, s = 36) => `<span class="mb-fi" style="width:${s}px;height:${s}px">${I(ic, 's18')}</span>`;
 
-S.follow = (p) => sub(p, '跟进', '总管') + `
+S.follow = (p) => sub(p, '跟进', '秘书长') + `
   <div class="content" style="padding:0 16px">
     ${sec('本对话中等你处理', '<span class="badge" style="background:var(--review)">1</span>')}
     <div class="banner review" style="font-size:15px;min-height:52px">${I('target', 's20')}<span class="grow">登录功能：验收</span><span class="mb-btn primary" style="height:32px;font-size:13px">去验收</span></div>
@@ -226,7 +225,7 @@ S.botfollow = (p) => sub(p, '跟进', '编码') + `
 S.groupinfo = (p) => sub(p, '群信息', '登录功能', { actions: ['more'] }) + `
   <div class="content" style="padding:0 16px">
     <div class="col" style="align-items:center;padding:8px 0 4px">${gav(['Z', 'P', 'C', 'T'], 64)}<div style="font-size:20px;font-weight:600;margin-top:8px">登录功能</div><span class="chip working" style="margin-top:4px">● 进行中</span></div>
-    ${sec('公告', '总管维护 · 10:32')}
+    ${sec('公告', '秘书长维护 · 10:32')}
     <div class="card md-ann" style="padding:14px;font-size:15px;line-height:22px"><h3 style="font-size:16px">登录功能</h3><p>给 App 加<b>邮箱登录</b>，10/12 前上线。</p><h3 style="font-size:16px">当前事项</h3><ul><li>只做邮箱登录，不做手机号</li><li>密码规则见 PRD 3.2</li></ul></div>
     <div class="row gap8" style="margin-top:8px"><span class="mb-btn secondary" style="flex:1">${I('edit', 's14')}编辑公告</span><span class="mb-btn secondary" style="flex:1">${I('folder', 's14')}Home</span><span class="mb-btn secondary" style="flex:1">${I('copy', 's14')}复制路径</span></div>
     ${sec('成员', '4')}
@@ -280,7 +279,7 @@ S.newgroup = (p) => S.list(p).replace(/<div class="(anav|inav)[\s\S]*$/, '') + `
     <div class="row" style="margin-bottom:12px"><span class="t2" style="font-size:16px">取消</span><b class="grow" style="text-align:center;font-size:17px">新建</b><span style="font-size:16px;color:var(--accent);font-weight:600">建群</span></div>
     <div class="field lg focus" style="height:44px;font-size:16px">官网改版</div>
     <div class="seg" style="width:100%;margin:12px 0"><button class="on" style="flex:1;height:30px;font-size:13px">新建群</button><button style="flex:1;font-size:13px">新建 Bot</button></div>
-    ${sec('选择成员（已选 2，另加总管）')}
+    ${sec('选择成员（已选 2，另加秘书长）')}
     <div class="card">${[['P', 'PRD、原型', 1], ['C', '写代码、部署', 1], ['T', '测试、回归', 0], ['R', '资料调研', 0]].map(([k, d, on], i) =>
       `<div class="row gap12" style="height:${rowH(p)}px;padding:0 14px;${i ? 'border-top:1px solid var(--border-subtle)' : ''}">${av(k, 32)}<div class="grow"><span style="font-size:16px">${BOT[k][0]}</span> <span class="t3" style="font-size:13px">${d}</span></div><span class="check ${on ? 'on' : ''}" style="width:22px;height:22px;border-radius:11px">${on ? I('check', 's14') : ''}</span></div>`).join('')}</div>
     ${sec('说明（会写进公告）')}
@@ -329,7 +328,7 @@ S.settings = (p) => sub(p, '外观与通知', '我的') + `
 
 S.bots = (p) => sub(p, 'Bot 管理', '我的', { actions: ['plus'] }) + `
   <div class="content" style="padding:0 16px">
-    ${sec('主 Bot')}<div class="card"><div class="row gap12" style="height:68px;padding:0 14px">${av('Z', 44)}<div class="grow"><div style="font-size:16px;font-weight:500">总管</div><div class="t-foot">只协调，不干活 · Claude Haiku</div></div>${I('chevR', 't3')}</div></div>
+    ${sec('主 Bot')}<div class="card"><div class="row gap12" style="height:68px;padding:0 14px">${av('Z', 44)}<div class="grow"><div style="font-size:16px;font-weight:500">秘书长</div><div class="t-foot">只协调，不干活 · Claude Haiku</div></div>${I('chevR', 't3')}</div></div>
     ${sec('Bot', '5')}<div class="card">${[['P', 'PRD、原型', '空闲'], ['C', '写代码、部署', '2 个活'], ['T', '测试、回归', '待命'], ['R', '资料调研', '1 个活'], ['X', '信息侦察', '待命']].map(([k, r, st], i) =>
       `<div class="row gap12" style="height:68px;padding:0 14px;${i ? 'border-top:1px solid var(--border-subtle)' : ''}">${av(k, 44)}<div class="grow"><div style="font-size:16px;font-weight:500">${BOT[k][0]}</div><div class="t-foot">${r}</div></div><span class="t-foot">${st}</span>${I('chevR', 't3')}</div>`).join('')}</div>
     <div class="t-foot" style="padding:12px 4px">隐藏的 Bot 1 ›</div>
@@ -433,7 +432,7 @@ S.memory = (p) => sub(p, '记忆', '我的', { actions: ['plus'] }) + `
     </div>
     <div class="card" style="padding:12px 14px;margin-bottom:12px"><div class="row" style="margin-bottom:8px"><span class="grow" style="font-size:15px">用量</span><span class="t-foot mono">1,186 / 1,500 字</span></div><div style="height:6px;border-radius:3px;background:var(--bg-active);overflow:hidden"><div style="width:79%;height:100%;background:var(--accent)"></div></div></div>
     <div class="field lg" style="height:40px;margin-bottom:12px">${I('search', 't3')}<span class="t3">搜索记忆</span></div>
-    <div class="card">${[['回复用中文，代码和注释用英文。', 'curator', '登录功能', '10/09 10:21'], ['不喜欢长篇报告：先给结论，细节放后面。', 'curator', '和总管的私聊', '10/08 21:40'], ['常用的技术栈：TypeScript、Rust。', 'curator', '官网改版', '10/07 15:02'], ['周末不要推送非紧急通知。', 'user', null, '10/06 09:15'], ['截图优先给移动端尺寸。', 'bot', 'P', '10/05 18:33']].map(([t, k, l, d], i) =>
+    <div class="card">${[['回复用中文，代码和注释用英文。', 'curator', '登录功能', '10/09 10:21'], ['不喜欢长篇报告：先给结论，细节放后面。', 'curator', '和秘书长的私聊', '10/08 21:40'], ['常用的技术栈：TypeScript、Rust。', 'curator', '官网改版', '10/07 15:02'], ['周末不要推送非紧急通知。', 'user', null, '10/06 09:15'], ['截图优先给移动端尺寸。', 'bot', 'P', '10/05 18:33']].map(([t, k, l, d], i) =>
       `<div style="padding:12px 14px;${i ? 'border-top:1px solid var(--border-subtle)' : ''}"><div style="font-size:16px;line-height:23px">${t}</div><div class="row gap6 t-foot" style="margin-top:6px">${memSource(k, l)} · ${d}</div></div>`).join('')}</div>
     <div class="t-foot" style="padding:10px 4px">左滑条目可以删除，点击条目编辑</div>
   </div>` + endPad(p);

@@ -15,7 +15,7 @@
       "label": "主 Bot",
       "max_parallel": 1,
       "model": null,
-      "name": "总管",
+      "name": "秘书长",
       "notifications": true,
       "pinned": true,
       "status": {

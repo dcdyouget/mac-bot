@@ -113,7 +113,7 @@
 <script src="blocks.js"></script>
 <script>
 const C = (i) => `var(--avatar-${i})`;
-const BOT = { Z: ['总管', 0], P: ['产品', 1], C: ['编码', 2], T: ['测试', 3], R: ['调研', 4], X: ['X 侦察', 5], B: ['比价', 6] };
+const BOT = { Z: ['秘书长', 0], P: ['产品', 1], C: ['编码', 2], T: ['测试', 3], R: ['调研', 4], X: ['X 侦察', 5], B: ['比价', 6] };
 function av(k, s = 32, o = {}) {
   const [, c] = BOT[k];
   return `<div class="av s${s}" style="--c:${C(c)}">${k === 'Z' ? GLASSES : ''}${o.dot ? `<span class="dot ${o.dot}"></span>` : ''}${o.ring ? '<span class="ring-working"></span>' : ''}</div>`;
@@ -132,7 +132,7 @@ function sidebar(sel) {
       <button class="iconbtn" title="新建 ⌘N">${I('edit')}</button></div>
     <div class="sb-search">${I('search', 's14')}<span class="grow">搜索</span><span class="kbd">⌘K</span></div>
     <div class="sb-scroll">
-      ${row('main', av('Z', 40), '总管 <span class="tag">主 Bot</span>', '◎ 登录功能 待你验收', '11:42', '<span class="badge">1</span>')}
+      ${row('main', av('Z', 40), '秘书长 <span class="tag">主 Bot</span>', '◎ 登录功能 待你验收', '11:42', '<span class="badge">1</span>')}
       <div class="section-title" style="margin-top:8px">群 · 3</div>
       ${row('group', gav(['Z', 'P', 'C', 'T']), '登录功能', '编码：收到，改为只做邮箱登录', '10:32', '<span class="chip working"><span class="spinner"></span>1</span>')}
       ${row('g2', gav(['Z', 'R']), '竞品调研', '调研：正在整理对比表…', '10:12', '<span class="chip working"><span class="spinner"></span>1</span>')}
@@ -162,7 +162,7 @@ const panelHead = (t, back) => `<div class="panel-h glass-toolbar">${back ? `<bu
 const V = {};
 V.main = () => sidebar('main') + `
 <section class="main">
-  <div class="toolbar glass-toolbar">${av('Z', 32)}<div class="grow"><div class="tt">总管</div><div class="ts">主 Bot · 只协调，不干活</div></div>
+  <div class="toolbar glass-toolbar">${av('Z', 32)}<div class="grow"><div class="tt">秘书长</div><div class="ts">主 Bot · 只协调，不干活</div></div>
     <button class="iconbtn">${I('search')}</button><button class="iconbtn on">${I('panelR')}</button></div>
   <div class="scroll"><div class="msgs center">
     ${MB.day('今天')}
@@ -173,7 +173,7 @@ V.main = () => sidebar('main') + `
     ${MB.msg('R', ['<p>1. <b>Zed 1.0 发布</b> — GPU UI 框架开源新版本</p><p>2. <b>SQLite 的 JSONB</b> 性能对比</p><p>3. <b>本地 LLM 推理</b> M4 基准测试</p>'], { time: '10:07', role: true, tapback: [['👍', 1, true]] })}
     ${MB.msg('Z', ['「登录功能」做完了，请你验收：', MB.review({ title: '登录功能', list: [['PRD', 'product/prd.md', 'P', 'file'], ['原型', 'product/prototype/', 'P', 'globe'], ['代码 · 已部署 localhost:3000', 'code/', 'C', 'folder'], ['测试报告 20/20', 'test/report.md', 'T', 'check']] })], { time: '11:42' })}
   </div></div>
-  ${composer('给 总管 发消息…')}
+  ${composer('给 秘书长 发消息…')}
 </section>
 <aside class="panel glass-panel">${panelHead('跟进')}
   <div class="panel-b">
@@ -193,11 +193,9 @@ V.group = () => sidebar('group') + `
     ${[['Z', '★ 负责人', ''], ['P', '完成', 'ok'], ['C', '工作中 25 分', 'working'], ['T', '待命', '']].map(([k, s, c]) =>
       `<button class="chip ${c}" style="height:24px;padding:0 8px 0 3px;border-radius:12px">${av(k, 18)}${BOT[k][0]} · ${c === 'working' ? '<span class="spinner"></span>' : ''}${s}</button>`).join('')}
   </div>
-  <div class="pinned glass-toolbar"><span class="bar"></span><div class="grow"><div style="font-weight:600;color:var(--accent)">公告</div>
-    <div class="t2 ellipsis">给 App 加邮箱登录，10/12 前上线 · 只做邮箱登录，不做手机号</div></div>${I('chevD', 's14')}</div>
   <div class="scroll"><div class="msgs center">
     ${MB.day('今天')}
-    ${MB.system('总管 创建了群，拉入 产品、编码、测试')}
+    ${MB.system('秘书长 创建了群，拉入 产品、编码、测试')}
     ${MB.msg('Z', [`给 App 加邮箱登录，10/12 前上线。${MB.at('P')} 先出 PRD 和原型，放在 <code>Home/product/</code>。`], { time: '10:00', role: true })}
     ${MB.msg('P', ['收到，开始写 PRD 和原型。'], { time: '10:00', role: true })}
     ${MB.task({ title: 'PRD 与原型', state: 'done', time: '用时 18 分', bot: 'P' })}
@@ -214,7 +212,7 @@ V.group = () => sidebar('group') + `
 </section>
 <aside class="panel glass-panel">${panelHead('公告')}
   <div class="panel-b">
-    <div class="psec"><div class="ph">公告<span class="r row gap6">总管 · 10:32 更新<button class="btn sm ghost">${I('edit', 's14')}编辑</button></span></div>
+    <div class="psec"><div class="ph">公告<span class="r row gap6">秘书长 · 10:32 更新<button class="btn sm ghost">${I('edit', 's14')}编辑</button></span></div>
       <div class="card card-pad md-ann">
         <h3>登录功能</h3>
         <p>给 App 加<b>邮箱登录</b>，10/12 前上线。</p>
@@ -364,7 +362,7 @@ V.work = () => sidebar('work') + `
     <span class="t-foot" style="margin-left:12px">运行中 5 / 上限 8</span></div>
   <div class="scroll" style="padding:16px 24px">
     <div class="col gap8" style="margin-bottom:20px">
-      <div class="banner review">${I('target')}<b>等你验收</b><span class="grow t2">登录功能（总管 11:42 提醒）</span><button class="btn sm primary">去验收</button></div>
+      <div class="banner review">${I('target')}<b>等你验收</b><span class="grow t2">登录功能（秘书长 11:42 提醒）</span><button class="btn sm primary">去验收</button></div>
       <div class="banner wait">${I('alert')}<b>等你审批</b><span class="grow t2">换新 MacBook · 比价：下单 ¥14,999</span><button class="btn sm warn">去处理</button></div></div>
     ${[['C', '2/3', [['官网改版 · 首页重构', '9 分', '31k', '子代理 2'], ['数据看板 · 导出 CSV', '4 分', '11k', '']], '官网改版 · 修复导航 — 同一个群里排在「首页重构」之后'],
        ['R', '1/2', [['竞品调研 · 功能对比表', '41 分', '140k', '子代理 4']]], ['X', '1/2', [['定时任务 · 每日 X 侦察', '3 分', '12k', '']]]].map(([k, cc, tasks, q]) => `
@@ -373,7 +371,7 @@ V.work = () => sidebar('work') + `
         <span class="t-foot" style="width:56px">${d}</span><span class="t-foot mono" style="width:48px">${tok}</span><span class="t-foot" style="width:48px">Sonnet</span><span class="t-foot" style="width:52px">${s}</span>
         <button class="btn sm secondary">${I('message', 's14')}${t.startsWith('定时任务') ? '私聊' : '群聊'}</button><button class="btn sm ghost">详情</button><button class="btn sm ghost">@它</button><button class="btn sm ghost" style="color:var(--danger)">停止</button></div>`).join('')}
       ${q ? `<div class="row gap12 t-foot" style="height:36px;padding:0 14px;border-top:1px solid var(--border-subtle)">… 排队 · ${q}</div>` : ''}</div>`).join('')}
-    <div class="row gap16 t-foot" style="margin:8px 4px 20px">${av('P', 20)}产品 空闲 ${av('T', 20)}测试 待命 <span class="t3">· 总管只协调，不占并发名额</span></div>
+    <div class="row gap16 t-foot" style="margin:8px 4px 20px">${av('P', 20)}产品 空闲 ${av('T', 20)}测试 待命 <span class="t3">· 秘书长只协调，不占并发名额</span></div>
     <div class="section-title" style="padding:0 4px">今天完成 4</div>
     <div class="card"><table class="tbl"><tr><td style="color:var(--success)">✓</td><td>登录功能 · 测试</td><td class="t2">测试</td><td class="num t2">12 分</td></tr><tr><td style="color:var(--success)">✓</td><td>登录功能 · 实现登录</td><td class="t2">编码</td><td class="num t2">1 时 12 分</td></tr></table></div>
   </div></section>`;
@@ -449,12 +447,12 @@ V.settings = () => sidebar('settings') + `
 
 V.newgroup = () => V.main() + `<div class="overlay"><div class="dialog">
   <div class="row gap8" style="height:52px;padding:0 16px;border-bottom:1px solid var(--border-subtle)">${I('search', 's18 t3')}<span class="grow" style="font-size:16px">官网改版</span><span class="kbd">esc</span></div>
-  <div style="padding:6px"><div class="pop" style="box-shadow:none;padding:0;background:transparent"><div class="item on">${I('users')}<span class="grow">新建群「官网改版」</span><span class="t3">总管会自动加入并担任负责人</span></div><div class="item">${I('bot')}<span class="grow">新建 Bot「官网改版」</span></div></div></div>
+  <div style="padding:6px"><div class="pop" style="box-shadow:none;padding:0;background:transparent"><div class="item on">${I('users')}<span class="grow">新建群「官网改版」</span><span class="t3">秘书长会自动加入并担任负责人</span></div><div class="item">${I('bot')}<span class="grow">新建 Bot「官网改版」</span></div></div></div>
   <div class="divider"></div>
-  <div style="padding:12px 16px"><div class="label">选择成员（1–6 个，已选 2，另加总管）</div>
+  <div style="padding:12px 16px"><div class="label">选择成员（1–6 个，已选 2，另加秘书长）</div>
     ${[['P', 'PRD、原型', 1], ['C', '写代码、部署', 1], ['T', '测试、回归', 0], ['R', '资料调研', 0]].map(([k, d, on]) => `<div class="row gap10" style="height:36px;gap:10px"><span class="check ${on ? 'on' : ''}">${on ? I('check', 's14') : ''}</span>${av(k, 24)}<span style="width:64px">${BOT[k][0]}</span><span class="t2">${d}</span></div>`).join('')}
     <div class="label" style="margin-top:12px">目标</div><div class="field lg focus">首页改成新品牌风格，下周一上线</div></div>
-  <div class="row gap8" style="padding:12px 16px;border-top:1px solid var(--border-subtle)"><span class="t-caption grow">建群后，总管会在群里发开场并 @ 第一个 Bot</span><button class="btn secondary">取消</button><button class="btn primary">建群</button></div>
+  <div class="row gap8" style="padding:12px 16px;border-top:1px solid var(--border-subtle)"><span class="t-caption grow">建群后，秘书长会在群里发开场并 @ 第一个 Bot</span><button class="btn secondary">取消</button><button class="btn primary">建群</button></div>
 </div></div>`;
 
 V.search = () => V.group() + `<div class="overlay"><div class="dialog">
@@ -478,10 +476,10 @@ V.onboard = () => `<div class="grow row" style="background:var(--bg-window)">
       <button class="btn lg primary" style="width:100%">连接</button>
       <div class="banner err" style="font-size:12px">${I('alert')}服务端还没设置密码：请先在 Bot 主机上打开 localhost:7788/admin</div></div></div>
   <div class="col" style="flex:1;padding:96px 72px;gap:20px">
-    <div class="t-large">认识你的主 Bot：总管</div><div class="t2">日常和它聊；有事它会拉群。选一个团队模板：</div>
+    <div class="t-large">认识你的主 Bot：秘书长</div><div class="t2">日常和它聊；有事它会拉群。选一个团队模板：</div>
     ${[[['P', 'C', 'T'], '产品 + 编码 + 测试', '做软件功能', 1], [['R', 'X'], '调研 + 写作', '资料与报告'], [[], '先只用主 Bot', '以后再加']].map(([ks, t, d, on]) =>
       `<div class="card row gap12" style="padding:14px 16px;${on ? 'box-shadow:0 0 0 2px var(--accent)' : ''}"><div class="row" style="width:72px">${ks.length ? ks.map((k, i) => `<div style="margin-left:${i ? -8 : 0}px;border-radius:50%;box-shadow:0 0 0 2px var(--bg-elevated)">${av(k, 28)}</div>`).join('') : `<span class="iconbtn" style="background:var(--bg-active)">${I('plus')}</span>`}</div><div class="grow"><b>${t}</b><div class="t-foot">${d}</div></div>${on ? `<span style="color:var(--accent)">${I('check')}</span>` : ''}</div>`).join('')}
-    <div class="t-foot" style="margin-top:auto">对总管说「帮我做…」，它会拉群去做</div></div></div>`;
+    <div class="t-foot" style="margin-top:auto">对秘书长说「帮我做…」，它会拉群去做</div></div></div>`;
 
 V.offline = () => V.group().replace('<section class="main">', `<section class="main"><div class="row gap8" style="height:28px;justify-content:center;background:var(--warning-soft);font-size:12px;position:absolute;left:0;right:0;top:52px;z-index:3"><span class="spinner" style="color:var(--warning)"></span>正在重连 Mac mini（家）… 本地缓存可浏览，发送已暂停</div>`).replace('<span class="on"></span>', '<span class="on" style="background:var(--warning)"></span>');
 
@@ -542,10 +540,10 @@ V.botsettings = () => setPanel(V.botchat(), `<aside class="panel glass-panel">${
     <div class="row gap6"><button class="btn sm ghost">置顶</button><button class="btn sm ghost">隐藏</button><button class="btn sm ghost">复制</button><span class="grow"></span><button class="btn sm danger">删除</button></div>
   </div></aside>`);
 
-V.mainsettings = () => setPanel(V.main(), `<aside class="panel glass-panel">${panelHead('总管 · 设置', true)}
+V.mainsettings = () => setPanel(V.main(), `<aside class="panel glass-panel">${panelHead('秘书长 · 设置', true)}
   <div class="panel-b" style="gap:14px">
     <div class="col" style="align-items:center">${av('Z', 64)}</div>
-    <div><div class="label">名称</div><div class="field">总管</div></div>
+    <div><div class="label">名称</div><div class="field">秘书长</div></div>
     <div><div class="label">模型</div>${fld('Claude Haiku', 248, 1)}<div class="t-caption" style="margin-top:6px">主 Bot 只协调、不干活，建议用便宜、快的模型</div></div>
     <div><div class="label">建群规则</div><div class="seg" style="width:100%"><button class="on" style="flex:1">自动建群</button><button style="flex:1">建群前先问我</button></div></div>
     <div><div class="label">长期规则</div><div class="field area">建群时公告里写清楚截止时间；做完提醒我验收。</div></div>
@@ -594,19 +592,19 @@ V.dragfile = () => V.group().replace('<div class="scroll"><div class="msgs cente
 V.changes = () => V.main() + `<div class="overlay"><div class="dialog" style="width:480px">
   <div class="row" style="height:52px;padding:0 20px;border-bottom:1px solid var(--border-subtle)"><b class="grow">提修改意见 · 登录功能</b><button class="iconbtn">${I('x')}</button></div>
   <div style="padding:16px 20px"><div class="field area focus" style="min-height:120px;font-size:14px">登录页在 375px 宽度下按钮被截断，请修一下；另外错误提示改成中文。</div>
-  <div class="t-caption" style="margin-top:8px">意见会发到群里并 @总管，由总管派给对应的 Bot；群回到「进行中」。</div></div>
+  <div class="t-caption" style="margin-top:8px">意见会发到群里并 @秘书长，由秘书长派给对应的 Bot；群回到「进行中」。</div></div>
   <div class="row gap8" style="padding:12px 20px;border-top:1px solid var(--border-subtle);justify-content:flex-end"><button class="btn secondary">取消</button><button class="btn primary">发送</button></div></div></div>`;
 
 // Completed groups (expanded) + empty states + loading skeleton
 V.completed = () => V.main().replace(/<div class="navrow" style="height:28px">[\s\S]*?<\/div>/, `<div class="navrow" style="height:28px">${I('chevD', 's14')}<span>已完成</span><span class="r">3</span></div>
   ${[['首页改版', '10/08'], ['周报自动化', '10/05'], ['竞品 v1', '09/30']].map(([n, d]) => `<div class="chatrow" style="height:40px;opacity:.75">${gav(['Z', 'P'], 24)}<div class="grow"><div class="l1" style="font-weight:500">${n}<span class="time">${d}</span></div></div></div>`).join('')}
   <div class="navrow t3" style="height:28px;padding-left:40px;font-size:12px">已归档 5 · 在搜索里查看</div>`);
-V.empty = () => sidebar('main').replace(/<div class="section-title" style="margin-top:8px">群 · 3<\/div>[\s\S]*?<div class="section-title" style="margin-top:8px">Bot/, `<div class="section-title" style="margin-top:8px">群</div><div class="t-foot" style="padding:8px 8px 12px;line-height:18px">还没有群。对总管说「帮我做…」，它会拉群去做。</div><div class="section-title" style="margin-top:8px">Bot`) + `
-<section class="main"><div class="toolbar glass-toolbar">${av('Z', 32)}<div class="grow"><div class="tt">总管</div><div class="ts">主 Bot · 只协调，不干活</div></div></div>
-  <div class="grow col" style="align-items:center;justify-content:center;gap:12px;padding:40px">${av('Z', 96)}<div class="t-large">你好，我是总管</div>
+V.empty = () => sidebar('main').replace(/<div class="section-title" style="margin-top:8px">群 · 3<\/div>[\s\S]*?<div class="section-title" style="margin-top:8px">Bot/, `<div class="section-title" style="margin-top:8px">群</div><div class="t-foot" style="padding:8px 8px 12px;line-height:18px">还没有群。对秘书长说「帮我做…」，它会拉群去做。</div><div class="section-title" style="margin-top:8px">Bot`) + `
+<section class="main"><div class="toolbar glass-toolbar">${av('Z', 32)}<div class="grow"><div class="tt">秘书长</div><div class="ts">主 Bot · 只协调，不干活</div></div></div>
+  <div class="grow col" style="align-items:center;justify-content:center;gap:12px;padding:40px">${av('Z', 96)}<div class="t-large">你好，我是秘书长</div>
     <div class="t2" style="text-align:center;max-width:380px;line-height:20px">把要做的事交给我：需要几个 Bot 配合的，我会拉群分工，做完提醒你验收；小事我直接转给合适的 Bot。</div>
     <div class="row gap8" style="margin-top:8px">${['帮我给 App 加个登录', '调研 3 个竞品', '每天 9 点给我发晨报'].map((t) => `<button class="btn secondary">${t}</button>`).join('')}</div></div>
-  ${composer('给 总管 发消息…')}</section>`;
+  ${composer('给 秘书长 发消息…')}</section>`;
 V.loading = () => V.group().replace(/<div class="scroll"><div class="msgs center">[\s\S]*?<\/div><\/div>\n  \$\{composer|<div class="scroll"><div class="msgs center">[\s\S]*?(?=<div class="composer">)/, `<div class="scroll"><div class="msgs center">${[200, 320, 260, 180, 340].map((w, i) => `<div class="grp ${i === 3 ? 'out' : ''}"><div class="avatar-slot">${i === 3 ? '' : '<div class="av" style="--c:var(--bg-active);box-shadow:none"></div>'}</div><div class="stack"><div class="bubble skel" style="width:${w}px;height:${i % 2 ? 56 : 36}px"></div></div></div>`).join('')}<div class="t-caption" style="text-align:center;margin-top:12px">正在加载更早的消息…</div></div></div>`);
 
 // Agent Computer: user controlling
@@ -696,7 +694,7 @@ V.queue = () => V.group()
   .replace('<div class="composer"><div class="center row gap8" style="width:100%">', `<div class="composer" style="flex-direction:column;align-items:stretch;gap:0"><div class="center" style="width:100%">${MB.queueHint(['C'])}</div><div class="center row gap8" style="width:100%">`)
   .replace('在 登录功能 里发消息，@ 指定 Bot…', '<span style="color:var(--text-primary)">测试那边 10 点前要<span style="border-left:1.5px solid var(--accent);margin-left:1px"></span></span>')
   .replace('<div class="send off">', '<div class="send">')
-  .replace(BANNER, `${MB.msg('me', ['登录页文案统一用「您」'], { time: '10:33', delivery: `总管 已收到 · <span style="color:var(--accent)">${I('clock', 's14')} 编码 交付前会看到</span>` })}${MB.msg('Z', ['好的，已记下。编码 交付前会看到这条，不打断它手头的活。'], { time: '10:33', role: true })}${BANNER}`);
+  .replace(BANNER, `${MB.msg('me', ['登录页文案统一用「您」'], { time: '10:33', delivery: `秘书长 已收到 · <span style="color:var(--accent)">${I('clock', 's14')} 编码 交付前会看到</span>` })}${MB.msg('Z', ['好的，已记下。编码 交付前会看到这条，不打断它手头的活。'], { time: '10:33', role: true })}${BANNER}`);
 V.queuepanel = () => V.detail().replace('<div class="psec"><div class="ph">工作过程</div>', `<div class="psec"><div class="ph">待看消息<span class="r badge muted" style="background:var(--text-secondary)">2</span></div>
       ${MB.queueItem('me', '登录页文案统一用「您」', '10:33')}${MB.queueItem('T', '测试那边 10 点前要，来得及吗？', '10:33')}
       <div class="t-caption" style="margin-top:8px;line-height:16px">没有 @ 编码的消息不会打断它，交付前会一起查看。点「改为插话」可以让某一条在下一步就生效。</div></div>
@@ -708,7 +706,7 @@ V.queuedone = () => V.queue().replace(`<span style="color:var(--accent)">${I('cl
 // source_kind: 'curator' (system) | 'user' | 'bot' (旧数据)
 const MEMS = [
   ['回复用中文，代码和注释用英文。', 'curator', '登录功能', '10/09 10:21', 3],
-  ['不喜欢长篇报告：先给结论，细节放后面。', 'curator', '和总管的私聊', '10/08 21:40', 1],
+  ['不喜欢长篇报告：先给结论，细节放后面。', 'curator', '和秘书长的私聊', '10/08 21:40', 1],
   ['常用的技术栈：TypeScript、Rust；数据库偏好 SQLite。', 'curator', '官网改版', '10/07 15:02', 2],
   ['周末不要推送非紧急通知。', 'user', null, '10/06 09:15', 1],
   ['截图和原型优先给移动端尺寸。', 'bot', 'P', '10/05 18:33', 1],

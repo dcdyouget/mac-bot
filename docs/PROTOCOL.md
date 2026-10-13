@@ -163,7 +163,7 @@ interface Bot {
   is_main: boolean;            // 主 Bot：全局唯一，不能删除
   model: ModelRef | null;      // null = 使用 settings.models 里的默认值
   max_parallel: number;        // 1–8；主 Bot 忽略这个字段
-  tools: ToolToggles;          // 主 Bot 忽略这个字段
+  tools: ToolToggles;          // 主 Bot 忽略这个字段；其协调工具由服务端固定，私聊可用隔离的只读 subagent
   browser_mode: BrowserMode;
   pinned: boolean;
   hidden: boolean;

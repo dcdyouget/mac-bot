@@ -1,7 +1,7 @@
 // Message block library — the single renderer for every message block on every platform.
 // Spec: ../06-message-blocks.md. Platform scale comes only from CSS vars (--mb-*), set by .ctx-m / .phone.
 (function () {
-  const BOT = { Z: ['总管', 0, '主 Bot'], P: ['产品', 1, 'PRD、原型'], C: ['编码', 2, '写代码、部署'], T: ['测试', 3, '测试、回归'], R: ['调研', 4, '资料调研'], X: ['X 侦察', 5, '信息侦察'], B: ['比价', 6, '比价下单'] };
+  const BOT = { Z: ['秘书长', 0, '主 Bot'], P: ['产品', 1, 'PRD、原型'], C: ['编码', 2, '写代码、部署'], T: ['测试', 3, '测试、回归'], R: ['调研', 4, '资料调研'], X: ['X 侦察', 5, '信息侦察'], B: ['比价', 6, '比价下单'] };
   const I = (n, c = '') => `<svg class="ic ${c}"><use href="#i-${n}"/></svg>`;
   const av = (k, s = 32, o = {}) => `<div class="av s${s}" style="--c:var(--avatar-${BOT[k][1]})">${k === 'Z' ? window.GLASSES : ''}${o.ring ? '<span class="ring-working"></span>' : ''}</div>`;
   const gav = (ks, s = 40) => `<div class="gav s${s} n${Math.min(ks.length, 4)}">${ks.slice(0, 4).map((k) => `<div class="av" style="--c:var(--avatar-${BOT[k][1]})"></div>`).join('')}</div>`;

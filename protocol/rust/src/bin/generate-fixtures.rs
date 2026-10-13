@@ -22,10 +22,10 @@ fn artifact() -> Value {
     json!({"artifact_id":"art_prd","title":"PRD","path_or_url":"product/prd.md","bot_id":"bot_product","kind":"file"})
 }
 fn bot() -> Value {
-    json!({"id":"bot_main","name":"总管","label":"主 Bot","description":"协调团队","avatar":{"kind":"bean","color":0},"is_main":true,"model":null,"max_parallel":1,"tools":{"files":false,"bash":false,"browser":false,"subagent":false,"web":false,"mcp":false},"browser_mode":"headless","pinned":true,"hidden":false,"notifications":true,"dm_chat_id":"chat_main","created_at":now(),"updated_at":now(),"status":{"summary":"idle","active":0,"queued":0,"waiting":0}})
+    json!({"id":"bot_main","name":"秘书长","label":"主 Bot","description":"协调团队","avatar":{"kind":"bean","color":0},"is_main":true,"model":null,"max_parallel":1,"tools":{"files":false,"bash":false,"browser":false,"subagent":false,"web":false,"mcp":false},"browser_mode":"headless","pinned":true,"hidden":false,"notifications":true,"dm_chat_id":"chat_main","created_at":now(),"updated_at":now(),"status":{"summary":"idle","active":0,"queued":0,"waiting":0}})
 }
 fn chat() -> Value {
-    json!({"id":"chat_main","kind":"main","title":"总管","bot_id":"bot_main","project_id":null,"member_bot_ids":[],"last_message":null,"last_seq":0,"last_read_seq":0,"unread":0,"attention":"none","pinned":true,"muted":false,"updated_at":now()})
+    json!({"id":"chat_main","kind":"main","title":"秘书长","bot_id":"bot_main","project_id":null,"member_bot_ids":[],"last_message":null,"last_seq":0,"last_read_seq":0,"unread":0,"attention":"none","pinned":true,"muted":false,"updated_at":now()})
 }
 fn message() -> Value {
     json!({"id":"msg_1","chat_id":"chat_main","seq":1,"sender":{"kind":"user"},"created_at":now(),"edited_at":null,"deleted":false,"reply_to":null,"quote":null,"thread_count":0,"mentions":[],"blocks":[{"type":"text","markdown":"hi"}],"fallback_text":"hi","intent":null,"assignment_id":null,"streaming":false,"delivery":[],"reactions":[]})
@@ -725,7 +725,7 @@ fn scenario(root: &Path) -> Result<(), Box<dyn std::error::Error>> {
         &mut lines,
         &mut global_seq,
         "chat.created",
-        json!({"chat":chat_for("chat_main","main","总管",None,&[],0)}),
+        json!({"chat":chat_for("chat_main","main","秘书长",None,&[],0)}),
     );
     push_frame(
         &mut lines,
@@ -1055,7 +1055,7 @@ fn scenario(root: &Path) -> Result<(), Box<dyn std::error::Error>> {
         &mut lines,
         &mut global_seq,
         "message.created",
-        json!({"message":scenario_message("msg_test_done","chat_login",11,json!({"kind":"bot","bot_id":"bot_test"}),json!([{"type":"completion","summary":"测试 20/20 通过","artifacts":[{"artifact_id":"art_report","title":"测试报告","path_or_url":"test/report.md"}],"next":[{"bot_id":"bot_main","instruction":"请验收登录功能"}],"notify_main":true}]),"测试 20/20 通过，报告在 test/report.md，@总管 请验收。",Some("done"),Some("asg_test"),json!([{ "kind":"main"}]),json!([]))}),
+        json!({"message":scenario_message("msg_test_done","chat_login",11,json!({"kind":"bot","bot_id":"bot_test"}),json!([{"type":"completion","summary":"测试 20/20 通过","artifacts":[{"artifact_id":"art_report","title":"测试报告","path_or_url":"test/report.md"}],"next":[{"bot_id":"bot_main","instruction":"请验收登录功能"}],"notify_main":true}]),"测试 20/20 通过，报告在 test/report.md，@秘书长 请验收。",Some("done"),Some("asg_test"),json!([{ "kind":"main"}]),json!([]))}),
     );
     push_frame(
         &mut lines,
