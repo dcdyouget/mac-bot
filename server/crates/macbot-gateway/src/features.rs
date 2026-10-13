@@ -1943,7 +1943,7 @@ impl FeatureService {
             .map_err(|_| FeatureError::Invalid("maintenance provider lock poisoned".into()))?
             .clone()
             .ok_or_else(|| FeatureError::Provider("maintenance provider is unavailable".into()))?;
-        let drafts = provider.extract(transcript).await?;
+        let drafts = provider.extract_for_targets(transcript, targets).await?;
         let bot_id = source
             .bot_id
             .clone()
@@ -1959,10 +1959,22 @@ impl FeatureService {
         let mut entries = Vec::new();
         let mut events = Vec::new();
         for (index, draft) in drafts.into_iter().enumerate() {
-            if !targets.contains(&draft.target) {
-                return Err(FeatureError::NotAllowed(
-                    "maintenance extraction returned an out-of-scope memory target".into(),
-                ));
+            let kind_is_allowed = match &draft.target.scope {
+                macbot_memory::MemoryScope::Bot => matches!(
+                    &draft.kind,
+                    &MemoryKind::BotExperience | &MemoryKind::BotWorklog
+                ),
+                macbot_memory::MemoryScope::Project => draft.kind == MemoryKind::Project,
+                macbot_memory::MemoryScope::User => false,
+            };
+            if !targets.contains(&draft.target) || !kind_is_allowed {
+                tracing::warn!(
+                    scope = %draft.target.scope,
+                    owner_id = %draft.target.owner_id,
+                    kind = ?draft.kind,
+                    "discarding maintenance memory draft outside the allowed target or kind"
+                );
+                continue;
             }
             let draft_target = draft.target.clone();
             let operation_id = format!(
@@ -3481,6 +3493,17 @@ impl AsyncMaintenanceProvider for FallbackMaintenanceProvider {
             Err(_) => self.fallback.extract(text).await,
         }
     }
+
+    async fn extract_for_targets(
+        &self,
+        text: &str,
+        targets: &[MemoryTarget],
+    ) -> Result<Vec<macbot_memory::MemoryDraft>, MemoryError> {
+        match self.primary.extract_for_targets(text, targets).await {
+            Ok(value) => Ok(value),
+            Err(_) => self.fallback.extract_for_targets(text, targets).await,
+        }
+    }
 }
 
 impl ModelMaintenanceAdapter {
@@ -3573,42 +3596,122 @@ impl AsyncMaintenanceProvider for ModelMaintenanceAdapter {
     }
 
     async fn extract(&self, text: &str) -> Result<Vec<macbot_memory::MemoryDraft>, MemoryError> {
+        self.extract_for_targets(text, &[]).await
+    }
+
+    async fn extract_for_targets(
+        &self,
+        text: &str,
+        targets: &[MemoryTarget],
+    ) -> Result<Vec<macbot_memory::MemoryDraft>, MemoryError> {
+        let mut bot_ids = targets
+            .iter()
+            .filter(|target| target.scope == macbot_memory::MemoryScope::Bot)
+            .map(|target| target.owner_id.clone())
+            .collect::<Vec<_>>();
+        bot_ids.sort();
+        bot_ids.dedup();
+        let mut project_ids = targets
+            .iter()
+            .filter(|target| target.scope == macbot_memory::MemoryScope::Project)
+            .map(|target| target.owner_id.clone())
+            .collect::<Vec<_>>();
+        project_ids.sort();
+        project_ids.dedup();
+        if bot_ids.is_empty() && project_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let mut scopes = Vec::new();
+        if !bot_ids.is_empty() {
+            scopes.push("bot");
+        }
+        if !project_ids.is_empty() {
+            scopes.push("project");
+        }
+        let mut kinds = Vec::new();
+        if !bot_ids.is_empty() {
+            kinds.extend(["bot_experience", "bot_worklog"]);
+        }
+        if !project_ids.is_empty() {
+            kinds.push("project");
+        }
+        let eligible_targets = targets
+            .iter()
+            .filter(|target| {
+                matches!(
+                    target.scope,
+                    macbot_memory::MemoryScope::Bot | macbot_memory::MemoryScope::Project
+                )
+            })
+            .map(|target| format!("{}:{}", target.scope, target.owner_id))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let has_bot_targets = !bot_ids.is_empty();
+        let has_project_targets = !project_ids.is_empty();
+        let mut properties = serde_json::Map::new();
+        properties.insert("scope".into(), json!({"type":"string","enum":scopes}));
+        properties.insert("action".into(), json!({"type":"string","enum":["add"]}));
+        properties.insert("kind".into(), json!({"type":"string","enum":kinds}));
+        properties.insert(
+            "content".into(),
+            json!({"type":"string","minLength":1,"maxLength":500}),
+        );
+        let mut required = vec!["scope", "action", "content", "kind"];
+        let mut all_of = Vec::new();
+        if has_bot_targets {
+            properties.insert("bot_id".into(), json!({"type":"string","enum":bot_ids}));
+            if has_project_targets {
+                all_of.push(json!({
+                    "if":{"properties":{"scope":{"const":"bot"}},"required":["scope"]},
+                    "then":{"required":["bot_id"],"properties":{"kind":{"enum":["bot_experience","bot_worklog"]}}}
+                }));
+            } else {
+                required.push("bot_id");
+            }
+        }
+        if has_project_targets {
+            properties.insert(
+                "project_id".into(),
+                json!({"type":"string","enum":project_ids}),
+            );
+            if has_bot_targets {
+                all_of.push(json!({
+                    "if":{"properties":{"scope":{"const":"project"}},"required":["scope"]},
+                    "then":{"required":["project_id"],"properties":{"kind":{"enum":["project"]}}}
+                }));
+            } else {
+                required.push("project_id");
+            }
+        }
+        let parameters = json!({
+            "type":"object",
+            "required":required,
+            "properties":Value::Object(properties),
+            "allOf":all_of
+        });
         let completion = self
             .complete_with_tools(
                 "memory",
-                "Review the supplied segment for durable facts worth retaining. Use the memory tool only for lasting Bot experience or project conclusions. Never write user preferences, temporary tasks, or full conversation transcripts. Prefer concise entries and only write when supported by the text.",
+                &format!("Review the supplied segment for durable facts worth retaining. Use the memory tool only for lasting Bot experience or project conclusions, and only for these eligible targets: {eligible_targets}. Never write user preferences, temporary tasks, or full conversation transcripts. Prefer concise entries and only write when supported by the text."),
                 text,
                 vec![json!({
                     "type":"function",
                     "function":{
                         "name":"memory",
                         "description":"Add one durable Bot experience or project conclusion.",
-                        "parameters":{
-                            "type":"object",
-                            "required":["scope","action","content","kind"],
-                            "properties":{
-                                "scope":{"type":"string","enum":["bot","project"]},
-                                "action":{"type":"string","enum":["add"]},
-                                "bot_id":{"type":"string"},
-                                "project_id":{"type":"string"},
-                                "kind":{"type":"string","enum":["bot_experience","bot_worklog","project"]},
-                                "content":{"type":"string","minLength":1,"maxLength":500}
-                            },
-                            "allOf":[
-                                {"if":{"properties":{"scope":{"const":"bot"}},"required":["scope"]},"then":{"required":["bot_id"]}},
-                                {"if":{"properties":{"scope":{"const":"project"}},"required":["scope"]},"then":{"required":["project_id"]}}
-                            ]
-                        }
+                        "parameters":parameters
                     }
                 })],
             )
             .await
             .map_err(|error| MemoryError::Provider(error.to_string()))?;
-        completion
+        let mut drafts = Vec::new();
+        for call in completion
             .tool_calls
             .into_iter()
             .filter(|call| call.name == "memory")
-            .map(|call| {
+        {
+            let parsed = (|| -> Result<macbot_memory::MemoryDraft, MemoryError> {
                 let scope = call
                     .args
                     .get("scope")
@@ -3639,14 +3742,9 @@ impl AsyncMaintenanceProvider for ModelMaintenanceAdapter {
                                 )
                             })?,
                     ),
-                    "user" => {
-                        return Err(MemoryError::Provider(
-                            "maintenance extraction cannot write user memory".into(),
-                        ))
-                    }
                     _ => {
                         return Err(MemoryError::Provider(
-                            "maintenance memory call has an invalid scope".into(),
+                            "maintenance extraction scope is not allowed".into(),
                         ))
                     }
                 };
@@ -3667,8 +3765,18 @@ impl AsyncMaintenanceProvider for ModelMaintenanceAdapter {
                     content,
                     source: MemorySource::default(),
                 })
-            })
-            .collect()
+            })();
+            match parsed {
+                Ok(draft) if targets.contains(&draft.target) => drafts.push(draft),
+                Ok(draft) => tracing::warn!(
+                    scope = %draft.target.scope,
+                    owner_id = %draft.target.owner_id,
+                    "discarding maintenance model call for an ineligible memory target"
+                ),
+                Err(error) => tracing::warn!(%error, "discarding invalid maintenance memory call"),
+            }
+        }
+        Ok(drafts)
     }
 
     async fn compact(&self, text: &str) -> Result<String, MemoryError> {
@@ -5939,7 +6047,13 @@ mod tests {
             "mock",
         );
         assert!(adapter
-            .extract("a durable decision")
+            .extract_for_targets(
+                "a durable decision",
+                &[
+                    MemoryTarget::bot("bot-a"),
+                    MemoryTarget::project("project-a")
+                ]
+            )
             .await
             .unwrap()
             .is_empty());
@@ -5949,6 +6063,35 @@ mod tests {
             request.tools[0]["function"]["name"],
             Value::String("memory".into())
         );
+        assert_eq!(
+            request.tools[0]["function"]["parameters"]["properties"]["bot_id"]["enum"],
+            json!(["bot-a"])
+        );
+        assert_eq!(
+            request.tools[0]["function"]["parameters"]["properties"]["project_id"]["enum"],
+            json!(["project-a"])
+        );
+
+        let bot_only_request = Arc::new(std::sync::Mutex::new(None));
+        let bot_only_adapter = ModelMaintenanceAdapter::new(
+            Arc::new(RecordingMaintenanceRequest(Arc::clone(&bot_only_request))),
+            "mock",
+        );
+        bot_only_adapter
+            .extract_for_targets("a durable Bot experience", &[MemoryTarget::bot("bot-a")])
+            .await
+            .unwrap();
+        let bot_only_request = bot_only_request.lock().unwrap().clone().unwrap();
+        let bot_only_schema = &bot_only_request.tools[0]["function"]["parameters"];
+        assert_eq!(
+            bot_only_schema["properties"]["scope"]["enum"],
+            json!(["bot"])
+        );
+        assert_eq!(
+            bot_only_schema["properties"]["bot_id"]["enum"],
+            json!(["bot-a"])
+        );
+        assert!(bot_only_schema["properties"]["project_id"].is_null());
     }
 
     #[tokio::test]

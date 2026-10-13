@@ -1704,7 +1704,7 @@ mod tests {
     use super::*;
     use crate::execution::ExecutionSink;
     use chrono::Utc;
-    use macbot_memory::{ConversationKind, MemoryScope};
+    use macbot_memory::{ConversationKind, MemoryKind, MemoryScope};
     use macbot_providers::{Completion, ModelEvent, ModelProvider, ModelRequest, ToolCall};
     use macbot_tools::{Risk, Tool, ToolContext, ToolResult};
     use std::fs;
@@ -2682,6 +2682,100 @@ mod tests {
         assert!(summarized.lock().unwrap().contains(&"x".repeat(240)));
         assert_eq!(context["system_blocks"].as_array().unwrap().len(), 2);
         assert!(context["compaction_summary"].as_str().is_some());
+    }
+
+    struct OutOfScopeMaintenance;
+
+    #[async_trait]
+    impl macbot_memory::AsyncMaintenanceProvider for OutOfScopeMaintenance {
+        async fn summarize(&self, _: &str) -> Result<String, macbot_memory::MemoryError> {
+            Ok("compacted context".into())
+        }
+
+        async fn extract_for_targets(
+            &self,
+            _: &str,
+            targets: &[MemoryTarget],
+        ) -> Result<Vec<macbot_memory::MemoryDraft>, macbot_memory::MemoryError> {
+            let allowed_bot = targets
+                .iter()
+                .find(|target| target.scope == macbot_memory::MemoryScope::Bot)
+                .cloned()
+                .expect("the private context has an eligible Bot target");
+            Ok(vec![
+                macbot_memory::MemoryDraft {
+                    target: MemoryTarget::bot("unrelated-bot"),
+                    kind: MemoryKind::BotExperience,
+                    content: "must be discarded".into(),
+                    source: macbot_memory::MemorySource::default(),
+                },
+                macbot_memory::MemoryDraft {
+                    target: allowed_bot,
+                    kind: MemoryKind::BotExperience,
+                    content: "eligible durable experience".into(),
+                    source: macbot_memory::MemorySource::default(),
+                },
+            ])
+        }
+    }
+
+    #[tokio::test]
+    async fn out_of_scope_maintenance_target_is_ignored_during_normal_context_build() {
+        let home = tempdir().unwrap().keep();
+        let service = Arc::new(FeatureService::open(home, Vec::new()).unwrap());
+        service
+            .set_maintenance_provider(Some(Arc::new(OutOfScopeMaintenance)))
+            .unwrap();
+        let mut run = FeatureRunContext::bot("bot-a", "user-a");
+        run.model_context_window = 2;
+        run.run_id = Some("out-of-scope-extract-run".into());
+        run.chat_id = Some("out-of-scope-extract-chat".into());
+        run.session_id = Some("out-of-scope-extract-chat".into());
+        let sink = FeatureExecutionSink::new(
+            Arc::new(EventRecordingSink::default()),
+            FeatureToolRuntime::new(service.clone(), run),
+        );
+        let request = crate::execution::ExecutionRequest {
+            run_id: "out-of-scope-extract-run".into(),
+            assignment_id: None,
+            source_message_id: None,
+            chat_id: "out-of-scope-extract-chat".into(),
+            bot_id: "bot-a".into(),
+            model: "mock/model".into(),
+            provider_id: "mock".into(),
+            project_id: None,
+            instruction: "continue the conversation".into(),
+            messages: vec![json!({"role":"user","content":"x".repeat(500)})],
+            max_turns: 1,
+            private: true,
+            allow_unsafe: false,
+            cwd: None,
+            routine: false,
+            price: None,
+            resume_approved: false,
+            subagent: false,
+            tools: None,
+            phase: None,
+            parent_run_id: None,
+            subagent_task: None,
+            save_full_requests: false,
+            resume_message: None,
+            client_locale: None,
+        };
+
+        let context = sink.prepare_model_context(&request).await.unwrap().unwrap();
+
+        assert!(context["compaction_summary"].as_str().is_some());
+        let entries = service.shared_memory.entries().unwrap();
+        assert!(entries
+            .iter()
+            .all(|entry| entry.target == MemoryTarget::bot("bot-a")));
+        assert!(entries
+            .iter()
+            .any(|entry| entry.content == "eligible durable experience"));
+        assert!(!entries
+            .iter()
+            .any(|entry| entry.content == "must be discarded"));
     }
 
     #[tokio::test]

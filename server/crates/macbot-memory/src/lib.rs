@@ -3163,6 +3163,13 @@ pub trait AsyncMaintenanceProvider: Send + Sync {
     async fn extract(&self, _text: &str) -> Result<Vec<MemoryDraft>, MemoryError> {
         Ok(Vec::new())
     }
+    async fn extract_for_targets(
+        &self,
+        text: &str,
+        _targets: &[MemoryTarget],
+    ) -> Result<Vec<MemoryDraft>, MemoryError> {
+        self.extract(text).await
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -3725,8 +3732,10 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         let path = temp.path().join("memory/state.json");
         fs::create_dir_all(path.parent().unwrap()).unwrap();
-        let mut state = PersistedState::default();
-        state.revision = 1;
+        let state = PersistedState {
+            revision: 1,
+            ..PersistedState::default()
+        };
         write_persisted_state(&path, &state).unwrap();
         let legacy = r#"{"operation_id":"old-op","revision":1,"op":"create","entry_id":"m-old","target":{"scope":"user","owner_id":"local-user"},"kind":"user_preference","content":"prefers examples","actor":{"kind":"system","chat_id":"chat-old","message_id":"msg-old"},"at":"2026-10-11T00:00:00Z"}"#;
         fs::write(changelog_path(&path), format!("{legacy}\n")).unwrap();
