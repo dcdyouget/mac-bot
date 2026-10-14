@@ -15,6 +15,7 @@
     "test:skill-message": "node --test src/components/skillMessage.model.test.mjs",
     "test:dashboard": "node --test src/components/dashboard.model.test.mjs",
     "test:summary": "node --test src/summaryMarkdown.test.mjs",
+    "test:startup": "node --test tests/startupRendering.test.mjs",
     "tauri": "tauri"
   },
   "dependencies": {
@@ -30,6 +31,7 @@
     "@types/react": "^19.1.13",
     "@types/react-dom": "^19.1.9",
     "@vitejs/plugin-react": "^5.0.4",
+    "esbuild": "^0.28.2",
     "eslint": "^9.36.0",
     "eslint-plugin-react-hooks": "^5.2.0",
     "eslint-plugin-react-refresh": "^0.4.21",
