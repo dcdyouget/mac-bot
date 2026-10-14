@@ -216,7 +216,7 @@ export function SkillsPage(props: SkillsPageProps) {
 
   return <section className="skills-page">
     <aside className="skills-list-column">
-      <header className="skills-list-toolbar"><strong>{copy('skills.title', '技能')}</strong><button className="skills-button skills-button-primary" type="button" onClick={() => setNewOpen(true)}><Plus size={14} />新建</button></header>
+      <header className="skills-list-toolbar" data-window-drag-region><strong>{copy('skills.title', '技能')}</strong><button className="skills-button skills-button-primary" type="button" onClick={() => setNewOpen(true)}><Plus size={14} />新建</button></header>
       <div className="skills-list-controls">
         <label className="skills-search"><Search size={14} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={copy('skills.search', '搜索技能')} /></label>
         <div className="skills-segments" role="tablist" aria-label="技能来源">{(['all', 'builtin', 'mine', 'imported'] as const).map((value) => <button type="button" role="tab" aria-selected={filter === value} className={filter === value ? 'active' : ''} key={value} onClick={() => setFilter(value)}>{value === 'all' ? '全部' : value === 'builtin' ? sourceLabel('builtin') : value === 'mine' ? sourceLabel('user') : sourceLabel('imported')}</button>)}</div>
@@ -235,7 +235,7 @@ export function SkillsPage(props: SkillsPageProps) {
       {error && <div className="skills-error" role="alert"><AlertCircle size={15} /><span>{error}</span></div>}
       {!selected && !loading && <div className="skills-empty-detail"><Sparkles size={22} /><span>{skills.length ? '选择一个技能查看详情' : '暂无技能，请新建或导入'}</span></div>}
       {selected && <>
-        <header className="skills-detail-toolbar">
+        <header className="skills-detail-toolbar" data-window-drag-region>
           <div className="skills-detail-heading"><div className="skills-name-line"><strong>{selected.name}</strong>{selected.source === 'draft' && <span className="skills-draft-chip">{copy('skills.draft', '草稿')}</span>}</div>
             {selected.source === 'draft' && selected.draft_from
               ? <small>{copy('skills.draft_from', '由 {bot} 在「{project}」里生成 · 还没对任何 Bot 生效').replace('{bot}', selected.draft_from.bot_name).replace('{project}', selected.draft_from.project_name ?? '')}</small>

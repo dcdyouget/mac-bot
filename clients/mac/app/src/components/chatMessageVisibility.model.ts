@@ -1,5 +1,14 @@
 import type { BridgeState, Chat, Message } from '../types'
 
+export type MainChatMessageOwnershipIssue = {
+  messageId: string
+  chatId?: string
+  senderBotId?: string
+  assignmentId?: string
+  assignmentBotId?: string
+  reason: 'foreign_sender' | 'foreign_assignment'
+}
+
 /** Resolve the speaker that owns a main Bot chat from canonical Bot state. */
 export function mainBotIdForChat(
   chat: Chat | undefined,
@@ -22,13 +31,44 @@ export function mainBotIdForChat(
  * worker as if they were speaking directly to the user in the main DM.
  */
 export function isMessageVisibleInChat(
-  message: Pick<Message, 'chat_id' | 'sender'>,
+  message: Pick<Message, 'chat_id' | 'sender' | 'id' | 'assignment_id'>,
   chatId: string | undefined,
   mainBotId?: string,
+  assignments: BridgeState['assignments'] = {},
 ): boolean {
   if (chatId && message.chat_id && message.chat_id !== chatId) return false
+  return mainChatMessageOwnershipIssue(message, chatId, mainBotId, assignments) === null
+}
 
-  const sender = message.sender
-  if (!mainBotId || sender?.kind !== 'bot') return true
-  return sender.bot_id === mainBotId
+/**
+ * Diagnose Bot messages in the main DM whose sender or owning assignment is a
+ * worker Bot. Keep the message ids and ownership fields so callers can report
+ * a routing problem without logging message content.
+ */
+export function mainChatMessageOwnershipIssue(
+  message: Pick<Message, 'chat_id' | 'sender' | 'id' | 'assignment_id'>,
+  chatId: string | undefined,
+  mainBotId: string | undefined,
+  assignments: BridgeState['assignments'] = {},
+): MainChatMessageOwnershipIssue | null {
+  if (chatId && message.chat_id && message.chat_id !== chatId) return null
+  if (!mainBotId || message.sender?.kind !== 'bot') return null
+
+  const assignmentId = typeof message.assignment_id === 'string' ? message.assignment_id : undefined
+  const assignmentBotId = assignmentId && typeof assignments[assignmentId]?.bot_id === 'string'
+    ? String(assignments[assignmentId].bot_id)
+    : undefined
+  const senderBotId = message.sender.bot_id
+  const foreignAssignment = Boolean(assignmentBotId && assignmentBotId !== mainBotId)
+  const foreignSender = senderBotId !== mainBotId
+  if (!foreignAssignment && !foreignSender) return null
+
+  return {
+    messageId: message.id,
+    chatId: message.chat_id,
+    senderBotId,
+    assignmentId,
+    assignmentBotId,
+    reason: foreignAssignment ? 'foreign_assignment' : 'foreign_sender',
+  }
 }

@@ -334,7 +334,7 @@ export function MemoryPage(props: MemoryPageProps) {
   }
 
   return <section className="memory-page">
-    <header className="memory-page-toolbar">{onBack && <button type="button" onClick={onBack}><ChevronLeft size={15} />{t('nav.settings')}</button>}<strong>{t('settings.section.memory')}</strong></header>
+    <header className="memory-page-toolbar" data-window-drag-region>{onBack && <button type="button" onClick={onBack}><ChevronLeft size={15} />{t('nav.settings')}</button>}<strong>{t('settings.section.memory')}</strong></header>
     <div className="memory-scroll">
       {loadError && <div className="memory-error" role="alert"><AlertCircle size={14} /><span>{loadError}</span><button type="button" onClick={() => void onReload()}>{t('common.retry')}</button></div>}
       {error && <div className="memory-error" role="alert"><AlertCircle size={14} /><span>{error}</span></div>}

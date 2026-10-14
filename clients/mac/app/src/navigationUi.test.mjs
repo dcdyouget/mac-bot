@@ -66,6 +66,18 @@ test('model provider actions have visible localized labels', () => {
   assert.ok(keys.has('settings.models.test'))
 })
 
+test('missing models opens Settings once per connection and RPC errors do not imply missing models', () => {
+  assert.match(appSource, /modelSetupCheckedHostsRef\.current\.add\(scope\)/)
+  assert.match(appSource, /if \(state\.connection !== 'connected'\) \{\s*modelSetupCheckedHostsRef\.current\.clear\(\)/)
+  assert.match(appSource, /if \(!configuredMainModelRef\([\s\S]*?\)\)\s*\{\s*routeToModels\(\)/)
+  assert.match(appSource, /if \(needsSetup\) routeToModels\(\)/)
+  assert.match(appSource, /\.catch\(\(\) => undefined\)/)
+  assert.doesNotMatch(appSource, /MODEL_SETUP_ONBOARDING_KEY_PREFIX|localStorage\.(?:getItem|setItem)\(storageKey/)
+  assert.match(appSource, /onboardingPendingRef\.current = false[\s\S]*?setShowConnect\(false\)[\s\S]*?setSettingsSection\('models'\)/)
+  assert.match(appSource, /setSettingsSection\('models'\)[\s\S]*?setModelSetupGuidance\(true\)[\s\S]*?setShowSettings\(true\)/)
+  assert.match(copySource, /'settings\.models\.onboarding_description':/)
+})
+
 test('first-run window opens centered at a compact desktop size and onboarding content stays bounded', () => {
   const [mainWindow] = tauriConfig.app.windows
   assert.equal(mainWindow.width, 1120)

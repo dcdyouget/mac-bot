@@ -92,7 +92,7 @@ export function DashboardPage() {
   }
 
   return <section className="desktop-page dashboard-page">
-    <header className="desktop-page-toolbar glass-toolbar"><div className="desktop-page-title"><BarChart3 size={17} />{t('dashboard.title')}</div><div className="dashboard-toolbar-controls">
+    <header className="desktop-page-toolbar glass-toolbar" data-window-drag-region><div className="desktop-page-title"><BarChart3 size={17} />{t('dashboard.title')}</div><div className="dashboard-toolbar-controls">
       <div className="segmented-control" role="tablist" aria-label={t('dashboard.title')}>
         {(['today', '7d', '30d', '90d'] as Range[]).map((value) => <button key={value} className={range === value ? 'selected' : ''} onClick={() => { setRange(value); setDrill(null) }}>{t(`dashboard.range.${value}` as CopyKey)}</button>)}
     </div><button className="dashboard-export" onClick={() => { void exportCsv() }}><Download size={13} />{t('dashboard.export_csv')}</button>

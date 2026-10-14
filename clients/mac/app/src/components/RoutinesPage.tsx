@@ -222,7 +222,7 @@ export function RoutinesPage(props: Props) {
 
   return <main className="routines-page">
     <aside className="routines-list glass-panel">
-      <header className="routines-list-toolbar">
+      <header className="routines-list-toolbar" data-window-drag-region>
         <h1>{props.t('routines.title')}</h1>
         <button type="button" className="routines-add-button" onClick={startCreating}><Plus size={14} />{props.t('common.new')}</button>
       </header>
@@ -248,7 +248,7 @@ export function RoutinesPage(props: Props) {
     <section className="routines-detail">
       {props.error && <div className="routines-error" role="alert"><AlertCircle size={15} /><span>{props.error}</span>{props.onRetry && <button type="button" onClick={() => void props.onRetry?.()}>{props.t('common.retry')}</button>}</div>}
       {active || creating ? <>
-        <header className="routines-detail-toolbar glass-toolbar">
+        <header className="routines-detail-toolbar glass-toolbar" data-window-drag-region>
           <div className="routines-detail-heading">
             <strong>{creating ? props.t('routines.title') : active?.name}</strong>
             {!creating && active && <small>{nextRunText(active, activeBot?.name ?? '', props.t)}</small>}

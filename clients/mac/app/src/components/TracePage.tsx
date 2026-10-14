@@ -163,7 +163,7 @@ export function TracePage(props: TracePageProps) {
   }
 
   return <section className="trace-page">
-    <header className="trace-toolbar glass-toolbar">
+    <header className="trace-toolbar glass-toolbar" data-window-drag-region>
       <button className="trace-icon-button" type="button" aria-label={t('trace.back_to_latest')} onClick={onBack}><ArrowLeft size={16} /></button>
       <div className="trace-heading">
         <div className="trace-breadcrumb"><span>{projectName ?? ''}</span>{projectName && <ChevronRight size={12} />}<span>{botName ?? assignment.bot_id ?? ''}</span><ChevronRight size={12} /><strong>{assignment.title || assignment.instruction || assignment.id}</strong></div>
@@ -209,7 +209,10 @@ export function TracePage(props: TracePageProps) {
         <h2><Activity size={14} />{t('trace.process')}</h2>
         {loading && items.length === 0 && <div className="trace-state" aria-busy="true"><LoaderCircle size={16} className="trace-spin" />{t('trace.state.loading')}</div>}
         {error && <div className="trace-error" role="alert"><AlertCircle size={15} /><span>{t('trace.state.error')} · {error}</span>{onRetry && <button type="button" onClick={onRetry}>{t('common.retry')}</button>}</div>}
-        {!loading && !error && visibleEntries.length === 0 && inFlight.length === 0 && <div className="trace-state">{search || filter !== 'all' ? t('trace.state.no_matches') : t('trace.state.empty')}</div>}
+        {!loading && !error && visibleEntries.length === 0 && inFlight.length === 0 && <div className={`trace-state ${search || filter !== 'all' ? '' : 'trace-empty'}`} role="status">
+          <span>{search || filter !== 'all' ? t('trace.state.no_matches') : t('trace.state.empty')}</span>
+          {!search && filter === 'all' && onRetry && <button type="button" onClick={onRetry}>{t('common.retry')}</button>}
+        </div>}
         {(visibleEntries.length > 0 || inFlight.length > 0) && <div className="trace-timeline">
           {visibleEntries.map((entry) => <TraceRow key={`${entry.item.run_id}-${entry.item.aseq}`} entry={entry} t={t} onOpenThinking={onOpenThinking} queueReviewDetails={queueReviewDetails} toolOutputs={toolOutputs} />)}
           {inFlight.map((request) => <article className="trace-row trace-row-live" key={`flight-${request.request_id}`}>

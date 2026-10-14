@@ -333,7 +333,7 @@ export function BotPanel(props: Props) {
   const title = view === 'settings' ? t('bot.page.settings') : bot.name
 
   return <aside className="bot-panel glass-panel" aria-label={title}>
-    <header className="bot-panel-header drag-region">
+    <header className="bot-panel-header drag-region" data-window-drag-region>
       {view === 'settings' ? <button className="bot-panel-icon" type="button" aria-label={t('common.back')} onClick={() => setView('detail')}><ChevronLeft size={15} /></button> : null}
       <strong>{title}</strong>
       <button className="bot-panel-icon" type="button" aria-label={t('common.close')} onClick={onClose}>×</button>

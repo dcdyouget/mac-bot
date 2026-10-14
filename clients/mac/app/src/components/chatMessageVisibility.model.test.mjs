@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { isMessageVisibleInChat, mainBotIdForChat } from './chatMessageVisibility.model.ts'
+import { isMessageVisibleInChat, mainBotIdForChat, mainChatMessageOwnershipIssue } from './chatMessageVisibility.model.ts'
 import { taskCardAvatarOwnerBotId } from './pendingChatActions.model.ts'
 
 test('main Bot DM hides worker messages while keeping main Bot and system activity', () => {
@@ -69,4 +69,36 @@ test('hiding a worker reply keeps its following task card attributed to that wor
   assert.equal(isMessageVisibleInChat(workerReply, 'chat-main', 'bot-main'), false)
   assert.equal(isMessageVisibleInChat(taskCard, 'chat-main', 'bot-main'), true)
   assert.equal(taskCardAvatarOwnerBotId(workerReply, taskCard, { 'assignment-worker': { bot_id: 'bot-worker' } }), 'bot-worker')
+})
+
+test('main chat hides and diagnoses a main-sender reply owned by a worker assignment', () => {
+  const message = {
+    id: 'worker-assignment-reply',
+    chat_id: 'chat-main',
+    sender: { kind: 'bot', bot_id: 'bot-main' },
+    assignment_id: 'assignment-worker',
+  }
+  const assignments = { 'assignment-worker': { bot_id: 'bot-worker' } }
+
+  assert.equal(isMessageVisibleInChat(message, 'chat-main', 'bot-main', assignments), false)
+  assert.deepEqual(mainChatMessageOwnershipIssue(message, 'chat-main', 'bot-main', assignments), {
+    messageId: 'worker-assignment-reply',
+    chatId: 'chat-main',
+    senderBotId: 'bot-main',
+    assignmentId: 'assignment-worker',
+    assignmentBotId: 'bot-worker',
+    reason: 'foreign_assignment',
+  })
+})
+
+test('main chat does not report worker assignments that are not loaded', () => {
+  const message = {
+    id: 'cached-reply',
+    chat_id: 'chat-main',
+    sender: { kind: 'bot', bot_id: 'bot-main' },
+    assignment_id: 'assignment-not-loaded',
+  }
+
+  assert.equal(isMessageVisibleInChat(message, 'chat-main', 'bot-main'), true)
+  assert.equal(mainChatMessageOwnershipIssue(message, 'chat-main', 'bot-main'), null)
 })

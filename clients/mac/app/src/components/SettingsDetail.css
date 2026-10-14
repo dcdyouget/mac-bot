@@ -203,6 +203,8 @@
 .settings-detail-alert,
 .settings-detail-notice,
 .settings-detail-toast { display: flex; align-items: center; gap: 7px; padding: 10px 12px; border-radius: 8px; background: var(--warning-soft, var(--bg-active)); color: var(--warning); font-size: 12px; line-height: 17px; }
+.settings-model-onboarding { display: grid; gap: 4px; margin: 0 0 16px; padding: 12px 14px; border: 1px solid var(--border-subtle); border-radius: var(--radius-card, 10px); background: var(--bg-active); color: var(--text-primary); font-size: 12px; line-height: 18px; }
+.settings-model-onboarding span { color: var(--text-secondary); }
 .settings-detail-alert.is-error,
 .settings-detail-toast.is-error { background: var(--danger-soft, var(--bg-active)); color: var(--danger); }
 .settings-detail-notice,

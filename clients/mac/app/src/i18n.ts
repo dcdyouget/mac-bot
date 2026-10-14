@@ -312,6 +312,8 @@ const copy = {
   'settings.models.api_key': 'API Key',
   'settings.models.key_saved': '已配置 API Key',
   'settings.models.key_missing': '未配置 API Key',
+  'settings.models.onboarding_title': '先配置一个可用模型',
+  'settings.models.onboarding_description': '添加服务商并保存你自己的 API Key，然后拉取或添加至少一个已启用模型；接着到“运行与并发”选择主 Bot 默认模型。',
   'settings.models.headers': '请求头（JSON）',
   'settings.models.headers_invalid': '请求头必须是 JSON 对象，且值均为字符串',
   'settings.models.provider_required': '请填写服务商名称和 Base URL',

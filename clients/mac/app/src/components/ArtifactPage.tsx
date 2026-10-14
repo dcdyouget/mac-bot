@@ -107,11 +107,11 @@ function inlineMarkdown(text: string, keyPrefix: string) {
   return nodes
 }
 
-export function MarkdownPreview({ content }: { content: string }) {
+export function MarkdownPreview({ content, variant = 'artifact' }: { content: string; variant?: 'artifact' | 'message' }) {
   const lines = content.split(/\r?\n/)
   const blocks: React.ReactNode[] = []
   let paragraph: string[] = []
-  let list: string[] = []
+  let list: { ordered: boolean; content: string }[] = []
   let code: string[] | null = null
   let blockIndex = 0
 
@@ -122,7 +122,8 @@ export function MarkdownPreview({ content }: { content: string }) {
   }
   const flushList = () => {
     if (!list.length) return
-    blocks.push(<ul key={`ul:${blockIndex++}`}>{list.map((item, index) => <li key={index}>{inlineMarkdown(item, `li:${blockIndex}:${index}`)}</li>)}</ul>)
+    const Tag = list[0].ordered ? 'ol' : 'ul'
+    blocks.push(<Tag key={`list:${blockIndex++}`}>{list.map((item, index) => <li key={index}>{inlineMarkdown(item.content, `li:${blockIndex}:${index}`)}</li>)}</Tag>)
     list = []
   }
 
@@ -147,8 +148,14 @@ export function MarkdownPreview({ content }: { content: string }) {
       else blocks.push(<h3 key={`h:${index}`}>{children}</h3>)
       continue
     }
-    const bullet = /^\s*[-*+]\s+(.+)$/.exec(line)
-    if (bullet) { flushParagraph(); list.push(bullet[1]); continue }
+    const listItem = /^\s*(?:([-*+])|(\d+)\.)\s+(.+)$/.exec(line)
+    if (listItem) {
+      const ordered = Boolean(listItem[2])
+      if (list.length && list[0].ordered !== ordered) flushList()
+      flushParagraph()
+      list.push({ ordered, content: listItem[3] })
+      continue
+    }
     if (!line.trim()) { flushParagraph(); flushList(); continue }
     flushList()
     paragraph.push(line.trim())
@@ -156,7 +163,7 @@ export function MarkdownPreview({ content }: { content: string }) {
   flushParagraph()
   flushList()
   if (code) blocks.push(<pre key={`pre:${blockIndex++}`}><code>{code.join('\n')}</code></pre>)
-  return <div className="artifact-markdown">{blocks}</div>
+  return <div className={`artifact-markdown${variant === 'message' ? ' message-markdown message-text-block' : ''}`}>{blocks}</div>
 }
 
 export function ArtifactPage({ hostScope, projectId, projectName, artifacts, botNames, initialArtifactId = null, onBack, onRevealInFinder, t }: ArtifactPageProps) {
@@ -320,7 +327,7 @@ export function ArtifactPage({ hostScope, projectId, projectName, artifacts, bot
   ]
 
   return <section className="artifact-page">
-    <header className="artifact-toolbar glass-toolbar">
+    <header className="artifact-toolbar glass-toolbar" data-window-drag-region>
       <button className="artifact-back" type="button" onClick={onBack} aria-label={t('common.back')}><ArrowLeft size={16} /></button>
       <div className="artifact-heading">
         <div className="artifact-breadcrumb"><span>{projectName}</span><span aria-hidden="true">›</span><span>{t('group.artifacts')}</span><span aria-hidden="true">›</span><strong>{selectedArtifact?.title ?? ''}</strong></div>

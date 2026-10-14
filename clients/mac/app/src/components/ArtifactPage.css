@@ -53,6 +53,14 @@
 .artifact-markdown pre code { padding: 0; background: transparent; }
 .artifact-markdown a, .artifact-url-card a { color: var(--accent); text-decoration: none; }
 .artifact-markdown a:hover, .artifact-url-card a:hover { text-decoration: underline; }
+.message-markdown.message-text-block { color: inherit; font-size: inherit; line-height: inherit; overflow-wrap: anywhere; white-space: normal; }
+.message-markdown.message-text-block p { margin: 0; }
+.message-markdown.message-text-block h1,
+.message-markdown.message-text-block h2,
+.message-markdown.message-text-block h3 { margin: 0; font-size: inherit; line-height: inherit; font-weight: 600; }
+.message-markdown.message-text-block ul,
+.message-markdown.message-text-block ol { margin: 0; padding-left: 20px; }
+.message-markdown.message-text-block li { padding-left: 2px; }
 .artifact-history-card { min-height: auto; padding: 24px; }
 .artifact-history-card > header { margin-bottom: 15px; }
 .artifact-version-row { display: flex; width: 100%; min-height: 56px; align-items: center; gap: 10px; padding: 7px 9px; border-top: 1px solid var(--border-subtle); border-radius: 6px; text-align: left; }

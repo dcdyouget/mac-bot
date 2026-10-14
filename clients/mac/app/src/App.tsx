@@ -30,7 +30,9 @@ import { isLatestLocalPreferenceSave, mergeLocalPreferences, rollbackLocalPrefer
 import { captureChatScrollPosition, restoreChatScrollTop, type ChatScrollPosition } from './components/chatScrollPosition.model'
 import { taskCardAvatarOwnerBotId } from './components/pendingChatActions.model'
 import { DEFAULT_HOST_ENDPOINT, resolveHostStartup } from './components/hostStartup.model.mjs'
-import { isMessageVisibleInChat, mainBotIdForChat } from './components/chatMessageVisibility.model'
+import { isMessageVisibleInChat, mainBotIdForChat, mainChatMessageOwnershipIssue } from './components/chatMessageVisibility.model'
+import { shouldStartWindowDragging } from './components/windowDragRegion.model'
+import { configuredMainModelRef, modelSetupOnboardingSection } from './components/modelSetupOnboarding.model'
 import { pendingDecisionsForContext, type PendingDecision } from './components/pendingApprovalDecisions.model'
 import { CreateGroupDialog, MessageContextMenu, type ChatEntryMessage, type QuoteTarget } from './components/ChatEntry'
 import './components/ChatEntry.css'
@@ -105,6 +107,22 @@ function traceQueueMessage(message: Message, bots: BridgeState['bots']): TraceQu
 
 function assertHostScope(current: string, expected: string) {
   if (current !== expected) throw new Error('Host changed during request')
+}
+
+function handleWindowDragPointerDown(event: React.PointerEvent<HTMLElement>) {
+  if (!isTauri() || !(event.target instanceof Element)) return
+  const target = event.target
+  const region = target.closest('[data-window-drag-region]')
+  const interactiveTarget = Boolean(target.closest('button, a[href], input, textarea, select, option, label, [role="button"], [role="link"], [contenteditable="true"], [data-no-window-drag]'))
+  if (!shouldStartWindowDragging({
+    pointerType: event.pointerType,
+    button: event.button,
+    isPrimary: event.isPrimary,
+    insideDragRegion: Boolean(region && event.currentTarget.contains(region)),
+    interactiveTarget,
+  })) return
+  event.preventDefault()
+  void getCurrentWindow().startDragging().catch(() => undefined)
 }
 
 function isSettingsDetailSection(section: SettingsNavigationSection): section is SettingsSection {
@@ -235,6 +253,7 @@ function App() {
   const startupReconnectStartedRef = useRef(false)
   const [showSettings, setShowSettings] = useState(false)
   const [settingsSection, setSettingsSection] = useState<SettingsNavigationSection>('runtime')
+  const [modelSetupGuidance, setModelSetupGuidance] = useState(false)
   const [clientVersion, setClientVersion] = useState('0.1.0')
   const [hostPermissions, setHostPermissions] = useState<Record<string, string> | null>(null)
   const [artifactPreview, setArtifactPreview] = useState<{ title: string; path: string; content: string; error?: string } | null>(null)
@@ -285,10 +304,12 @@ function App() {
   const computerFrameRef = useRef(computerFrame)
   const traceStreamRef = useRef<string | null>(null)
   const onboardingPendingRef = useRef(onboardingPending)
+  const modelSetupCheckedHostsRef = useRef(new Set<string>())
   const welcomeTemplateApplyingRef = useRef<string | null>(null)
   const traceHistoryRequestRef = useRef(0)
   const deepLinkProcessingRef = useRef(false)
   const deepLinkRequestRef = useRef(0)
+  const reportedMainChatOwnershipIssuesRef = useRef(new Set<string>())
   const selectChatRef = useRef<(chatId: string) => void>(() => undefined)
   const routinesDataScopeRef = useRef<string | null>(null)
   const skillsDataScopeRef = useRef<string | null>(null)
@@ -599,6 +620,61 @@ function App() {
     setStartupReconnectState('connecting')
     void connectSavedHost(startup.hostId)
   }, [listenerReady, hostListLoaded, state.connection, savedHosts, startupReconnectState, showConnect])
+
+  useEffect(() => {
+    if (!isTauri()) return
+    const scope = hostScope
+    if (!scope) return
+    if (state.connection !== 'connected') {
+      modelSetupCheckedHostsRef.current.clear()
+      return
+    }
+    if ([...modelSetupCheckedHostsRef.current].some((checkedScope) => checkedScope !== scope)) modelSetupCheckedHostsRef.current.clear()
+    if (modelSetupCheckedHostsRef.current.has(scope)) return
+    modelSetupCheckedHostsRef.current.add(scope)
+    let active = true
+    const canApply = () => active
+      && hostScopeRef.current === hostScope
+      && stateRef.current.connection === 'connected'
+    const routeToModels = () => {
+      if (!canApply()) return
+      onboardingPendingRef.current = false
+      setOnboardingPending(false)
+      setShowConnect(false)
+      setSettingsSection('models')
+      setModelSetupGuidance(true)
+      setShowSettings(true)
+    }
+    const inspectSettings = (settings: Record<string, Json>) => {
+      if (!canApply()) return
+      const bots = Object.values(stateRef.current.bots)
+      if (!configuredMainModelRef(settings, bots)) {
+        routeToModels()
+        return
+      }
+      void invoke<{ models?: { ref?: string; enabled?: boolean }[] }>('protocol_request', { method: 'provider.list', params: {} })
+        .then((result) => {
+          if (!canApply()) return
+          const needsSetup = modelSetupOnboardingSection(
+            settings,
+            Object.values(stateRef.current.bots),
+            Array.isArray(result.models) ? result.models : [],
+          )
+          if (needsSetup) routeToModels()
+        })
+        .catch(() => undefined)
+    }
+    if (stateRef.current.settings) inspectSettings(stateRef.current.settings)
+    else void invoke<{ settings?: Record<string, Json> }>('protocol_request', { method: 'settings.get', params: {} })
+      .then((result) => {
+        if (!canApply()) return
+        if (!result.settings || typeof result.settings !== 'object' || Array.isArray(result.settings)) return
+        setState((current) => hostScopeRef.current === hostScope ? { ...current, settings: result.settings! } : current)
+        inspectSettings(result.settings)
+      })
+      .catch(() => undefined)
+    return () => { active = false }
+  }, [state.connection, hostScope])
 
   useEffect(() => {
     let active = true
@@ -954,6 +1030,9 @@ function App() {
     if (state.connection !== 'connected') {
       setTraceLive(false)
       setTraceLoading(false)
+      setTraceError(state.connection === 'connecting'
+        ? t('host.reconnecting').replace('{host}', state.active_host?.name ?? hostName)
+        : t('host.error.generic'))
       return
     }
 
@@ -1063,7 +1142,7 @@ function App() {
         void invoke('trace_unsubscribe', { stream }).catch(() => undefined)
       }
     }
-  }, [activePage, hostScope, state.connection, traceRoute, traceRetry])
+  }, [activePage, hostScope, state.connection, state.active_host?.name, hostName, traceRoute, traceRetry])
 
   useEffect(() => {
     if (activePage !== 'trace' || !traceRoute) return
@@ -1106,6 +1185,8 @@ function App() {
   const bots = useMemo(() => Object.values(state.bots), [state.bots])
   const mainBot = bots.find((bot) => bot.is_main) ?? bots[0]
   const currentChat = chats.find((chat) => chat.id === selectedChat) ?? chats.find((chat) => chat.kind === 'main') ?? chats[0]
+  const currentChatId = currentChat?.id
+  const currentMainBotId = mainBotIdForChat(currentChat, state.bots)
   useEffect(() => { setFocusedMessageId(null) }, [currentChat?.id])
   const currentChatBotId = currentChat?.bot_id ?? (currentChat?.kind === 'main' ? mainBot?.id : null)
   const skillTargetBotId = mentionBotId ?? currentChatBotId ?? mainBot?.id ?? null
@@ -1121,6 +1202,26 @@ function App() {
     }
     return [...byId.values()].sort((a, b) => String(a.created_at ?? '').localeCompare(String(b.created_at ?? '')))
   }, [historyByChat, state.messages, state.pending_messages, hostScope, currentChat?.id])
+
+  useEffect(() => {
+    if (!currentChatId || !currentMainBotId) return
+    for (const message of currentMessages) {
+      const issue = mainChatMessageOwnershipIssue(message, currentChatId, currentMainBotId, state.assignments)
+      if (!issue) continue
+      const reportKey = `${hostScope}\u0000${currentChatId}\u0000${issue.messageId}`
+      if (reportedMainChatOwnershipIssuesRef.current.has(reportKey)) continue
+      reportedMainChatOwnershipIssuesRef.current.add(reportKey)
+      console.warn('[Mac Bot] A non-main Bot message was hidden from the main chat', {
+        host_scope: hostScope,
+        chat_id: issue.chatId,
+        message_id: issue.messageId,
+        sender_bot_id: issue.senderBotId ?? null,
+        assignment_id: issue.assignmentId ?? null,
+        assignment_bot_id: issue.assignmentBotId ?? null,
+        reason: issue.reason,
+      })
+    }
+  }, [currentChatId, currentMainBotId, currentMessages, hostScope, state.assignments])
 
   useLayoutEffect(() => {
     const pending = pendingChatScrollRestoreRef.current
@@ -2878,7 +2979,6 @@ function App() {
     if (chat.kind === 'main') return mainBotDisplayName(chatName ?? botName, mainBotName)
     return chatName ?? botName ?? t('chat.empty.select')
   }
-  const currentMainBotId = mainBotIdForChat(currentChat, state.bots)
   const activeSearchSideTarget = searchSideTarget?.scope === hostScope ? searchSideTarget.result : null
   const computerTakeoverRequest = (() => {
     if (!computerRoute || computerRoute.hostScope !== hostScope) return null
@@ -2898,12 +2998,12 @@ function App() {
     || (activeSearchSideTarget?.kind === 'bot' && Object.values(state.chats).some((chat) => chat.bot_id === activeSearchSideTarget.id))
     || Boolean(activeSearchSideTarget?.chat_id)
 
-  return <main className={`app-shell${showSettings ? ' settings-open' : ''}`} data-page={activePage}>
+  return <main className={`app-shell${showSettings ? ' settings-open' : ''}`} data-page={activePage} onPointerDown={handleWindowDragPointerDown}>
     {deepLinkNotice && <div className="deep-link-notice" role="alert"><span>{deepLinkNotice}</span><button type="button" aria-label={t('common.close')} onClick={() => setDeepLinkNotice(null)}><X size={14} /></button></div>}
     <button type="button" className="icon-button sidebar-overlay-toggle global-sidebar-toggle" aria-label={t(sidebarOverlayOpen ? 'sidebar.close' : 'sidebar.open')} aria-expanded={sidebarOverlayOpen} onClick={() => setSidebarOverlayOpen((open) => !open)}><Menu size={17} /></button>
     {sidebarOverlayOpen && <button type="button" className="sidebar-overlay-scrim" aria-label={t('sidebar.close')} onClick={() => setSidebarOverlayOpen(false)} />}
     <aside className={`sidebar glass-sidebar${sidebarOverlayOpen ? ' sidebar-overlay-open' : ''}`}>
-      <div className="sidebar-head drag-region">
+      <div className="sidebar-head drag-region" data-window-drag-region>
         <button className="host-switch" aria-expanded={hostMenuOpen} onClick={() => setHostMenuOpen((open) => !open)}><span className={`status-dot ${state.connection}`} />{state.active_host?.name ?? hostName}<ChevronDown size={14} /></button>
         <button className="icon-button" aria-label={t('chat.group.create')} title={t('chat.group.create')} disabled={state.connection !== 'connected'} onClick={() => { setGroupCreateError(null); setCreateGroupOpen(true) }}><Plus size={17} /></button>
         {hostMenuOpen && <div className="host-popover">
@@ -2951,7 +3051,7 @@ function App() {
     </aside>
     {activePage === 'chat' && <>
     <section className="conversation" onDragEnter={handleFileDragEnter} onDragOver={handleFileDragOver} onDragLeave={handleFileDragLeave} onDrop={handleFileDrop}>
-      <header className="conversation-toolbar glass-toolbar drag-region">
+      <header className="conversation-toolbar glass-toolbar drag-region" data-window-drag-region>
         {currentChat?.kind === 'project' || currentChat?.project_id ? <div className="group-chat-avatar"><Users size={17} /></div> : currentChatBotId ? <button type="button" aria-label={t('bot.action.settings')} title={t('bot.action.settings')} onClick={() => openBotPanel(currentChatBotId)} style={{ width: 32, height: 32, display: 'grid', flex: 'none', placeItems: 'center', padding: 0, border: 0, borderRadius: '50%', background: 'transparent', cursor: 'pointer' }}><BeanAvatar main={state.bots[currentChatBotId]?.is_main === true} size="32" seed={state.bots[currentChatBotId]?.name ?? ''} /></button> : <BeanAvatar main size="32" />}
         <div className="conversation-heading"><strong>{currentChat ? chatTitle(currentChat) : mainBotName}</strong>
           <span>{currentChat?.kind === 'project' || currentChat?.project_id ? groupSubtitle(currentChat, currentProject, announcement) : currentChat?.bot_id ? botSubtitle(currentChat, currentAssignments, state.bots) : t('chat.main.subtitle')}</span></div>
@@ -2982,7 +3082,7 @@ function App() {
           </div>}
         </div>
           : currentMessages.length ? <div className="message-list">
-          {buildMessageTimeline(currentMessages, state.assignments, currentChat?.id, mainBotIdForChat(currentChat, state.bots)).filter((entry) => entry.visible).map((entry, index) => <Fragment key={entry.message.id}>
+          {buildMessageTimeline(currentMessages, state.assignments, currentChat?.id, currentMainBotId).filter((entry) => entry.visible).map((entry, index) => <Fragment key={entry.message.id}>
           {entry.dayLabel && <div className="day-separator">{entry.dayLabel}</div>}
           <div id={`message-${entry.message.id}`} data-message-id={entry.message.id} className={`timeline-fragment ${messageMenu?.message.id === entry.message.id ? 'message-context-selected' : ''}`} tabIndex={focusedMessageId ? (focusedMessageId === entry.message.id ? 0 : -1) : (index === 0 ? 0 : -1)} role="group" aria-label={t('chat.message.keyboard_actions')} onFocus={() => setFocusedMessageId(entry.message.id)} onKeyDown={(event) => {
             if (event.target !== event.currentTarget || messageMenu || (entry.message as Message & { deleted?: boolean }).deleted) return
@@ -3074,7 +3174,7 @@ function App() {
       t={(key) => t(key as CopyKey)}
     /> : contextPanelRetained ? <>
       <aside className={`context-panel glass-sidebar context-panel-open ${contextPanelPhase === 'closing' ? 'context-panel-closing' : ''} ${currentProjectId ? 'group-context-panel-open' : ''}`} aria-hidden={contextPanelPhase === 'closing'} inert={contextPanelPhase === 'closing'}>
-      <div className={`panel-heading drag-region ${contextPanelPage === 'group-settings' ? 'context-panel-page-heading' : ''}`}>
+      <div className={`panel-heading drag-region ${contextPanelPage === 'group-settings' ? 'context-panel-page-heading' : ''}`} data-window-drag-region>
         {contextPanelPage === 'group-settings' && <button type="button" className="icon-button" aria-label={t('common.back')} onClick={popContextPanelPage}><ChevronRight size={16} style={{ transform: 'rotate(180deg)' }} /></button>}
         <strong>{contextPanelPage === 'group-settings' ? t('group.settings.title') : currentProjectId ? t('group.info') : t('follow.title')}</strong>
         {currentProjectId && contextPanelPage === 'context' && <button type="button" className="icon-button" aria-label={t('group.settings.title')} title={t('group.settings.title')} onClick={pushGroupSettings}><Settings size={15} /></button>}
@@ -3195,6 +3295,7 @@ function App() {
       t={(key) => t(key as CopyKey)}
     />}
     {activePage === 'trace' && <TracePage
+      key={`${traceRoute?.hostScope ?? hostScope}:${traceRoute?.assignmentId ?? ''}`}
       assignment={traceAssignment ?? { id: traceRoute?.assignmentId ?? '' }}
       projectName={traceAssignment?.project_id ? state.projects[traceAssignment.project_id]?.name : undefined}
       botName={traceAssignment?.bot_id ? state.bots[traceAssignment.bot_id]?.name : undefined}
@@ -3320,8 +3421,9 @@ function App() {
       connection={state.connection}
       onSelect={(section) => {
         setSettingsSection(section)
+        setModelSetupGuidance(false)
       }}
-      onClose={() => setShowSettings(false)}
+      onClose={() => { setShowSettings(false); setModelSetupGuidance(false) }}
       onConnectHost={(hostId) => void connectSavedHost(hostId)}
       onRemoveHost={(host) => void removeSavedHost(host)}
       onAddHost={() => { setHostError(null); setHostDialogOpen(true) }}
@@ -3343,6 +3445,7 @@ function App() {
       /></div> : isSettingsDetailSection(settingsSection) ? <SettingsDetail
         key={`${hostScope}:${settingsSection}`}
         section={settingsSection}
+        modelSetupGuidance={modelSetupGuidance}
         hostKey={hostScope}
         hostName={state.active_host?.name ?? hostName}
         connected={state.connection === 'connected'}
@@ -3538,7 +3641,7 @@ function SettingsPanel(props: { selected: SettingsNavigationSection; error: stri
         {sections.map((section) => <button type="button" key={section.id} className={props.selected === section.id ? 'selected' : ''} onClick={() => props.onSelect(section.id)}>{section.label}</button>)}
       </nav>
       <div className="settings-page-main">
-        <header className="settings-page-header drag-region"><strong>{title}</strong><div className="settings-page-header-actions">{props.selected === 'hosts' && <button type="button" className="settings-detail-button primary" onClick={props.onAddHost}><Plus size={14} />{t('host.add')}</button>}<button className="icon-button" onClick={props.onClose} aria-label={t('common.close')} title={t('common.close')}>×</button></div></header>
+        <header className="settings-page-header drag-region" data-window-drag-region><strong>{title}</strong><div className="settings-page-header-actions">{props.selected === 'hosts' && <button type="button" className="settings-detail-button primary" onClick={props.onAddHost}><Plus size={14} />{t('host.add')}</button>}<button className="icon-button" onClick={props.onClose} aria-label={t('common.close')} title={t('common.close')}>×</button></div></header>
         <div className="settings-page-content">
           {props.selected === 'hosts' ? <section className="settings-detail">
           {!props.hosts.length ? <div className="settings-detail-empty">{t('settings.hosts.empty')}</div> : <div className="settings-detail-card settings-host-list">{props.hosts.map((host) => <div className="settings-host-row" key={host.id}>
@@ -3679,7 +3782,7 @@ function buildMessageTimeline(messages: Message[], assignments: BridgeState['ass
     const suppressHeaderTime = groupable || Boolean(timeSeparator)
     const taskAvatarBotId = taskCardAvatarOwnerBotId(previous, message, assignments)
     if (taskAvatarBotId && last) last.showAvatar = false
-    result.push({ message, dayLabel, timeSeparator, exactTime, headerTime: suppressHeaderTime ? '' : exactTime, groupStart: !groupable, groupEnd: true, showAvatar: true, taskAvatarBotId, visible: isMessageVisibleInChat(message, chatId, mainBotId) })
+    result.push({ message, dayLabel, timeSeparator, exactTime, headerTime: suppressHeaderTime ? '' : exactTime, groupStart: !groupable, groupEnd: true, showAvatar: true, taskAvatarBotId, visible: isMessageVisibleInChat(message, chatId, mainBotId, assignments) })
     previous = message
     previousTime = validDate
     previousSender = sender
@@ -3741,7 +3844,8 @@ function MessageBubble({ message, taskAvatarBotId, skillNames, pending = false, 
   const quote = (message as Message & { quote?: { sender?: { kind?: string; bot_id?: string }; excerpt?: string; message_id?: string } | null }).quote
   const blocks = message.blocks ?? []
   const hasRenderable = !deleted && blocks.some((block) => block.type && block.type !== 'text')
-  const text = deleted ? '' : blocks.map((block) => typeof block.text === 'string' ? block.text : typeof block.markdown === 'string' ? block.markdown : '').filter(Boolean).join('\n')
+  const hasPlainAssistantText = !isUser && blocks.length > 0 && blocks.every((block) => block.type === 'text')
+  const text = deleted ? '' : blocks.map((block) => typeof block.markdown === 'string' ? block.markdown : typeof block.text === 'string' ? block.text : '').filter(Boolean).join('\n')
   const displayText = text || message.fallback_text || t('common.unsupported_block')
   const loadedSkills = isUser && !deleted ? getValidLoadedSkills(message.loaded_skills) : []
   const renderableSkillNames = [...new Set([...skillNames, ...loadedSkills.map((skill) => skill.name)])]
@@ -3770,7 +3874,7 @@ function MessageBubble({ message, taskAvatarBotId, skillNames, pending = false, 
             const value = String(block.markdown ?? block.text ?? '')
             return skillTextBlockIndex === index
               ? <div className="message-text-block" key={index}><SkillMessageText text={value} knownSkillNames={renderableSkillNames} /></div>
-              : <p className="message-text-block" key={index}>{value}</p>
+              : <MarkdownPreview key={index} content={value} variant="message" />
           }
           if (block.type === 'question') {
             if (blocks[index - 1]?.type === 'question') return null
@@ -3851,7 +3955,7 @@ function MessageBubble({ message, taskAvatarBotId, skillNames, pending = false, 
           }
           if (block.type === 'system') return <SystemNotice key={index} code={String(block.code ?? '')} text={String(block.text ?? '')} botName={senderName} />
           return <FallbackCard key={index} text={message.fallback_text || t('common.unsupported_block')} />
-        })}</div> : hasSkillPrefix ? <SkillMessageText text={displayText} knownSkillNames={renderableSkillNames} /> : <>{displayText}</>}
+        })}</div> : hasPlainAssistantText ? <MarkdownPreview content={displayText} variant="message" /> : hasSkillPrefix ? <SkillMessageText text={displayText} knownSkillNames={renderableSkillNames} /> : <>{displayText}</>}
         {!deleted && Boolean(message.reactions?.length) && <div className="message-reactions" aria-label={t('chat.menu.react')}>
           {message.reactions?.filter((reaction) => reaction.by.length > 0).map((reaction) => <button type="button" className={`message-reaction-pill ${userHasReaction(reaction) ? 'active' : ''}`} key={reaction.emoji} aria-label={`${reaction.emoji} ${reaction.by.length}`} onClick={() => onReact(message, reaction.emoji)}>{reaction.emoji}<span>{reaction.by.length}</span></button>)}
         </div>}

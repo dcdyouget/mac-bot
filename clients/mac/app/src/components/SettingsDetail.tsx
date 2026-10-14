@@ -22,6 +22,7 @@ export type SettingsDocument = Record<string, unknown>
 
 type Props = {
   section: SettingsSection
+  modelSetupGuidance?: boolean
   /** Stable identity of the currently connected host, used to ignore stale reads after a host switch. */
   hostKey: string
   hostName?: string
@@ -207,7 +208,10 @@ export function SettingsDetail(props: Props) {
   if (!connected) return <section className="settings-detail"><div className="settings-detail-alert"><AlertCircle size={16} />{t('host.reconnecting_detail')}</div></section>
 
   return <section className="settings-detail" data-host-key={hostKey}>
-    {section === 'models' && <ModelsPage providers={providers} models={models} loading={loading} busy={busy} error={error} notice={notice} providerDraft={providerDraft} modelDraft={modelDraft} onProviderDraft={setProviderDraft} onModelDraft={setModelDraft} onSaveProvider={saveProvider} onDeleteProvider={deleteProvider} onTestProvider={testProvider} onRefreshModels={refreshModels} onSaveModel={saveModel} onDeleteModel={deleteModel} onReload={() => void refreshProviders()} t={t} />}
+    {section === 'models' && <>
+      {props.modelSetupGuidance && <div className="settings-model-onboarding" role="status"><strong>{t('settings.models.onboarding_title')}</strong><span>{t('settings.models.onboarding_description')}</span></div>}
+      <ModelsPage providers={providers} models={models} loading={loading} busy={busy} error={error} notice={notice} providerDraft={providerDraft} modelDraft={modelDraft} onProviderDraft={setProviderDraft} onModelDraft={setModelDraft} onSaveProvider={saveProvider} onDeleteProvider={deleteProvider} onTestProvider={testProvider} onRefreshModels={refreshModels} onSaveModel={saveModel} onDeleteModel={deleteModel} onReload={() => void refreshProviders()} t={t} />
+    </>}
     {section === 'runtime' && <RuntimePage settings={settings} models={modelOptions} bots={bots} busy={busy} onSave={updateSettings} t={t} />}
     {section === 'tools' && <ToolsPage settings={settings} bots={bots} rules={draftRules} busy={busy} error={error} notice={notice} onRules={setDraftRules} onSaveRules={() => void saveRules()} onSave={updateSettings} t={t} />}
     {section === 'computer' && <ComputerSettingsPage settings={settings} permissions={props.permissions} busy={busy} error={error} notice={notice} onSave={updateSettings} onOpenSystemSettings={props.onOpenSystemSettings} t={t} />}

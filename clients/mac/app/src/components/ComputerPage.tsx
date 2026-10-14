@@ -146,7 +146,7 @@ export function ComputerPage(props: ComputerPageProps) {
   const qualityLabel = t(`computer.quality.${quality}` as ComputerCopyKey)
 
   return <section className={`computer-page ${fullscreen ? 'is-fullscreen' : ''}`}>
-    <header className="computer-toolbar glass-toolbar">
+    <header className="computer-toolbar glass-toolbar" data-window-drag-region>
       {onBack && <button type="button" className="computer-icon-button" aria-label={t('common.back')} title={t('common.back')} onClick={onBack}><ChevronLeft size={16} /></button>}
       <div className="computer-avatar" aria-hidden="true">{Array.from(botName).slice(0, 1).join('') || 'B'}</div>
       <div className="computer-heading">

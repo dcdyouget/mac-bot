@@ -63,7 +63,7 @@ export function WorkbenchPage({ state, onOpenChat, onTrace, onMention, onRefresh
   const done = data?.done_today ?? []
 
   return <section className="desktop-page workbench-page">
-    <header className="desktop-page-toolbar glass-toolbar"><div className="desktop-page-title"><Workflow size={17} />{t('workbench.title')}</div><div className="workbench-toolbar-controls">
+    <header className="desktop-page-toolbar glass-toolbar" data-window-drag-region><div className="desktop-page-title"><Workflow size={17} />{t('workbench.title')}</div><div className="workbench-toolbar-controls">
       <div className="segmented-control" role="tablist" aria-label={t('workbench.title')}>
         <button className={view === 'by_bot' ? 'selected' : ''} onClick={() => setView('by_bot')}>{t('workbench.view.by_bot')}</button>
         <button className={view === 'by_group' ? 'selected' : ''} onClick={() => setView('by_group')}>{t('workbench.view.by_group')}</button>
