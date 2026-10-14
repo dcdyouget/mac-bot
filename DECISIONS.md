@@ -38,6 +38,7 @@
 - [2026-10-14] `server-mac` 管理页不再使用浏览器 HTTP Basic Auth，改用自有登录表单和 `HttpOnly`、`SameSite=Strict` 的进程内 session cookie；管理密码继续只保存 Argon2id 哈希，不调用 macOS Keychain，服务重启、退出登录或改密后 session 失效。
 - [2026-10-14] Provider API key 改由 Mac Bot 使用 AES-256-GCM 保存在 `data/provider-secrets/`，不调用 macOS Keychain；旧 Keychain 凭据不自动迁移。首次连接若没有可用默认模型，客户端直接进入「设置 → 模型与服务商」；Codex 与 OpenCode 属于客户端/编排器，不作为 provider preset。
 - [2026-10-14] Bot 是长期身份，会话分身以 `(bot_id, chat_id)` 唯一确定：普通 Bot 私聊绑定 `Bot.dm_chat_id`，群分身绑定 `Project.chat_id`，主 Bot 绑定 `chat_main`。`Assignment.origin_chat_id` 只保存不可变执行/发送作用域；完成与阻塞结果由服务端单独解析回传会话。`send_msg` 的模型参数不能覆盖规范目标，跨群和其他 Bot 的用户私聊一律拒绝。
+- [2026-10-14] 主 Bot 给普通 Bot 派活必须先创建或复用项目群，禁止无项目私派；群内只展示派活、开工确认、用户决策、收到答案、完成或阻塞这些产品节点，中间过程只进运行轨迹。完成或阻塞后，服务端在主 Bot 私聊中以 `quote` 引用原请求，并用 `project_card` 提供群跳转和验收入口。
 - [2026-10-14] 主 Bot 默认名为「秘书长」；仅将仍使用旧默认名「总管」的存量主 Bot 安全迁移，自定义名称不覆盖。主 Bot 只保留消息、澄清、成员发现、委派、项目编排和状态跟进工具；私聊可启动隔离的只读 subagent，具体执行必须交给普通 Bot。
 - [2026-10-14] 群聊消息区顶部不再显示公告条；公告仍保留在群信息右面板中，协议和历史数据不删除。
 - [2026-10-12] “已加载技能”只在服务端成功将技能正文加入 Bot 模型上下文后显示；原用户消息用可选 `loaded_skills` 记录结果并通过 `message.updated` 持久更新，`delivery.read` 不代表技能加载。

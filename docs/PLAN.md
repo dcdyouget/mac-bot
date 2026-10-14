@@ -238,10 +238,10 @@ send_msg(
 | intent | 用途 | 系统做什么 | 之后 run 怎么走 |
 |--------|------|-----------|----------------|
 | `ack` | 开工后的第一步：一句话说明收到、打算怎么做（L0 规则要求） | 发消息 | 继续 |
-| `progress` | 阶段进展，每个任务最多 3 条 | 发消息 | 继续 |
+| `progress` | 内部阶段进展，不进入群消息流；只写运行轨迹 | 不发群消息 | 继续 |
 | `decision` | 需要别人决策 | 发消息；有选项时生成 Question；@用户 → `waiting_user` 并推送；@Bot → 那个 Bot 收到一个回答问题的任务，本任务 `waiting_bot` | 挂起，回复到达后恢复 |
-| `done` | 完成 | 发完成消息；产物登记到公告；状态 `done`；@ 到的 Bot 收到新任务（交接）；@主 Bot 时唤醒主 Bot 去汇总并提醒用户验收 | 结束 |
-| `blocked` | 卡住 | 发卡住消息；状态 `blocked`；总是唤醒主 Bot 跟进；@用户时推送；@Bot 时那个 Bot 收到一个帮忙的任务 | 挂起 |
+| `done` | 完成 | 发完成消息；产物登记到公告；状态 `done`；@ 到的普通 Bot 收到新任务（交接）；@主 Bot 时由系统在主 Bot 私聊引用原请求并附群卡片提醒用户验收，不再创建一次汇总 assignment | 结束 |
+| `blocked` | 卡住 | 发卡住消息；状态 `blocked`；通知主 Bot 跟进但不创建重复的总结 assignment；@用户时推送；@普通 Bot 时那个 Bot 收到一个帮忙的任务 | 挂起 |
 
 **@ 的规则**：@ 某个 Bot 就是让它行动。系统为它在这个会话里创建任务，指令是 `instruction`，没有就用整条消息。如果它在这个群里已经有进行中或挂起的任务，这条消息就作为插话或回复送进去。可以同时 @ 多个 Bot。@主 Bot 会唤醒它的协调流程。@用户只是推送提醒。
 
@@ -251,9 +251,9 @@ send_msg(
 
 #### 5.3.3 任务的生命周期
 
-1. **派发**：用户 @、其他 Bot 在 `send_msg` 里 @，或者主 Bot `assign` / `delegate` → 创建 assignment。
+1. **派发**：用户 @、其他 Bot 在 `send_msg` 里 @，或者主 Bot在创建/复用项目群后 `assign` → 创建 assignment。主 Bot 不允许向普通 Bot 做无项目私派。
 2. **排队或开工**：Scheduler 判断是否有并发名额，有就 `working` 并开始 durable run，没有就 `queued` 并记录原因。
-3. **干活**：在（Bot，群）的执行线程里运行（上下文见 5.5）。先 `send_msg(ack)`，然后按需调用工具和子代理，阶段节点 `progress`，需要决策时 `decision` 并挂起。
+3. **干活**：在（Bot，群）的执行线程里运行（上下文见 5.5）。先 `send_msg(ack)` 确认开工；中间过程只进运行轨迹，不发群消息；需要决策时在群里 @用户发送 `decision` 并挂起，收到答案后再发一条 `ack` 确认继续。
 4. **完成**：`send_msg(done, artifacts, mentions: [下一个 Bot])` → 交接（回到第 1 步）。
 5. **卡住**：`send_msg(blocked)` → 主 Bot 跟进：重试、换人或问用户。
 6. **待验收**：流程中最后一个 Bot 在 `done` 里 @主 Bot。主 Bot **不检查产物内容**，只按公告里的产物清单汇总，把群改为 `review`，在主 Bot 私聊里发待验收卡片并推送。
@@ -274,10 +274,10 @@ send_msg(
 
 #### 5.3.5 主 Bot
 
-- **只协调，不干活**：没有文件写入、bash、浏览器、技能、网页、记忆或检索工具。在群里同样只通过 `send_msg` 说话（开场、转派、待验收、总结）；和用户的私聊是对话模式。phase=`coordinate`，**不占任务并发名额**。私聊中可启动隔离的只读 `subagent` 做拆解和分析，但真正执行必须 `delegate` / `assign` 给普通 Bot。
+- **只协调，不干活**：没有文件写入、bash、浏览器、技能、网页、记忆或检索工具。在群里同样只通过 `send_msg` 说话（开场、转派、待验收、总结）；和用户的私聊是对话模式。phase=`coordinate`，**不占任务并发名额**。私聊中可启动隔离的只读 `subagent` 做拆解和分析，但真正执行必须先创建或复用项目群，再 `assign` 给普通 Bot；禁止无项目私派。
 - **工具**：
   - `list_bots`、`create_project(name, members, announcement)`（announcement 是群信息里的公告初稿：这件事要做什么、截止时间、谁负责什么，自由书写）
-  - `assign(project, bot, instruction)`、`delegate(bot, instruction)`（小事不建群，结果回到主 Bot 私聊）
+  - `assign(project, bot, instruction)`；兼容入口 `delegate(bot, instruction)` 必须由服务端创建或复用项目群后转成群内 assignment，不能产生普通 Bot 私聊任务
   - `project_status(project)`
   - `request_review(project, summary)`、`finish_project(project, summary)`（只能在用户确认之后调用）
   - `propose_bot(name, label, description)`（必须经过用户同意）
@@ -292,7 +292,7 @@ send_msg(
   - 某个任务 2 小时没有进展。
 - **普通 Bot 转交给主 Bot**：用户在和普通 Bot 的私聊里提出一件需要别人配合的事时，这个 Bot 用 `send_msg(to: {bot: 主 Bot}, mentions: ["main"])` 把事情转给主 Bot，并在私聊里告诉用户「已交给秘书长拉群处理」；之后由主 Bot 建群。
 - **提议新建 Bot**：`propose_bot` 会在主 Bot 私聊里生成一个提问卡片（「要不要新建『测试』Bot？」）。用户选「新建」后，服务端创建这个 Bot，主 Bot 继续。
-- **建群规则**：满足任一条件就建群：需要其他 Bot、要跨多次对话、有需要沉淀的产出、用户要求建群。小事用 `delegate`；闲聊和知识问答直接回答。设置 `main_bot.auto_create_project=false` 时，建群前先问用户。用户说「不用建群」时，解散群，事情回到私聊。
+- **建群规则**：只要主 Bot 要把工作交给普通 Bot，就必须创建或复用项目群；闲聊和主 Bot 能直接回答的纯知识问答留在私聊。群内派活消息写清任务、要求文档或附件位置并 @执行 Bot；同一事项后续复用原群，同一个 Bot 在同一群里只有一个分身。设置 `main_bot.auto_create_project=false` 时，建群前先问用户；用户拒绝建群时，主 Bot 不得私派普通 Bot。
 
 #### 5.3.6 并发调度
 
