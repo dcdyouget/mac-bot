@@ -1541,8 +1541,23 @@ impl ComposedBackend {
                 })
             })
             .and_then(|bot| bot.get("id").and_then(Value::as_str));
-        let bot_id = if chat_bot.is_some() && requested_bot == "main" {
-            chat_bot.unwrap_or("main")
+        // A DM is an incarnation of exactly one Bot. Mentions can enqueue
+        // work for another Bot, but must not replace the Bot that answers in
+        // this conversation; otherwise its streaming reply is persisted in
+        // the wrong private chat. Project chats have no `chat_bot` and still
+        // use the explicitly mentioned Bot (or Main as the default).
+        let bot_id = if chat_id == "chat_main" {
+            snapshot
+                .get("bots")
+                .and_then(Value::as_object)
+                .and_then(|bots| {
+                    bots.values()
+                        .find(|bot| bot.get("is_main").and_then(Value::as_bool) == Some(true))
+                })
+                .and_then(|bot| bot.get("id").and_then(Value::as_str))
+                .unwrap_or("main")
+        } else if let Some(chat_bot) = chat_bot {
+            chat_bot
         } else if requested_bot == "main" {
             snapshot
                 .get("bots")
@@ -9256,6 +9271,134 @@ mod persistence_tests {
                 && operation["params"]["client_request_id"] == "locale-retry"
                 && operation["params"]["client_locale"] == "es-MX"
         }));
+    }
+
+    #[tokio::test]
+    async fn mentioning_worker_in_main_dm_does_not_change_private_reply_identity() {
+        let home = tempdir().unwrap();
+        let path = home.path().to_path_buf();
+        let gateway = Gateway::new(GatewayConfig {
+            home: path.clone(),
+            ..Default::default()
+        });
+        let inner = Arc::new(ProductionBackend::open(&path).unwrap());
+        configure_recovery_model(&inner, &gateway.state, "private-route").await;
+        let mut settings = inner
+            .store
+            .read_snapshot::<Value>("data/settings.json")
+            .unwrap()
+            .unwrap();
+        settings["models"]["main"] = settings["models"]["bot_default"].clone();
+        inner
+            .store
+            .write_snapshot("data/settings.json", &settings)
+            .unwrap();
+
+        let worker = inner
+            .call(
+                "bot.create",
+                json!({"name":"private route worker"}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        let peer = inner
+            .call(
+                "bot.create",
+                json!({"name":"private route peer"}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        let worker_id = worker["bot"]["id"].as_str().unwrap();
+        let worker_dm = worker["bot"]["dm_chat_id"].as_str().unwrap();
+        let peer_id = peer["bot"]["id"].as_str().unwrap();
+        let params = json!({
+            "chat_id":"chat_main",
+            "text":"Keep the private reply in the Main Bot conversation.",
+            "mentions":[{"kind":"bot","bot_id":worker_id}],
+            "client_request_id":"private-route-main-mention"
+        });
+        let result = inner
+            .call("chat.send", params.clone(), &gateway.state)
+            .await
+            .unwrap();
+        let routed_assignment = result["message"]["delivery"][0]["assignment_id"]
+            .as_str()
+            .expect("mention still creates a Bot assignment");
+        let assignment = inner
+            .call(
+                "assignment.get",
+                json!({"assignment_id":routed_assignment}),
+                &gateway.state,
+            )
+            .await
+            .unwrap()["assignment"]
+            .clone();
+        assert_eq!(assignment["bot_id"], worker_id);
+        assert_eq!(assignment["origin_chat_id"], worker_dm);
+
+        let composed = ComposedBackend::open(inner.clone(), gateway.state.clone(), path).unwrap();
+        wait_for_startup_recovery(&composed).await;
+        let request = composed.request_for_chat(&params, &result).await.unwrap();
+        assert_eq!(request.chat_id, "chat_main");
+        assert_eq!(request.bot_id, "main");
+        assert_eq!(request.assignment_id, None);
+        assert!(request.private);
+
+        // Even if a private user message contains another Bot mention, the
+        // private conversation remains bound to its owning Bot incarnation.
+        let peer_mention_params = json!({
+            "chat_id":worker_dm,
+            "text":"Keep the worker DM reply with its owning Bot.",
+            "mentions":[{"kind":"bot","bot_id":peer_id}]
+        });
+        let peer_mention_result = json!({"message":{"id":"synthetic-worker-dm-message"}});
+        let worker_request = composed
+            .request_for_chat(&peer_mention_params, &peer_mention_result)
+            .await
+            .unwrap();
+        assert_eq!(worker_request.chat_id, worker_dm);
+        assert_eq!(worker_request.bot_id, worker_id);
+        assert!(worker_request.private);
+
+        let project = inner
+            .call(
+                "project.create",
+                json!({
+                    "name":"private route project",
+                    "goal":"verify group-scoped Bot routing",
+                    "member_bot_ids":[worker_id]
+                }),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        let group_chat = project["chat"]["id"].as_str().unwrap();
+        let group_params = json!({
+            "chat_id":group_chat,
+            "text":"Keep a group assignment in its bound group.",
+            "mentions":[{"kind":"bot","bot_id":worker_id}],
+            "client_request_id":"private-route-group-mention"
+        });
+        let group_result = inner
+            .call("chat.send", group_params.clone(), &gateway.state)
+            .await
+            .unwrap();
+        let group_assignment_id = group_result["message"]["delivery"][0]["assignment_id"]
+            .as_str()
+            .unwrap();
+        let group_request = composed
+            .request_for_chat(&group_params, &group_result)
+            .await
+            .unwrap();
+        assert_eq!(group_request.chat_id, group_chat);
+        assert_eq!(group_request.bot_id, worker_id);
+        assert_eq!(
+            group_request.assignment_id.as_deref(),
+            Some(group_assignment_id)
+        );
+        assert!(!group_request.private);
     }
 
     fn private_run_id(message_id: &str) -> String {

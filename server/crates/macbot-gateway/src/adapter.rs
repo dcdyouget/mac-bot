@@ -7,6 +7,8 @@
 //! operation JSONL is synced, then the global event log is synced, then the
 //! event is published to connected clients.
 
+mod proposal;
+
 use crate::{
     features::FeatureService, now, rpc_error, GatewayState, RpcBackend, RpcError, RpcResult,
 };
@@ -5173,6 +5175,10 @@ impl ProductionBackend {
                     details: None,
                 });
             }
+            if proposal_state == "approved" {
+                self.ensure_proposal_completion_message(state, question_id, &proposal)
+                    .await?;
+            }
             return Ok(result);
         }
         if proposal_state == "failed" {
@@ -5306,6 +5312,8 @@ impl ProductionBackend {
                 .await?;
             return Err(error);
         }
+        self.ensure_proposal_completion_message(state, question_id, &proposal)
+            .await?;
         Ok(result)
     }
 

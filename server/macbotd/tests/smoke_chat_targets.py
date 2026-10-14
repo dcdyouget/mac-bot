@@ -259,6 +259,26 @@ class FakeProviderHandler(BaseHTTPRequestHandler):
             with STATE.lock:
                 STATE.finished.add(marker)
             return
+        elif marker == scenario.get("private_marker"):
+            tool_names = {
+                tool.get("function", {}).get("name")
+                for tool in body.get("tools", [])
+                if isinstance(tool, dict)
+            }
+            if "propose_bot" in tool_names:
+                self._text("private route smoke response")
+                with STATE.lock:
+                    STATE.finished.add(marker)
+                return
+            if not calls:
+                args = {"intent": "done", "text": "worker private task completed", "mentions": []}
+                STATE.mark_call(marker, args)
+                self._tool("send_msg", args, call_number)
+                return
+            self._text("worker private assignment delivered")
+            with STATE.lock:
+                STATE.finished.add(marker)
+            return
         self._text("chat target smoke complete")
 
 
@@ -384,6 +404,7 @@ def acceptance(args: argparse.Namespace, provider_url: str) -> None:
     cross_chat = cross["chat"]["id"]
     STATE.scenario = {
         "wrong_marker": f"CHAT_TARGET_WRONG_{suffix}",
+        "private_marker": f"CHAT_PRIVATE_ROUTE_{suffix}",
         "dm_marker": f"CHAT_TARGET_DM_{suffix}",
         "explicit_dm_marker": f"CHAT_TARGET_EXPLICIT_DM_{suffix}",
         "cross_marker": f"CHAT_TARGET_CROSS_{suffix}",
@@ -398,6 +419,64 @@ def acceptance(args: argparse.Namespace, provider_url: str) -> None:
         "explicit_dm_text": f"VALID_EXPLICIT_DM_{suffix}",
         "cross_text": f"VALID_CROSS_CHAT_{suffix}",
     }
+
+    # A user may mention a worker in the Main Bot DM. That mention creates a
+    # worker assignment bound to the worker DM, but must not change the Bot
+    # identity of the response in chat_main.
+    private_message = rpc(base, password, "chat.send", {
+        "chat_id": "chat_main",
+        "text": STATE.scenario["private_marker"],
+        "mentions": [{"kind": "bot", "bot_id": worker["id"]}],
+        "client_request_id": f"chat-targets-private-route-{suffix}",
+    })["message"]
+    private_assignment_id = private_message["delivery"][0]["assignment_id"]
+    private_assignment = rpc(base, password, "assignment.get", {"assignment_id": private_assignment_id})["assignment"]
+    assert private_assignment["bot_id"] == worker["id"], private_assignment
+    assert private_assignment["origin_chat_id"] == worker["dm_chat_id"], private_assignment
+
+    def private_route_runs() -> list[dict[str, Any]]:
+        matches = []
+        for request_path in (args.home / "data" / "run_requests").glob("run_*.json"):
+            try:
+                request = json.loads(request_path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                continue
+            if request.get("source_message_id") == private_message["id"] and request.get("chat_id") == "chat_main":
+                matches.append(request)
+        return matches
+
+    wait_until(lambda: len(private_route_runs()) == 1 and any(
+        message.get("sender", {}).get("kind") == "bot"
+        and message.get("sender", {}).get("bot_id") == "main"
+        and message.get("seq", 0) > private_message["seq"]
+        and "private route smoke response" in json.dumps(message, ensure_ascii=False)
+        for message in history(base, password, "chat_main")
+    ), "Main Bot private reply identity", 45)
+    private_run = private_route_runs()[0]
+    assert private_run.get("bot_id") == "main", private_run
+    assert private_run.get("assignment_id") in (None, ""), private_run
+    main_messages_after_private = [
+        message for message in history(base, password, "chat_main")
+        if message.get("seq", 0) > private_message["seq"]
+        and message.get("sender", {}).get("kind") == "bot"
+    ]
+    assert main_messages_after_private, main_messages_after_private
+    assert all(message.get("sender", {}).get("bot_id") == "main" for message in main_messages_after_private), main_messages_after_private
+
+    wait_until(lambda: any(
+        message.get("sender", {}).get("kind") == "bot"
+        and message.get("sender", {}).get("bot_id") == worker["id"]
+        and "worker private task completed" in json.dumps(message, ensure_ascii=False)
+        for message in history(base, password, worker["dm_chat_id"])
+    ) and STATE.scenario["private_marker"] in STATE.snapshot()["finished"], "mentioned worker private assignment reply", 45)
+    if args.private_route_only:
+        print(json.dumps({
+            "ok": True,
+            "scenario": "private-chat-bot-routing",
+            "main_bot_id": private_run.get("bot_id"),
+            "worker_assignment_chat": private_assignment.get("origin_chat_id"),
+        }, ensure_ascii=False))
+        return
 
     before_assignment_ids = {item["id"] for item in assignments(base, password, target_id)}
     # A group follow-up has no explicit mention and therefore exercises the
@@ -474,6 +553,7 @@ def parser() -> argparse.ArgumentParser:
     result.add_argument("--url", help="override daemon URL; defaults to http://127.0.0.1:<port>")
     result.add_argument("--password", default="dev")
     result.add_argument("--browser-bin", default=None)
+    result.add_argument("--private-route-only", action="store_true", help="run only the private Bot identity and DM assignment scenario")
     return result
 
 
