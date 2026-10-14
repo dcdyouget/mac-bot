@@ -1653,6 +1653,14 @@ impl Inner {
             "assignment.create" | "assign" => {
                 let mut request: AssignmentRequest = serde_json::from_value(p)
                     .map_err(|e| OrchestratorError::Invalid(e.to_string()))?;
+                if request.from == "main"
+                    && request.bot_id != "main"
+                    && request.project_id.is_none()
+                {
+                    return Err(OrchestratorError::Forbidden(
+                        "main Bot work assignments require a project group".into(),
+                    ));
+                }
                 request.origin_chat_id = match request.project_id.as_deref() {
                     Some(project_id) => self.project(project_id)?.chat_id.clone(),
                     None => "chat_main".into(),
@@ -1666,6 +1674,11 @@ impl Inner {
                     .get("project_id")
                     .and_then(Value::as_str)
                     .map(str::to_owned);
+                if project_id.is_none() {
+                    return Err(OrchestratorError::Forbidden(
+                        "main Bot delegation requires a project group".into(),
+                    ));
+                }
                 let origin_chat_id = match project_id.as_deref() {
                     Some(project_id) => self.project(project_id)?.chat_id.clone(),
                     None => "chat_main".into(),
@@ -1794,12 +1807,22 @@ impl Inner {
                     .get("_send_scope_chat_id")
                     .and_then(Value::as_str)
                     .map(str::to_owned);
-                let message = self.send_msg_with_scoped_options(
+                let message_id_override = p
+                    .get("message_id")
+                    .and_then(Value::as_str)
+                    .map(str::to_owned);
+                let assignment_root_message_id = p
+                    .get("_assignment_root_message_id")
+                    .and_then(Value::as_str)
+                    .map(str::to_owned);
+                let message = self.send_msg_with_scoped_options_internal(
                     serde_json::from_value(p)
                         .map_err(|e| OrchestratorError::Invalid(e.to_string()))?,
                     multi,
                     allow_free_text,
                     send_scope_chat_id.as_deref(),
+                    message_id_override.as_deref(),
+                    assignment_root_message_id.as_deref(),
                 )?;
                 let mut value = serde_json::to_value(message)
                     .map_err(|e| OrchestratorError::Invalid(e.to_string()))?;
@@ -3321,6 +3344,25 @@ impl Inner {
         allow_free_text: bool,
         send_scope_chat_id: Option<&str>,
     ) -> Result<Message> {
+        self.send_msg_with_scoped_options_internal(
+            req,
+            multi,
+            allow_free_text,
+            send_scope_chat_id,
+            None,
+            None,
+        )
+    }
+
+    fn send_msg_with_scoped_options_internal(
+        &mut self,
+        req: SendMessageRequest,
+        multi: bool,
+        allow_free_text: bool,
+        send_scope_chat_id: Option<&str>,
+        message_id_override: Option<&str>,
+        assignment_root_message_id: Option<&str>,
+    ) -> Result<Message> {
         self.validate_send_msg_target(&req.chat_id, &req.bot_id)?;
         if req.assignment_id.is_some() {
             self.validate_send_msg_destination(
@@ -3416,7 +3458,21 @@ impl Inner {
                 "an assignment may report at most three progress messages".into(),
             ));
         }
-        let msg_id = new_id();
+        let msg_id = if let Some(message_id) = message_id_override {
+            if message_id.trim().is_empty() || message_id.len() > 200 {
+                return Err(OrchestratorError::Invalid(
+                    "message_id must contain 1 to 200 bytes".into(),
+                ));
+            }
+            if self.messages.contains_key(message_id) {
+                return Err(OrchestratorError::Conflict(format!(
+                    "message_id {message_id} already exists"
+                )));
+            }
+            message_id.to_owned()
+        } else {
+            new_id()
+        };
         let project_id = req
             .assignment_id
             .as_ref()
@@ -3571,13 +3627,14 @@ impl Inner {
             .as_ref()
             .and_then(|id| self.assignments.get(id).map(|a| a.loop_hops))
             .unwrap_or(0);
-        let root = req
-            .assignment_id
-            .as_ref()
-            .and_then(|id| {
-                self.assignments
-                    .get(id)
-                    .and_then(|a| a.root_message_id.clone())
+        let root = assignment_root_message_id
+            .map(str::to_owned)
+            .or_else(|| {
+                req.assignment_id.as_ref().and_then(|id| {
+                    self.assignments
+                        .get(id)
+                        .and_then(|a| a.root_message_id.clone())
+                })
             })
             .unwrap_or_else(|| msg_id.clone());
         if req.intent == "blocked" {
@@ -6753,7 +6810,7 @@ mod tests {
     }
 
     #[test]
-    fn rpc_assignment_routes_project_work_to_project_chat_and_standalone_to_worker_dm() {
+    fn rpc_assignment_routes_project_work_to_project_chat_and_rejects_private_delegation() {
         let o = Orchestrator::default();
         let worker = bot(&o, "路由 worker");
         let rt = tokio::runtime::Runtime::new().unwrap();
@@ -6786,17 +6843,11 @@ mod tests {
             .unwrap();
         assert_eq!(assigned["origin_chat_id"], project_chat);
 
-        let delegated = rt
-            .block_on(o.rpc(
-                "delegate",
-                json!({
-                    "origin_chat_id": "old-project-group",
-                    "bot_id": worker,
-                    "instruction": "无项目的小事"
-                }),
-            ))
-            .unwrap();
-        assert_eq!(delegated["origin_chat_id"], dm_chat(&o, &worker));
+        let delegated = rt.block_on(o.rpc(
+            "delegate",
+            json!({"origin_chat_id":"old-project-group","bot_id":worker,"instruction":"无项目的小事"}),
+        ));
+        assert!(matches!(delegated, Err(OrchestratorError::Forbidden(_))));
     }
 
     #[test]
@@ -7105,29 +7156,11 @@ mod tests {
         assert!(o.resolve_send_scope(None, &worker, "chat_main").is_err());
 
         let rt = tokio::runtime::Runtime::new().unwrap();
-        let delegated = rt
-            .block_on(o.rpc(
-                "delegate",
-                json!({"bot_id":worker,"instruction":"report back"}),
-            ))
-            .unwrap();
-        let assignment = &delegated;
-        let worker_dm = dm_chat(&o, &worker);
-        assert_eq!(assignment["origin_chat_id"], worker_dm);
-        assert_eq!(
-            o.resolve_send_scope(
-                Some(assignment["id"].as_str().unwrap()),
-                &worker,
-                assignment["origin_chat_id"].as_str().unwrap()
-            )
-            .unwrap(),
-            worker_dm
-        );
-        assert_eq!(
-            o.resolve_assignment_return_chat(assignment["id"].as_str().unwrap())
-                .unwrap(),
-            "chat_main"
-        );
+        let delegated = rt.block_on(o.rpc(
+            "delegate",
+            json!({"bot_id":worker,"instruction":"report back"}),
+        ));
+        assert!(matches!(delegated, Err(OrchestratorError::Forbidden(_))));
     }
 
     #[test]

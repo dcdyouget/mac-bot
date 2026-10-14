@@ -137,6 +137,7 @@ pub struct ExecutionOutcome {
 
 struct ApprovedFollowupContext<'a> {
     request: &'a ExecutionRequest,
+    streaming_message_id: Option<&'a str>,
     job: &'a Job,
     turn: usize,
     messages: &'a mut Vec<Value>,
@@ -1254,6 +1255,7 @@ impl ExecutionEngine {
                     approved_followups,
                     ApprovedFollowupContext {
                         request: &request,
+                        streaming_message_id: streaming_message_id.as_deref(),
                         job: &job,
                         turn: start_turn,
                         messages: &mut messages,
@@ -1693,6 +1695,15 @@ impl ExecutionEngine {
                             messages.push(tool_message(&call.call_id, &result));
                             continue;
                         }
+                        if !request.private
+                            && request.assignment_id.is_some()
+                            && intent == "progress"
+                        {
+                            let error = "group workers may publish only ack, decision, done, or blocked messages";
+                            messages.push(tool_message(&call.call_id, &ToolResult::error(error)));
+                            self.trace(&request, "tool.end", json!({"call_id":call.call_id,"is_error":true,"preview":error,"details":{},"truncated":false,"full_output":null,"duration_ms":0})).await?;
+                            continue;
+                        }
                         if call
                             .args
                             .get("chat_id")
@@ -1715,7 +1726,26 @@ impl ExecutionEngine {
                         let message_id = call.args["message_id"]
                             .as_str()
                             .map(str::to_owned)
-                            .unwrap_or_else(|| format!("msg_{}", safe_id(&call.call_id)));
+                            .unwrap_or_else(|| {
+                                if matches!(intent, "done" | "blocked")
+                                    && request.private
+                                    && request.assignment_id.is_none()
+                                {
+                                    streaming_message_id.clone().unwrap_or_else(|| {
+                                        format!(
+                                            "msg_{}_{}",
+                                            safe_id(&request.run_id),
+                                            safe_id(&call.call_id)
+                                        )
+                                    })
+                                } else {
+                                    format!(
+                                        "msg_{}_{}",
+                                        safe_id(&request.run_id),
+                                        safe_id(&call.call_id)
+                                    )
+                                }
+                            });
                         let mut payload = call.args.clone();
                         if let Some(object) = payload.as_object_mut() {
                             object.insert("message_id".into(), json!(message_id.clone()));
@@ -1728,6 +1758,7 @@ impl ExecutionEngine {
                             );
                             object.insert("intent".into(), json!(intent));
                         }
+                        ensure_group_message_recipients(&mut payload, &request, intent);
                         if let Err(error) = self.sink.validate_send_msg_target(&payload).await {
                             messages.push(tool_message(
                                 &call.call_id,
@@ -2299,6 +2330,7 @@ impl ExecutionEngine {
     ) -> Result<Option<ExecutionOutcome>, ExecutionError> {
         let ApprovedFollowupContext {
             request,
+            streaming_message_id,
             job,
             turn,
             messages,
@@ -2437,6 +2469,12 @@ impl ExecutionEngine {
                     ));
                     continue;
                 }
+                if !request.private && request.assignment_id.is_some() && intent == "progress" {
+                    let error =
+                        "group workers may publish only ack, decision, done, or blocked messages";
+                    messages.push(tool_message(&call.call_id, &ToolResult::error(error)));
+                    continue;
+                }
                 if call
                     .args
                     .get("chat_id")
@@ -2459,7 +2497,26 @@ impl ExecutionEngine {
                 let message_id = call.args["message_id"]
                     .as_str()
                     .map(str::to_owned)
-                    .unwrap_or_else(|| format!("msg_{}", safe_id(&call.call_id)));
+                    .unwrap_or_else(|| {
+                        if matches!(intent, "done" | "blocked")
+                            && request.private
+                            && request.assignment_id.is_none()
+                        {
+                            streaming_message_id.map(str::to_owned).unwrap_or_else(|| {
+                                format!(
+                                    "msg_{}_{}",
+                                    safe_id(&request.run_id),
+                                    safe_id(&call.call_id)
+                                )
+                            })
+                        } else {
+                            format!(
+                                "msg_{}_{}",
+                                safe_id(&request.run_id),
+                                safe_id(&call.call_id)
+                            )
+                        }
+                    });
                 let mut payload = call.args.clone();
                 if let Some(object) = payload.as_object_mut() {
                     object.insert("message_id".into(), json!(message_id.clone()));
@@ -2469,6 +2526,7 @@ impl ExecutionEngine {
                     object.insert("assignment_id".into(), json!(request.assignment_id.clone()));
                     object.insert("intent".into(), json!(intent));
                 }
+                ensure_group_message_recipients(&mut payload, request, intent);
                 if let Err(error) = self.sink.validate_send_msg_target(&payload).await {
                     messages.push(tool_message(
                         &call.call_id,
@@ -3004,7 +3062,7 @@ impl ExecutionEngine {
                 "deleted": false,
                 "reply_to": null,
                 "thread_count": 0,
-                "mentions": [],
+                "mentions": if request.project_id.is_some() && request.assignment_id.is_some() { json!([{"kind":"user"}]) } else { json!([]) },
                 "blocks": [{"type":"question","question_id":question_id}],
                 "fallback_text": question,
                 "intent": null,
@@ -3695,6 +3753,41 @@ fn send_msg_intent(args: &Value) -> Result<&str, String> {
         Ok(intent)
     } else {
         Err("send_msg.intent must be one of ack, progress, decision, done, blocked".into())
+    }
+}
+
+fn ensure_group_message_recipients(payload: &mut Value, request: &ExecutionRequest, intent: &str) {
+    if request.private
+        || request.bot_id == "main"
+        || request.assignment_id.is_none()
+        || request.project_id.is_none()
+        || !matches!(intent, "decision" | "done" | "blocked")
+    {
+        return;
+    }
+    let Some(object) = payload.as_object_mut() else {
+        return;
+    };
+    let mentions = object.entry("mentions").or_insert_with(|| json!([]));
+    if !mentions.is_array() {
+        *mentions = json!([]);
+    }
+    let mentions = mentions.as_array_mut().expect("array was normalized");
+    if matches!(intent, "done" | "blocked")
+        && !mentions.iter().any(|mention| {
+            mention
+                .as_str()
+                .is_some_and(|id| matches!(id, "main" | "bot_main"))
+                || mention.get("kind").and_then(Value::as_str) == Some("main")
+        })
+    {
+        mentions.push(json!("main"));
+    }
+    if !mentions.iter().any(|mention| {
+        mention.as_str() == Some("user")
+            || mention.get("kind").and_then(Value::as_str) == Some("user")
+    }) {
+        mentions.push(json!("user"));
     }
 }
 
@@ -6133,7 +6226,8 @@ mod tests {
             std::fs::read_to_string(dir.path().join("data/traces/assignment_done.jsonl")).unwrap();
         assert!(trace.lines().any(|line| {
             let value: Value = serde_json::from_str(line).unwrap();
-            value["type"] == "send_msg" && value["data"]["message_id"] == "canonical_msg_done_1"
+            value["type"] == "send_msg"
+                && value["data"]["message_id"] == "canonical_msg_run_mock_done_1"
         }));
         assert!(!trace.lines().any(|line| {
             let value: Value = serde_json::from_str(line).unwrap();
@@ -6224,7 +6318,7 @@ mod tests {
         assert!(jobs.iter().any(|job| {
             job["checkpoint"]["waiting_reason"] == "decision"
                 && job["checkpoint"]["waiting_message"] == true
-                && job["checkpoint"]["waiting_message_id"] == "canonical_msg_decision_1"
+                && job["checkpoint"]["waiting_message_id"] == "canonical_msg_run_mock_decision_1"
         }));
         assert_eq!(
             engine
@@ -6249,11 +6343,13 @@ mod tests {
         assert_eq!(trace.matches("\"type\":\"send_msg\"").count(), 2);
         assert!(trace.lines().any(|line| {
             let value: Value = serde_json::from_str(line).unwrap();
-            value["type"] == "send_msg" && value["data"]["message_id"] == "canonical_msg_decision_1"
+            value["type"] == "send_msg"
+                && value["data"]["message_id"] == "canonical_msg_run_mock_decision_1"
         }));
         assert!(trace.lines().any(|line| {
             let value: Value = serde_json::from_str(line).unwrap();
-            value["type"] == "send_msg" && value["data"]["message_id"] == "canonical_msg_done_2"
+            value["type"] == "send_msg"
+                && value["data"]["message_id"] == "canonical_msg_run_mock_done_2"
         }));
     }
 

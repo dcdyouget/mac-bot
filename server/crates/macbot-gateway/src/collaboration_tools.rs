@@ -12,7 +12,10 @@ use base64::Engine;
 use macbot_browser::{BrowserAction, BrowserError, BrowserMode, SessionConfig};
 use macbot_tools::{Risk, Tool, ToolContext, ToolResult};
 use serde_json::{json, Map, Value};
-use std::sync::Arc;
+use std::{
+    hash::{Hash, Hasher},
+    sync::Arc,
+};
 use tokio::sync::RwLock;
 
 /// Identity injected by the gateway for one model run.
@@ -32,6 +35,17 @@ pub struct CollaborationIdentity {
 #[async_trait]
 pub trait CoordinationRpc: Send + Sync {
     async fn call(&self, method: &str, params: Value) -> Result<Value, String>;
+
+    async fn preflight_model(&self, bot_id: &str) -> Result<String, String> {
+        let result = self
+            .call("model.preflight", json!({"bot_id":bot_id}))
+            .await?;
+        result
+            .get("model")
+            .and_then(Value::as_str)
+            .map(str::to_owned)
+            .ok_or_else(|| "model preflight returned no model reference".to_owned())
+    }
 
     async fn start_run_subagent(&self, run_id: &str, task: &str) -> Result<Value, String> {
         self.call("subagent.start_run", json!({"run_id":run_id,"task":task}))
@@ -141,6 +155,24 @@ impl CoordinationRpc for ProductionCoordinationRpc {
             self.backend.call(method, params, &self.state).await
         };
         result.map_err(|error| error.to_string())
+    }
+
+    async fn preflight_model(&self, bot_id: &str) -> Result<String, String> {
+        if let Some(runtime) = &self.runtime {
+            runtime.preflight_bot_model(bot_id).await
+        } else {
+            let bot = self
+                .backend
+                .orchestrator
+                .rpc("bot.get", json!({"bot_id":bot_id}))
+                .await
+                .map_err(|error| error.to_string())?;
+            bot.pointer("/bot/model")
+                .and_then(Value::as_str)
+                .filter(|model| !model.trim().is_empty())
+                .map(str::to_owned)
+                .ok_or_else(|| format!("Bot {bot_id} has no configured model"))
+        }
     }
 
     async fn start_run_subagent(&self, run_id: &str, task: &str) -> Result<Value, String> {
@@ -780,6 +812,235 @@ impl Tool for CollaborationTool {
 }
 
 impl CollaborationTools {
+    async fn dispatch_to_group(
+        &self,
+        context: &ToolContext,
+        mut args: Map<String, Value>,
+    ) -> Result<Value, String> {
+        if !self.identity.is_main {
+            return Err("only the main Bot can assign work to a worker Bot".into());
+        }
+        let bot_id = args
+            .remove("bot_id")
+            .and_then(|value| value.as_str().map(str::to_owned))
+            .filter(|value| !value.trim().is_empty())
+            .ok_or_else(|| "bot_id is required".to_owned())?;
+        if matches!(bot_id.as_str(), "main" | "bot_main") {
+            return Err("a worker assignment must target an ordinary Bot".into());
+        }
+        let instruction = args
+            .remove("instruction")
+            .and_then(|value| value.as_str().map(str::to_owned))
+            .filter(|value| !value.trim().is_empty())
+            .ok_or_else(|| "instruction is required".to_owned())?;
+        let title = args
+            .remove("title")
+            .and_then(|value| value.as_str().map(str::to_owned))
+            .filter(|value| !value.trim().is_empty())
+            .unwrap_or_else(|| "转交任务".into());
+
+        // Resolve the exact configured provider/model before creating a group
+        // or durable dispatch message. A bad model must not look accepted.
+        let model = self.rpc.preflight_model(&bot_id).await?;
+        let source_id = self.identity.source_message_id.clone();
+        let root_message_id = if let Some(assignment_id) = self.identity.assignment_id.as_deref() {
+            let parent = self
+                .rpc
+                .call("assignment.get", json!({"assignment_id":assignment_id}))
+                .await?;
+            parent
+                .pointer("/assignment/root_message_id")
+                .and_then(Value::as_str)
+                .map(str::to_owned)
+                .or(source_id.clone())
+        } else {
+            source_id.clone()
+        };
+        let request_key = stable_dispatch_key(
+            root_message_id.as_deref().unwrap_or(&context.run_id),
+            &bot_id,
+            &title,
+            &instruction,
+        );
+        let project_id = self.identity.project_id.clone().or_else(|| {
+            args.remove("project_id")
+                .and_then(|value| value.as_str().map(str::to_owned))
+        });
+        let project = if let Some(existing_id) = project_id.as_deref() {
+            let value = self
+                .rpc
+                .call("project.get", json!({"project_id":existing_id}))
+                .await?;
+            let mut project = value
+                .get("project")
+                .cloned()
+                .ok_or_else(|| "project.get returned no project".to_owned())?;
+            let member_count = project
+                .get("members")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .filter(|member| member.get("bot_id").and_then(Value::as_str) == Some(&bot_id))
+                .count();
+            if member_count != 1 {
+                let added = self
+                    .rpc
+                    .call(
+                        "project.add_member",
+                        json!({"project_id":existing_id,"bot_id":bot_id,"role_note":format!("负责：{title}")}),
+                    )
+                    .await?;
+                project = added
+                    .get("project")
+                    .cloned()
+                    .ok_or_else(|| "project.add_member returned no project".to_owned())?;
+            }
+            project
+        } else {
+            let created = self
+                .rpc
+                .call(
+                    "project.create",
+                    json!({
+                        "name":title,
+                        "goal":instruction,
+                        "announcement":format!("派发任务：{title}\n负责人：{bot_id}\n要求：{instruction}"),
+                        "member_bot_ids":[bot_id],
+                        "created_by":"main",
+                        "client_request_id":format!("group-dispatch-project:{request_key}")
+                    }),
+                )
+                .await?;
+            created
+                .get("project")
+                .cloned()
+                .ok_or_else(|| "project.create returned no project".to_owned())?
+        };
+        let project_id = project
+            .get("id")
+            .and_then(Value::as_str)
+            .ok_or_else(|| "project has no id".to_owned())?;
+        let group_chat_id = project
+            .get("chat_id")
+            .and_then(Value::as_str)
+            .ok_or_else(|| "project has no group chat".to_owned())?;
+        let (request_excerpt, attachment_locations) = self
+            .original_request_context(self.identity.chat_id.as_str(), root_message_id.as_deref())
+            .await?;
+        let dispatch_text = format!(
+            "主 Bot 派发任务：{title}\n负责人：@{bot_id}\n要求：\n{instruction}\n\n用户原始请求{}：\n{}\n\n文档/附件位置：\n{}\n项目工作目录：{}",
+            root_message_id.as_deref().map(|id| format!("（消息 {id}）")).unwrap_or_default(),
+            request_excerpt,
+            attachment_locations,
+            project.get("home_path").and_then(Value::as_str).unwrap_or("项目目录未配置")
+        );
+        let message = self
+            .rpc
+            .call(
+                "send_msg",
+                json!({
+                    "bot_id":"main",
+                    "chat_id":group_chat_id,
+                    "assignment_id":self.identity.assignment_id,
+                    "intent":"ack",
+                    "text":dispatch_text,
+                    "mentions":[{"bot":bot_id,"instruction":instruction}],
+                    "artifacts":[],
+                    "options":[],
+                    "projects":[{"project_id":project_id,"note":title}],
+                    "client_request_id":format!("group-dispatch-message:{request_key}"),
+                    "_assignment_root_message_id":root_message_id
+                }),
+            )
+            .await?;
+        let assignment_query = self
+            .rpc
+            .call(
+                "assignment.list",
+                json!({"project_id":project_id,"limit":50}),
+            )
+            .await?;
+        let trigger_id = message
+            .get("id")
+            .or_else(|| message.pointer("/message/id"))
+            .and_then(Value::as_str);
+        let assignment = assignment_query
+            .get("items")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .find(|assignment| {
+                assignment.get("trigger_message_id").and_then(Value::as_str) == trigger_id
+                    && assignment.get("bot_id").and_then(Value::as_str) == Some(&bot_id)
+            })
+            .cloned();
+        Ok(json!({"project":project,"message":message,"assignment":assignment,"model":model}))
+    }
+
+    async fn original_request_context(
+        &self,
+        chat_id: &str,
+        source_id: Option<&str>,
+    ) -> Result<(String, String), String> {
+        let Some(source_id) = source_id else {
+            return Ok((
+                "（当前运行没有原始用户消息 ID）".into(),
+                "无；请检查本轮上下文中的文件位置".into(),
+            ));
+        };
+        let history = self
+            .rpc
+            .call("chat.history", json!({"chat_id":chat_id,"limit":100}))
+            .await?;
+        let original = history
+            .get("messages")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .find(|message| message.get("id").and_then(Value::as_str) == Some(source_id));
+        let Some(original) = original else {
+            return Ok((
+                format!("消息 {source_id} 未能读取；请按 trigger_message_id 查阅"),
+                "请打开原始请求消息查看附件".into(),
+            ));
+        };
+        let excerpt = original
+            .get("fallback_text")
+            .or_else(|| original.get("text"))
+            .and_then(Value::as_str)
+            .unwrap_or("（无文本）")
+            .chars()
+            .take(2_000)
+            .collect::<String>();
+        let mut locations = Vec::new();
+        if let Some(blocks) = original.get("blocks").and_then(Value::as_array) {
+            for block in blocks {
+                let kind = block.get("type").and_then(Value::as_str).unwrap_or("附件");
+                let location = ["path", "path_or_url", "url", "uri", "file_path"]
+                    .iter()
+                    .find_map(|key| block.get(*key).and_then(Value::as_str));
+                let name = ["name", "filename", "title"]
+                    .iter()
+                    .find_map(|key| block.get(*key).and_then(Value::as_str));
+                if let Some(location) = location {
+                    locations.push(format!(
+                        "- {kind}：{}{}",
+                        name.map(|name| format!("{name} — ")).unwrap_or_default(),
+                        location
+                    ));
+                } else if let Some(name) = name {
+                    locations.push(format!("- {kind}：{name}（见消息 {source_id}）"));
+                }
+            }
+        }
+        let locations = if locations.is_empty() {
+            format!("无附件块；原始请求位于消息 {source_id}")
+        } else {
+            locations.join("\n")
+        };
+        Ok((excerpt, locations))
+    }
+
     async fn invoke(&self, name: &str, context: &ToolContext, args: Value) -> ToolResult {
         let args = match object(args) {
             Ok(args) => args,
@@ -840,12 +1101,7 @@ impl CollaborationTools {
                 }
                 self.rpc.call("announcement.update", update).await
             }
-            "assign" => {
-                self.rpc
-                    .call("assignment.create", self.assignment_args(args))
-                    .await
-            }
-            "delegate" => self.rpc.call("delegate", self.delegate_args(args)).await,
+            "assign" | "delegate" => self.dispatch_to_group(context, args).await,
             "project_status" | "get_status" => self.rpc.call("project.status", args.into()).await,
             "request_review" => {
                 let mut args = args;
@@ -938,47 +1194,6 @@ impl CollaborationTools {
             json!({"reason":"takeover","message_id":null}),
         );
         Ok(Value::Object(result))
-    }
-
-    fn assignment_args(&self, mut args: Map<String, Value>) -> Value {
-        args.insert("origin_chat_id".into(), json!(self.identity.chat_id));
-        args.insert(
-            "from".into(),
-            json!(if self.identity.is_main { "main" } else { "bot" }),
-        );
-        if let Some(assignment_id) = &self.identity.assignment_id {
-            args.insert("parent_assignment_id".into(), json!(assignment_id));
-        } else {
-            args.remove("parent_assignment_id");
-        }
-        if let Some(message_id) = &self.identity.source_message_id {
-            args.insert("trigger_message_id".into(), json!(message_id));
-        } else {
-            args.remove("trigger_message_id");
-        }
-        if let Some(project_id) = &self.identity.project_id {
-            // A running project incarnation may create work only within its
-            // own immutable project group, even if the model supplied a
-            // different project_id.
-            args.insert("project_id".into(), json!(project_id));
-        }
-        Value::Object(args)
-    }
-
-    fn delegate_args(&self, mut args: Map<String, Value>) -> Value {
-        args.insert("origin_chat_id".into(), json!(self.identity.chat_id));
-        args.insert("from".into(), json!("main"));
-        if let Some(assignment_id) = &self.identity.assignment_id {
-            args.insert("parent_assignment_id".into(), json!(assignment_id));
-        } else {
-            args.remove("parent_assignment_id");
-        }
-        if let Some(message_id) = &self.identity.source_message_id {
-            args.insert("trigger_message_id".into(), json!(message_id));
-        } else {
-            args.remove("trigger_message_id");
-        }
-        Value::Object(args)
     }
 
     fn notify_args(&self, mut args: Map<String, Value>) -> Value {
@@ -1188,6 +1403,15 @@ fn object(value: Value) -> Result<Map<String, Value>, String> {
         .ok_or_else(|| "tool arguments must be a JSON object".into())
 }
 
+fn stable_dispatch_key(source: &str, bot_id: &str, title: &str, instruction: &str) -> String {
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    source.hash(&mut hasher);
+    bot_id.hash(&mut hasher);
+    title.hash(&mut hasher);
+    instruction.hash(&mut hasher);
+    format!("gd-{:016x}", hasher.finish())
+}
+
 fn require_nonempty_string_array(args: &Map<String, Value>, key: &str) -> Result<(), String> {
     let values = args
         .get(key)
@@ -1217,8 +1441,8 @@ fn description(name: &str) -> &'static str {
         "list_bots" => "List available worker Bots.",
         "create_project" | "project_create" => "Create a project group. Use member_bot_ids with Bot IDs from list_bots and write an announcement draft with the goal, deadline, and responsibilities. After success, send a real opening message in the new project chat with send_msg and mention the first role; the task card alone is not an opening.",
         "update_announcement" => "Update the project announcement with a shared conclusion, requirement change, or deadline change. Use replace to rewrite it or append to add a paragraph; do not put work process in the announcement.",
-        "assign" => "Assign a project task to a worker Bot.",
-        "delegate" => "Delegate a small task to a worker Bot without creating a project.",
+        "assign" => "Assign work to a worker Bot in a project group; reuses the current group or creates one, and posts a durable task message mentioning the worker.",
+        "delegate" => "Assign work to a worker Bot in a project group; this alias also creates or reuses a group and never dispatches privately.",
         "project_status" | "get_status" => "Read project status and announcement.",
         "request_review" => "Move a project to review and notify the user.",
         "finish_project" => "Confirm a project is complete after user approval.",
@@ -1346,6 +1570,139 @@ mod tests {
         }
     }
 
+    #[derive(Default)]
+    struct DispatchRpc(Mutex<Vec<(String, Value)>>);
+
+    #[async_trait]
+    impl CoordinationRpc for DispatchRpc {
+        async fn call(&self, method: &str, params: Value) -> Result<Value, String> {
+            self.0.lock().unwrap().push((method.into(), params.clone()));
+            Ok(match method {
+                "project.create" => json!({"project":{
+                    "id":"project-request-1",
+                    "chat_id":"group-request-1",
+                    "home_path":"/tmp/project-request-1",
+                    "members":[{"bot_id":"main"},{"bot_id":"bot-2"}]
+                }}),
+                "chat.history" => json!({"messages":[{
+                    "id":"user-request-1",
+                    "fallback_text":"请分析这份设计文档",
+                    "blocks":[{"type":"file","name":"design.md","path":"/tmp/input/design.md"}]
+                }]}),
+                "send_msg" => json!({"id":"dispatch-message-1","chat_id":"group-request-1"}),
+                "assignment.list" => json!({"items":[{
+                    "id":"assignment-1",
+                    "project_id":"project-request-1",
+                    "trigger_message_id":"dispatch-message-1",
+                    "root_message_id":"user-request-1",
+                    "bot_id":"bot-2"
+                }]}),
+                other => panic!("unexpected dispatch RPC {other}"),
+            })
+        }
+
+        async fn preflight_model(&self, bot_id: &str) -> Result<String, String> {
+            assert_eq!(bot_id, "bot-2");
+            Ok("provider/model-bot-2".into())
+        }
+    }
+
+    #[tokio::test]
+    async fn main_dispatch_persists_idempotent_group_assignment_message_with_source_context() {
+        let rpc = Arc::new(DispatchRpc::default());
+        let factory = CollaborationTools::new(
+            rpc.clone(),
+            CollaborationIdentity {
+                bot_id: "main".into(),
+                chat_id: "chat_main".into(),
+                source_message_id: Some("user-request-1".into()),
+                is_main: true,
+                private: true,
+                ..Default::default()
+            },
+            None,
+            None,
+        );
+        let context = ToolContext::new("/tmp", "main-run-request-1", "/tmp/runs");
+        let args = json!({
+            "bot_id":"bot-2",
+            "title":"设计文档分析",
+            "instruction":"分析设计并输出风险清单"
+        });
+
+        for _ in 0..2 {
+            let result = factory.invoke("assign", &context, args.clone()).await;
+            assert!(!result.is_error, "{:?}", result.content);
+            assert_eq!(result.details["model"], "provider/model-bot-2");
+            assert_eq!(result.details["assignment"]["id"], "assignment-1");
+        }
+
+        let calls = rpc.0.lock().unwrap();
+        let projects: Vec<_> = calls
+            .iter()
+            .filter(|(method, _)| method == "project.create")
+            .map(|(_, params)| params["client_request_id"].clone())
+            .collect();
+        assert_eq!(projects.len(), 2);
+        assert_eq!(projects[0], projects[1]);
+        let dispatches: Vec<_> = calls
+            .iter()
+            .filter(|(method, _)| method == "send_msg")
+            .map(|(_, params)| params.clone())
+            .collect();
+        assert_eq!(dispatches.len(), 2);
+        assert_eq!(
+            dispatches[0]["client_request_id"],
+            dispatches[1]["client_request_id"]
+        );
+        assert_eq!(dispatches[0]["chat_id"], "group-request-1");
+        assert_eq!(dispatches[0]["intent"], "ack");
+        assert_eq!(
+            dispatches[0]["_assignment_root_message_id"],
+            "user-request-1"
+        );
+        assert_eq!(dispatches[0]["mentions"][0]["bot"], "bot-2");
+        let text = dispatches[0]["text"].as_str().unwrap();
+        assert!(text.contains("分析设计并输出风险清单"));
+        assert!(text.contains("user-request-1"));
+        assert!(text.contains("/tmp/input/design.md"));
+    }
+
+    #[tokio::test]
+    async fn dispatch_model_preflight_failure_does_not_create_a_group_or_assignment() {
+        let rpc = Arc::new(FakeRpc::default());
+        let factory = CollaborationTools::new(
+            rpc.clone(),
+            CollaborationIdentity {
+                bot_id: "main".into(),
+                chat_id: "chat_main".into(),
+                source_message_id: Some("user-request-1".into()),
+                is_main: true,
+                private: true,
+                ..Default::default()
+            },
+            None,
+            None,
+        );
+        let result = factory
+            .invoke(
+                "delegate",
+                &ToolContext::new("/tmp", "preflight-run", "/tmp/runs"),
+                json!({"bot_id":"bot-no-model","instruction":"do work"}),
+            )
+            .await;
+        assert!(result.is_error);
+        let calls = rpc.0.lock().unwrap();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].0, "model.preflight");
+        assert!(!calls.iter().any(|(method, _)| {
+            matches!(
+                method.as_str(),
+                "project.create" | "send_msg" | "assignment.create"
+            )
+        }));
+    }
+
     #[tokio::test]
     async fn role_tool_sets_keep_main_and_worker_capabilities_separate() {
         let rpc = Arc::new(FakeRpc::default());
@@ -1453,7 +1810,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn assign_and_routine_inject_run_identity() {
+    async fn worker_cannot_delegate_and_routine_injects_run_identity() {
         let rpc = Arc::new(FakeRpc::default());
         let factory = CollaborationTools::new(
             rpc.clone(),
@@ -1470,13 +1827,14 @@ mod tests {
             None,
         );
         let context = ToolContext::new("/tmp", "run-1", "/tmp/runs");
-        factory
+        let denied = factory
             .invoke(
                 "assign",
                 &context,
                 json!({"bot_id":"bot-2","instruction":"help"}),
             )
             .await;
+        assert!(denied.is_error);
         factory
             .invoke(
                 "routine",
@@ -1485,13 +1843,10 @@ mod tests {
             )
             .await;
         let calls = rpc.0.lock().unwrap();
-        assert_eq!(calls[0].0, "assignment.create");
-        assert_eq!(calls[0].1["origin_chat_id"], "chat-1");
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].0, "routine.create");
+        assert_eq!(calls[0].1["bot_id"], "bot-1");
         assert_eq!(calls[0].1["project_id"], "project-1");
-        assert_eq!(calls[1].0, "routine.create");
-        assert_eq!(calls[1].1["bot_id"], "bot-1");
-        assert_eq!(calls[1].1["project_id"], "project-1");
-        assert_eq!(calls.len(), 2);
     }
 
     #[tokio::test]

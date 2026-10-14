@@ -2091,6 +2091,40 @@ impl ComposedBackend {
                 }
                 continue;
             };
+            if request.bot_id != "main"
+                && assignment
+                    .get("project_id")
+                    .and_then(Value::as_str)
+                    .is_some()
+            {
+                let Some(assignment_id) = request.assignment_id.as_deref() else {
+                    continue;
+                };
+                let ack = self
+                    .inner
+                    .execution_send_msg(
+                        &self.state,
+                        json!({
+                            "receipt":{"run_id":format!("assignment-ack-{assignment_id}"),"call_id":"received"},
+                            "message":{
+                                "message_id":format!("msg_assignment_ack_{assignment_id}"),
+                                "chat_id":request.chat_id,
+                                "bot_id":request.bot_id,
+                                "assignment_id":assignment_id,
+                                "intent":"ack",
+                                "text":"收到，开始处理。",
+                                "mentions":[],
+                                "artifacts":[],
+                                "options":[]
+                            }
+                        }),
+                    )
+                    .await;
+                if let Err(error) = ack {
+                    tracing::warn!(%assignment_id, %error, "worker assignment ack was not persisted; deferring execution");
+                    continue;
+                }
+            }
             let key = request.assignment_id.as_deref().unwrap_or(&request.run_id);
             if self
                 .waiting_runs
@@ -3743,6 +3777,28 @@ impl crate::RpcBackend for ComposedBackend {
             }
             cancel_assignment_engine(self, &assignment_id, &status).await?;
         }
+        if matches!(method, "assignment.create" | "assign" | "delegate") {
+            let bot_id = params.get("bot_id").and_then(Value::as_str).unwrap_or("");
+            let from_main = method == "delegate"
+                || params.get("from").and_then(Value::as_str).unwrap_or("main") == "main";
+            if from_main && bot_id != "main" {
+                if params
+                    .get("project_id")
+                    .and_then(Value::as_str)
+                    .is_none_or(str::is_empty)
+                {
+                    return Err(crate::rpc_error(
+                        "forbidden",
+                        "main Bot work assignments require a project group",
+                        None,
+                    ));
+                }
+                self.runtime
+                    .preflight_bot_model(bot_id)
+                    .await
+                    .map_err(|error| crate::rpc_error("invalid_params", &error, None))?;
+            }
+        }
         if method == "project.remove_member" {
             let (project_id, bot_id) = validate_project_lifecycle(self, method, &params)?;
             cancel_project_assignments(self, &project_id, bot_id.as_deref()).await?;
@@ -4318,11 +4374,63 @@ impl crate::RpcBackend for ComposedBackend {
                         .get("assignment_id")
                         .and_then(Value::as_str)
                         .map(str::to_owned);
+                    let question_payload = question.to_owned();
                     let runtime = self.runtime.clone();
                     let inner = self.inner.clone();
                     let state = self.state.clone();
                     let scheduler = self.clone();
                     tokio::spawn(async move {
+                        let is_group_assignment =
+                            question_assignment.as_deref().is_some_and(|id| {
+                                inner
+                                    .orchestrator
+                                    .snapshot()
+                                    .ok()
+                                    .and_then(|snapshot| snapshot.get("assignments").cloned())
+                                    .and_then(|items| items.get(id).cloned())
+                                    .and_then(|assignment| assignment.get("project_id").cloned())
+                                    .is_some_and(|project_id| project_id.is_string())
+                            });
+                        if is_group_assignment {
+                            let question = &question_payload;
+                            let Some(assignment_id) =
+                                question.get("assignment_id").and_then(Value::as_str)
+                            else {
+                                return;
+                            };
+                            let Some(bot_id) = question.get("bot_id").and_then(Value::as_str)
+                            else {
+                                return;
+                            };
+                            let Some(chat_id) = question.get("chat_id").and_then(Value::as_str)
+                            else {
+                                return;
+                            };
+                            let ack_text = format!("收到选择「{answer}」，继续处理。");
+                            if let Err(error) = inner
+                                .execution_send_msg(
+                                    &state,
+                                    json!({
+                                        "receipt":{"run_id":format!("question-answer-ack-{question_id}"),"call_id":"ack"},
+                                        "message":{
+                                            "message_id":format!("msg_question_answer_ack_{question_id}"),
+                                            "chat_id":chat_id,
+                                            "bot_id":bot_id,
+                                            "assignment_id":assignment_id,
+                                            "intent":"ack",
+                                            "text":ack_text,
+                                            "mentions":[],
+                                            "artifacts":[],
+                                            "options":[]
+                                        }
+                                    }),
+                                )
+                                .await
+                            {
+                                tracing::error!(%question_id, %error, "cannot persist group question answer ack; continuation deferred");
+                                return;
+                            }
+                        }
                         match runtime.resume_question(&question_id, answer).await {
                             Ok(Some((assignment_id, outcome))) => {
                                 let assignment_id = assignment_id.or(question_assignment.clone());
@@ -4939,6 +5047,32 @@ impl Tool for ProjectFindToolBridge {
 }
 
 impl RuntimeExecution {
+    /// Validate a worker's effective model reference before a delegation
+    /// creates a group or dispatch message. This checks catalog membership,
+    /// enabled state, and provider configuration without making a paid call.
+    pub async fn preflight_bot_model(&self, bot_id: &str) -> Result<String, String> {
+        let snapshot = self
+            .backend
+            .orchestrator
+            .snapshot()
+            .map_err(|error| error.to_string())?;
+        let settings = self
+            .store
+            .read_snapshot::<Value>("data/settings.json")
+            .map_err(|error| error.to_string())?
+            .unwrap_or(Value::Null);
+        let model = resolve_model(&snapshot, &settings, bot_id, ModelRole::Bot)
+            .filter(|model| !model.trim().is_empty())
+            .ok_or_else(|| format!("Bot {bot_id} has no configured model"))?;
+        self.provider_resolver
+            .providers
+            .lock()
+            .await
+            .resolve_model(&model)
+            .map_err(|error| format!("cannot dispatch to Bot {bot_id}: {error}"))?;
+        Ok(model)
+    }
+
     pub fn open(
         home: impl Into<std::path::PathBuf>,
         backend: Arc<ProductionBackend>,

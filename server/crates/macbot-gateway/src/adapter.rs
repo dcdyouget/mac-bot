@@ -1862,6 +1862,92 @@ impl ProductionBackend {
                 .get("assignment_id")
                 .and_then(Value::as_str)
                 .unwrap_or("");
+            if let Some(assignment) = snapshot
+                .get("assignments")
+                .and_then(|items| items.get(assignment_id))
+            {
+                let mut wire = assignment.clone();
+                normalize_assignment(&mut wire);
+                if let Some(event) = self.append_repaired_event(
+                    &format!("{base_key}:assignment-status:{assignment_id}"),
+                    "assignment.updated",
+                    json!({"assignment":wire}),
+                )? {
+                    events.push(event);
+                }
+                if assignment.get("bot_id").and_then(Value::as_str) != Some("main") {
+                    if let Some(project_id) = assignment.get("project_id").and_then(Value::as_str) {
+                        let is_done = canonical["intent"] == "done";
+                        let summary = canonical
+                            .get("text")
+                            .and_then(Value::as_str)
+                            .or_else(|| canonical.get("fallback_text").and_then(Value::as_str))
+                            .unwrap_or_default();
+                        let root_message_id =
+                            assignment.get("root_message_id").and_then(Value::as_str);
+                        let original = root_message_id.and_then(|id| {
+                            snapshot
+                                .get("messages")
+                                .and_then(|messages| messages.get(id))
+                        });
+                        let quote = root_message_id.map(|id| {
+                            json!({
+                                "message_id":id,
+                                "sender":{"kind":"user"},
+                                "excerpt":original
+                                    .and_then(|message| message.get("text").or_else(|| message.get("fallback_text")))
+                                    .and_then(Value::as_str)
+                                    .unwrap_or("")
+                                    .chars()
+                                    .take(500)
+                                    .collect::<String>()
+                            })
+                        });
+                        let text = if is_done {
+                            "完成请验收".to_owned()
+                        } else {
+                            format!("任务受阻：{summary}")
+                        };
+                        let note = if is_done {
+                            "产物已登记，可打开项目群查看。".to_owned()
+                        } else {
+                            format!("失败原因与建议措施：{summary}")
+                        };
+                        let card = json!({
+                            "id":format!("msg_main_assignment_result_{assignment_id}"),
+                            "chat_id":"chat_main","seq":0,
+                            "sender":{"kind":"bot","bot_id":"main"},
+                            "created_at":canonical.get("created_at").cloned().unwrap_or_else(|| json!(now())),
+                            "edited_at":null,"deleted":false,"reply_to":null,"quote":quote,
+                            "thread_count":0,"mentions":[{"kind":"user"}],
+                            "blocks":[
+                                {"type":"text","markdown":text},
+                                {"type":"project_card","project_id":project_id,"context":"mentioned","note":note}
+                            ],
+                            "fallback_text":text,
+                            "intent":null,"assignment_id":assignment_id,
+                            "streaming":false,"delivery":[],"reactions":[]
+                        });
+                        if let Some(event) = self.repair_card_event(
+                            &format!("{base_key}:main-assignment-result"),
+                            card,
+                        )? {
+                            events.push(event);
+                        }
+                    }
+                }
+            }
+        }
+        if method == "send_msg"
+            && matches!(
+                canonical.get("intent").and_then(Value::as_str),
+                Some("done" | "blocked")
+            )
+        {
+            let assignment_id = canonical
+                .get("assignment_id")
+                .and_then(Value::as_str)
+                .unwrap_or("");
             if snapshot
                 .get("assignments")
                 .and_then(|items| items.get(assignment_id))
@@ -12266,7 +12352,6 @@ mod tests {
             .await
             .unwrap();
         let from = from_bot["bot"]["id"].as_str().unwrap().to_owned();
-        let from_dm = from_bot["bot"]["dm_chat_id"].as_str().unwrap().to_owned();
         let to = backend
             .call("bot.create", json!({"name":"loop-to"}), &gateway.state)
             .await
@@ -12274,9 +12359,18 @@ mod tests {
             .as_str()
             .unwrap()
             .to_owned();
-        let assignment = backend.call("assignment.create", json!({"origin_chat_id":"chat_main","bot_id":from,"title":"loop root","instruction":"handoff","from":"main","root_message_id":"root-loop","loop_hops":8}), &gateway.state).await.unwrap();
+        let project = backend
+            .call(
+                "project.create",
+                json!({"name":"loop project","member_bot_ids":[from,to]}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        let group_chat_id = project["project"]["chat_id"].as_str().unwrap();
+        let assignment = backend.call("assignment.create", json!({"project_id":project["project"]["id"],"origin_chat_id":group_chat_id,"bot_id":from,"title":"loop root","instruction":"handoff","from":"main","root_message_id":"root-loop","loop_hops":8}), &gateway.state).await.unwrap();
         let assignment_id = assignment["id"].as_str().unwrap();
-        let sent = backend.call("send_msg", json!({"bot_id":from,"chat_id":from_dm,"assignment_id":assignment_id,"text":"继续交接","intent":"done","mentions":[{"kind":"bot","bot_id":to,"instruction":"下一跳"}]}), &gateway.state).await.unwrap();
+        let sent = backend.call("send_msg", json!({"bot_id":from,"chat_id":group_chat_id,"assignment_id":assignment_id,"text":"继续交接","intent":"done","mentions":[{"kind":"bot","bot_id":to,"instruction":"下一跳"}]}), &gateway.state).await.unwrap();
         let sent_message: Message = serde_json::from_value(sent.clone()).unwrap();
         assert_eq!(sent["blocks"][0]["type"], "loop_paused");
         let resolved = backend
@@ -12315,7 +12409,7 @@ mod tests {
         let history = backend
             .call(
                 "chat.history",
-                json!({"chat_id":from_dm,"limit":20}),
+                json!({"chat_id":group_chat_id,"limit":20}),
                 &gateway.state,
             )
             .await
@@ -12350,9 +12444,10 @@ mod tests {
             .unwrap()
             .iter()
             .any(|item| {
-                item["assignment_id"] == assignment_id
-                    && item["sender"]["kind"] == "system"
-                    && item["blocks"][0]["type"] == "completion"
+                item["id"] == format!("msg_main_assignment_result_{assignment_id}")
+                    && item["fallback_text"] == "完成请验收"
+                    && item["blocks"][1]["type"] == "project_card"
+                    && item["blocks"][1]["project_id"] == project["project"]["id"]
             }));
         drop(backend);
         drop(gateway);
@@ -12364,7 +12459,7 @@ mod tests {
         let replay = restarted
             .call(
                 "chat.history",
-                json!({"chat_id":from_dm,"limit":20}),
+                json!({"chat_id":group_chat_id,"limit":20}),
                 &restarted_gateway.state,
             )
             .await
@@ -12845,7 +12940,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn send_msg_to_current_bot_stays_in_private_or_group_assignment_scope() {
+    async fn send_msg_to_current_bot_rejects_main_private_assignment_and_keeps_group_scope() {
         let home = tempdir().unwrap();
         let gateway = Gateway::new(GatewayConfig {
             home: home.path().to_path_buf(),
@@ -12874,24 +12969,8 @@ mod tests {
                 }),
                 &gateway.state,
             )
-            .await
-            .unwrap();
-        let private_sent = backend
-            .call(
-                "send_msg",
-                json!({
-                    "bot_id":bot_id,
-                    "assignment_id":private_assignment["id"],
-                    "chat_id":dm_chat_id,
-                    "to":bot_id,
-                    "intent":"done",
-                    "text":"私聊分身仍发送到自己的 DM"
-                }),
-                &gateway.state,
-            )
-            .await
-            .unwrap();
-        assert_eq!(private_sent["chat_id"], dm_chat_id);
+            .await;
+        assert_eq!(private_assignment.unwrap_err().code, "forbidden");
 
         let project = backend
             .call(
@@ -13234,39 +13313,12 @@ mod tests {
                 }),
                 &gateway.state,
             )
-            .await
-            .unwrap();
-        let delegated_id = delegated["id"].as_str().unwrap();
-        let main_history = backend
-            .call(
-                "chat.history",
-                json!({"chat_id":"chat_main","limit":100}),
-                &gateway.state,
-            )
-            .await
-            .unwrap();
-        let delegation = main_history["messages"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .find(|message| {
-                message["blocks"].as_array().is_some_and(|blocks| {
-                    blocks.iter().any(|block| {
-                        block["type"] == "delegation" && block["assignment_id"] == delegated_id
-                    })
-                })
-            })
-            .unwrap();
-        let delegation_message: Message = serde_json::from_value(delegation.clone()).unwrap();
-        assert!(delegation_message.seq > 0);
-        assert_eq!(
-            delegation_message.assignment_id.as_deref(),
-            Some(delegated_id)
-        );
+            .await;
+        assert_eq!(delegated.unwrap_err().code, "forbidden");
     }
 
     #[tokio::test]
-    async fn private_worker_messages_stay_in_dm_and_results_return_to_main() {
+    async fn user_direct_worker_messages_stay_in_dm_and_results_return_to_main() {
         let home = tempdir().unwrap();
         let gateway = Gateway::new(GatewayConfig {
             home: home.path().to_path_buf(),
@@ -13286,20 +13338,19 @@ mod tests {
         let peer_id = peer["bot"]["id"].as_str().unwrap();
         let delegated = backend
             .call(
-                "delegate",
+                "chat.send",
                 json!({
-                    "origin_chat_id":"chat_main",
-                    "bot_id":worker_id,
-                    "title":"整理资料",
-                    "instruction":"整理公开资料并汇报",
-                    "from":"main",
-                    "client_request_id":"main-dm-delegate-worker-messages"
+                    "chat_id":"chat_main",
+                    "text":"整理公开资料并汇报",
+                    "mentions":[{"kind":"bot","bot_id":worker_id}]
                 }),
                 &gateway.state,
             )
             .await
             .unwrap();
-        let assignment_id = delegated["id"].as_str().unwrap();
+        let assignment_id = delegated["message"]["delivery"][0]["assignment_id"]
+            .as_str()
+            .unwrap();
 
         let ack = backend
             .execution_send_msg(
@@ -13441,11 +13492,8 @@ mod tests {
             }])
         );
         assert!(messages.iter().any(|message| {
-            message["blocks"].as_array().is_some_and(|blocks| {
-                blocks.iter().any(|block| {
-                    block["type"] == "delegation" && block["assignment_id"] == assignment_id
-                })
-            })
+            message["id"] == delegated["message"]["id"]
+                && message["delivery"][0]["assignment_id"] == assignment_id
         }));
         assert!(!messages.iter().any(|message| {
             message["assignment_id"] == assignment_id
@@ -13761,20 +13809,19 @@ mod tests {
         let worker_dm = worker["bot"]["dm_chat_id"].as_str().unwrap();
         let delegated = backend
             .call(
-                "delegate",
+                "chat.send",
                 json!({
-                    "origin_chat_id":"chat_main",
-                    "bot_id":worker_id,
-                    "title":"可能阻塞的工作",
-                    "instruction":"尝试完成",
-                    "from":"main",
-                    "client_request_id":"cross-scope-blocked-delegate"
+                    "chat_id":"chat_main",
+                    "text":"尝试完成",
+                    "mentions":[{"kind":"bot","bot_id":worker_id}]
                 }),
                 &gateway.state,
             )
             .await
             .unwrap();
-        let assignment_id = delegated["id"].as_str().unwrap();
+        let assignment_id = delegated["message"]["delivery"][0]["assignment_id"]
+            .as_str()
+            .unwrap();
         let blocked = backend
             .execution_send_msg(
                 &gateway.state,
