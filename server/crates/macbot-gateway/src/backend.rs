@@ -6538,7 +6538,7 @@ impl RuntimeExecution {
                 .and_then(Value::as_str)
                 .map(str::to_owned),
             // Credentials are always fetched by RegistryWebCredentials from
-            // the injected Keychain/FileSecrets backend at request time.
+            // the injected encrypted file secret backend at request time.
             api_key: None,
         };
         let web: Option<Arc<dyn crate::collaboration_tools::WebToolBridge>> =
