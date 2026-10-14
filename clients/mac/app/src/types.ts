@@ -11,6 +11,9 @@ export type Message = {
   id: string
   chat_id?: string
   sender?: { kind?: string; bot_id?: string }
+  intent?: string | null
+  mentions?: { kind?: string; bot_id?: string; instruction?: string }[]
+  quote?: { message_id?: string; sender?: { kind?: string; bot_id?: string }; excerpt?: string } | null
   assignment_id?: string | null
   sender_id?: string
   fallback_text?: string

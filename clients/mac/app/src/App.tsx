@@ -3,7 +3,7 @@ import { Channel, invoke, isTauri } from '@tauri-apps/api/core'
 import { currentMonitor, getCurrentWindow, PhysicalPosition, PhysicalSize, primaryMonitor } from '@tauri-apps/api/window'
 import { getVersion } from '@tauri-apps/api/app'
 import { listen } from '@tauri-apps/api/event'
-import { AlertCircle, AtSign, Check, ChevronDown, ChevronRight, Command, Menu, MessageCircle, Monitor, PanelRight, Plus, Search, Send, Settings, Shield, Sparkles, Workflow, Clock3, Trash2, Edit3, Users, Folder, X, Paperclip, Zap } from 'lucide-react'
+import { AlertCircle, AtSign, Check, ChevronDown, ChevronRight, Command, Menu, MessageCircle, Monitor, PanelRight, Plus, Search, Send, Settings, Shield, Sparkles, Workflow, Clock3, Trash2, Edit3, Folder, X, Paperclip, Zap } from 'lucide-react'
 import { t, type CopyKey } from './i18n'
 import { emptyState, type Announcement, type BridgeState, type Chat, type HostRecord, type Json, type LocalPreferences, type Message, type NotificationPreferenceKey, type PendingMessage, type Question } from './types'
 import { BlockedBlock, BotDmReferenceBlock, CompletionCard, DelegationLine, FallbackCard, FileBlock, LinkPreviewBlock, LoopPausedBlock, MessageImageBlock, ProjectCard, ProgressRow, ReviewCard, SkillMessageDeliveryStatus, SkillMessageLoadedStatus, SkillMessageText, SystemNotice, TakeoverRequestBlock, TaskCard, type ArtifactRef, type MessageFilePreview, type MessageFileRef } from './components/MessageBlocks'
@@ -43,6 +43,8 @@ import { makeSkillCreateIntent, type SkillCreateIntent } from './components/skil
 import { chatSendMentions, messageAssignmentId, messageRenderMode, messageShortcutAction, quoteSendFields, shouldSendOnCommandEnter, userHasReaction } from './components/messageActions.model'
 import { findForcedSkillTextBlockIndex, getRenderableSkillNames, getValidLoadedSkills, parseForcedSkillText } from './components/skillMessage.model'
 import { mainBotDisplayName } from './components/mainBotDisplayName.model'
+import { GroupAvatar } from './components/GroupAvatar'
+import { chatDraftKey, groupProductMessage, mergeChatMessages, orderedGroupMemberIds, setChatDraft } from './groupConversation.model.mjs'
 
 type ThemeMode = 'light' | 'dark' | 'system'
 type ContextPanelPage = 'context' | 'group-settings'
@@ -70,16 +72,7 @@ const SELECTED_CHAT_STORAGE_KEY = 'macbot.chat.selected'
 const MAX_CHAT_ATTACHMENT_BYTES = 100 * 1024 * 1024
 const CONTEXT_PANEL_WIDTH = 280
 
-function mergeMessages(...groups: Message[][]): Message[] {
-  const byId = new Map<string, Message>()
-  for (const group of groups) for (const message of group) byId.set(message.id, message)
-  return [...byId.values()].sort((left, right) => {
-    const leftSeq = (left as Message & { seq?: number }).seq
-    const rightSeq = (right as Message & { seq?: number }).seq
-    if (typeof leftSeq === 'number' && typeof rightSeq === 'number') return leftSeq - rightSeq
-    return String(left.created_at ?? '').localeCompare(String(right.created_at ?? ''))
-  })
-}
+function mergeMessages(...groups: Message[][]): Message[] { return mergeChatMessages(...groups) as Message[] }
 
 function traceItemKey(item: TraceItem) { return `${item.run_id}\u0000${item.aseq}` }
 
@@ -233,7 +226,7 @@ function App() {
   const [botPanelId, setBotPanelId] = useState<string | null>(null)
   const [artifactRoute, setArtifactRoute] = useState<ArtifactRoute | null>(null)
   const [mentionBotId, setMentionBotId] = useState<string | null>(null)
-  const [draft, setDraft] = useState('')
+  const [draftsByChat, setDraftsByChat] = useState<Record<string, string>>({})
   const [slashPicker, setSlashPicker] = useState<SlashPickerState | null>(null)
   const [slashSelectedIndex, setSlashSelectedIndex] = useState(0)
   const [composerSkill, setComposerSkill] = useState<SkillRecord | null>(null)
@@ -1186,22 +1179,32 @@ function App() {
   const mainBot = bots.find((bot) => bot.is_main) ?? bots[0]
   const currentChat = chats.find((chat) => chat.id === selectedChat) ?? chats.find((chat) => chat.kind === 'main') ?? chats[0]
   const currentChatId = currentChat?.id
+  const currentDraftKey = currentChatId ? chatDraftKey(hostScope, currentChatId) : ''
+  const draft = currentDraftKey ? draftsByChat[currentDraftKey] ?? '' : ''
+  const setDraft = (value: string) => {
+    if (!currentDraftKey) return
+    setDraftsByChat((current) => setChatDraft(current, hostScope, currentChatId!, value))
+  }
+  const setDraftForChat = (chatId: string, value: string) => {
+    setDraftsByChat((current) => setChatDraft(current, hostScope, chatId, value))
+  }
   const currentMainBotId = mainBotIdForChat(currentChat, state.bots)
   useEffect(() => { setFocusedMessageId(null) }, [currentChat?.id])
   const currentChatBotId = currentChat?.bot_id ?? (currentChat?.kind === 'main' ? mainBot?.id : null)
   const skillTargetBotId = mentionBotId ?? currentChatBotId ?? mainBot?.id ?? null
   const skillTargetBotName = skillTargetBotId ? state.bots[skillTargetBotId]?.name ?? t('common.bot') : t('common.bot')
   const currentMessages = useMemo(() => {
-    const byId = new Map<string, Message>()
-    for (const message of historyByChat[historyCacheKey(hostScope, currentChat?.id ?? '')] ?? []) byId.set(message.id, message)
-    for (const message of Object.values(state.messages)) {
-      if (message.chat_id === currentChat?.id) byId.set(message.id, message)
-    }
-    for (const message of Object.values(state.pending_messages)) {
-      if (message.chat_id === currentChat?.id) byId.set(message.id, message)
-    }
-    return [...byId.values()].sort((a, b) => String(a.created_at ?? '').localeCompare(String(b.created_at ?? '')))
+    const chatId = currentChat?.id
+    if (!chatId) return []
+    const history = historyByChat[historyCacheKey(hostScope, chatId)] ?? []
+    const pending = Object.values(state.pending_messages).filter((message) => message.chat_id === chatId)
+    const canonical = Object.values(state.messages).filter((message) => message.chat_id === chatId)
+    return mergeChatMessages(history, pending, canonical) as Message[]
   }, [historyByChat, state.messages, state.pending_messages, hostScope, currentChat?.id])
+  const currentDisplayMessages = useMemo(() => {
+    if (currentChat?.kind !== 'project' && !currentChat?.project_id) return currentMessages
+    return currentMessages.map((message) => groupProductMessage(message)).filter((message): message is Message => message !== null) as Message[]
+  }, [currentMessages, currentChat?.kind, currentChat?.project_id])
 
   useEffect(() => {
     if (!currentChatId || !currentMainBotId) return
@@ -2778,7 +2781,7 @@ function App() {
     updateMessageBlock(scope, chatId, messageId, blockIndex, { state: 'changes_requested' })
   }
 
-  async function openProject(projectId: string, chatId?: string) {
+  async function openProject(projectId: string, chatId?: string, completionHandoff = false) {
     if (!projectId) throw new Error(t('common.unsupported_block'))
     const scope = hostScope
     let targetChatId = chatId || state.projects[projectId]?.chat_id || Object.values(state.chats).find((chat) => chat.project_id === projectId)?.id || ''
@@ -2791,7 +2794,51 @@ function App() {
       }
     }
     if (!targetChatId) throw new Error(t('common.unsupported_block'))
-    if (hostScopeRef.current === scope) selectChat(targetChatId)
+    let targetMessageId: string | null = null
+    if (completionHandoff) {
+      const resultAssignments = Object.values(stateRef.current.assignments)
+        .filter((assignment) => assignment.project_id === projectId && assignment.status === 'done' && typeof assignment.result_message_id === 'string')
+        .sort((left, right) => String(right.finished_at ?? right.created_at ?? '').localeCompare(String(left.finished_at ?? left.created_at ?? '')))
+      targetMessageId = typeof resultAssignments[0]?.result_message_id === 'string' ? resultAssignments[0].result_message_id : null
+
+      const cacheKey = historyCacheKey(scope, targetChatId)
+      const collected = new Map<string, Message>()
+      for (const message of historyByChat[cacheKey] ?? []) if (message.chat_id === targetChatId) collected.set(message.id, message)
+      for (const message of Object.values(stateRef.current.messages)) if (message.chat_id === targetChatId) collected.set(message.id, message)
+      if (targetMessageId && !collected.has(targetMessageId)) {
+        let beforeSeq: number | undefined
+        let hasMore = true
+        let pages = 0
+        while (!collected.has(targetMessageId) && hasMore && pages < 20) {
+          const page = await invoke<{ messages?: Message[]; has_more?: boolean }>('protocol_request', { method: 'chat.history', params: { chat_id: targetChatId, ...(beforeSeq !== undefined ? { before_seq: beforeSeq } : {}), limit: 100 } })
+          assertHostScope(hostScopeRef.current, scope)
+          pages += 1
+          const rows = (page.messages ?? []).filter((message) => message.chat_id === targetChatId)
+          for (const message of rows) collected.set(message.id, message)
+          hasMore = page.has_more === true
+          const seqs = rows.map((message) => (message as Message & { seq?: number }).seq).filter((seq): seq is number => typeof seq === 'number' && Number.isFinite(seq))
+          if (!seqs.length) break
+          const nextBefore = Math.min(...seqs)
+          if (beforeSeq !== undefined && nextBefore >= beforeSeq) break
+          beforeSeq = nextBefore
+        }
+      } else if (!targetMessageId) {
+        const page = await invoke<{ messages?: Message[] }>('protocol_request', { method: 'chat.history', params: { chat_id: targetChatId, limit: 100 } })
+        assertHostScope(hostScopeRef.current, scope)
+        for (const message of (page.messages ?? []).filter((row) => row.chat_id === targetChatId)) collected.set(message.id, message)
+      }
+      if (!targetMessageId || !collected.has(targetMessageId)) {
+        const candidates = [...collected.values()].filter((message) => message.intent === 'done' || message.blocks?.some((block) => block.type === 'completion'))
+        candidates.sort((left, right) => Number((right as Message & { seq?: number }).seq ?? 0) - Number((left as Message & { seq?: number }).seq ?? 0))
+        targetMessageId = candidates[0]?.id ?? null
+      }
+      setHistoryByChat((current) => ({ ...current, [cacheKey]: mergeMessages(current[cacheKey] ?? [], [...collected.values()]) }))
+    }
+    if (hostScopeRef.current === scope) {
+      setActivePage('chat')
+      selectChat(targetChatId)
+      if (targetMessageId) setDeepLinkScrollTarget({ hostScope: scope, chatId: targetChatId, messageId: targetMessageId })
+    }
   }
 
   const searchRequest = useCallback(async (request: SearchRequest): Promise<SearchResponse> => {
@@ -2910,6 +2957,7 @@ function App() {
 
   async function sendMessage(event: React.FormEvent) {
     event.preventDefault()
+    const sendChatId = currentChat?.id
     const readyAttachments = attachments.filter((item) => item.status === 'ready' && item.uploadId)
     const messageText = composerSkill ? `/${composerSkill.name}${draft.trim() ? ` ${draft.trim()}` : ''}` : draft.trim()
     if (!currentChat || (!draft.trim() && !readyAttachments.length) || attachments.some((item) => item.status === 'preparing' || item.status === 'uploading') || sending || state.connection !== 'connected') return
@@ -2931,7 +2979,7 @@ function App() {
         await invoke('send_message', { chatId: currentChat.id, text: messageText })
       }
       assertHostScope(hostScopeRef.current, scope)
-      setDraft('')
+      if (sendChatId) setDraftForChat(sendChatId, '')
       setMentionBotId(null)
       setComposerSkill(null)
       setSlashPicker(null)
@@ -2979,6 +3027,19 @@ function App() {
     if (chat.kind === 'main') return mainBotDisplayName(chatName ?? botName, mainBotName)
     return chatName ?? botName ?? t('chat.empty.select')
   }
+  const groupMemberIds = (chat: Chat) => {
+    const projectId = typeof chat.project_id === 'string' ? chat.project_id : ''
+    const projectMembers = Array.isArray(state.projects[projectId]?.members)
+      ? state.projects[projectId]!.members as unknown as { bot_id?: string; joined_at?: string }[]
+      : []
+    const announcedMemberBotIds = currentChat?.id === chat.id ? announcement?.members.map((member) => member.bot_id) ?? [] : []
+    return orderedGroupMemberIds({
+      memberBotIds: Array.isArray(chat.member_bot_ids) ? chat.member_bot_ids as string[] : [],
+      projectMembers,
+      announcedMemberBotIds,
+      bots: state.bots,
+    }) as string[]
+  }
   const activeSearchSideTarget = searchSideTarget?.scope === hostScope ? searchSideTarget.result : null
   const computerTakeoverRequest = (() => {
     if (!computerRoute || computerRoute.hostScope !== hostScope) return null
@@ -3022,7 +3083,7 @@ function App() {
           {mainChats.map((chat) => <ChatRow key={chat.id} title={chatTitle(chat)} subtitle={t('sidebar.main_bot.subtitle')} approval={sidebarApproval(chat.id)} selected={currentChat?.id === chat.id} onClick={() => selectChat(chat.id)} main />)}
         </div>
         <div className="nav-section"><div className="section-label">{t('sidebar.section.groups').replace('{count}', String(sidebarGroups.active.length))}</div>
-          {sidebarGroups.active.map((chat) => <ChatRow key={chat.id} title={chatTitle(chat)} subtitle="" approval={sidebarApproval(chat.id)} selected={currentChat?.id === chat.id} onClick={() => selectChat(chat.id)} />)}
+          {sidebarGroups.active.map((chat) => <ChatRow key={chat.id} title={chatTitle(chat)} subtitle="" approval={sidebarApproval(chat.id)} selected={currentChat?.id === chat.id} onClick={() => selectChat(chat.id)} groupMemberBotIds={groupMemberIds(chat)} bots={state.bots} />)}
           {groups.length === 0 && <div className="nav-empty">{t('sidebar.empty_groups')}</div>}
           {sidebarGroups.done.length > 0 && <>
             <button type="button" className="completed-groups-toggle" aria-expanded={completedGroupsExpanded} onClick={() => setCompletedGroupsExpanded((expanded) => !expanded)}>
@@ -3030,7 +3091,7 @@ function App() {
               <span>{t('sidebar.completed').replace('{count}', String(sidebarGroups.done.length))}</span>
             </button>
             {completedGroupsExpanded && sidebarGroups.done.map((chat) => <button type="button" className={`completed-group-row${currentChat?.id === chat.id ? ' selected' : ''}`} key={chat.id} onClick={() => selectChat(chat.id)}>
-              <span className="completed-group-avatar"><Users size={13} /></span><span className="completed-group-title">{chatTitle(chat)}</span>
+              <GroupAvatar memberBotIds={groupMemberIds(chat)} bots={state.bots} size="24" label={chatTitle(chat)} /><span className="completed-group-title">{chatTitle(chat)}</span>
             </button>)}
           </>}
           {sidebarGroups.archived.length > 0 && <button type="button" className="archived-groups-search" onClick={() => setShowSearch(true)}>
@@ -3052,7 +3113,7 @@ function App() {
     {activePage === 'chat' && <>
     <section className="conversation" onDragEnter={handleFileDragEnter} onDragOver={handleFileDragOver} onDragLeave={handleFileDragLeave} onDrop={handleFileDrop}>
       <header className="conversation-toolbar glass-toolbar drag-region" data-window-drag-region>
-        {currentChat?.kind === 'project' || currentChat?.project_id ? <div className="group-chat-avatar"><Users size={17} /></div> : currentChatBotId ? <button type="button" aria-label={t('bot.action.settings')} title={t('bot.action.settings')} onClick={() => openBotPanel(currentChatBotId)} style={{ width: 32, height: 32, display: 'grid', flex: 'none', placeItems: 'center', padding: 0, border: 0, borderRadius: '50%', background: 'transparent', cursor: 'pointer' }}><BeanAvatar main={state.bots[currentChatBotId]?.is_main === true} size="32" seed={state.bots[currentChatBotId]?.name ?? ''} /></button> : <BeanAvatar main size="32" />}
+        {currentChat?.kind === 'project' || currentChat?.project_id ? <GroupAvatar memberBotIds={groupMemberIds(currentChat)} bots={state.bots} size="32" label={chatTitle(currentChat)} /> : currentChatBotId ? <button type="button" aria-label={t('bot.action.settings')} title={t('bot.action.settings')} onClick={() => openBotPanel(currentChatBotId)} style={{ width: 32, height: 32, display: 'grid', flex: 'none', placeItems: 'center', padding: 0, border: 0, borderRadius: '50%', background: 'transparent', cursor: 'pointer' }}><BeanAvatar main={state.bots[currentChatBotId]?.is_main === true} size="32" seed={state.bots[currentChatBotId]?.name ?? ''} /></button> : <BeanAvatar main size="32" />}
         <div className="conversation-heading"><strong>{currentChat ? chatTitle(currentChat) : mainBotName}</strong>
           <span>{currentChat?.kind === 'project' || currentChat?.project_id ? groupSubtitle(currentChat, currentProject, announcement) : currentChat?.bot_id ? botSubtitle(currentChat, currentAssignments, state.bots) : t('chat.main.subtitle')}</span></div>
         {currentChat?.bot_id && <button className="icon-button" type="button" aria-label={t('computer.title').replace('{bot}', chatTitle(currentChat))} title={t('computer.title').replace('{bot}', chatTitle(currentChat))} onClick={() => openComputer(currentChat.bot_id!)}><Monitor size={16} /></button>}
@@ -3074,15 +3135,17 @@ function App() {
               const text = t(key)
               return <button type="button" key={key} onClick={() => {
                 const action = buildMainEmptySuggestionAction(text, currentChat?.id ?? mainChats[0]?.id ?? null)
-                if (action.chatId && !currentChat) selectChat(action.chatId)
-                setDraft(action.draft)
+                if (action.chatId) {
+                  if (!currentChat) selectChat(action.chatId)
+                  setDraftForChat(action.chatId, action.draft)
+                } else setDraft(action.draft)
                 requestAnimationFrame(() => composerTextareaRef.current?.focus())
               }}>{text}</button>
             })}
           </div>}
         </div>
-          : currentMessages.length ? <div className="message-list">
-          {buildMessageTimeline(currentMessages, state.assignments, currentChat?.id, currentMainBotId).filter((entry) => entry.visible).map((entry, index) => <Fragment key={entry.message.id}>
+          : currentDisplayMessages.length ? <div className="message-list">
+          {buildMessageTimeline(currentDisplayMessages, state.assignments, currentChat?.id, currentMainBotId).filter((entry) => entry.visible).map((entry, index) => <Fragment key={`${entry.message.chat_id ?? ''}:${entry.message.id}`}>
           {entry.dayLabel && <div className="day-separator">{entry.dayLabel}</div>}
           <div id={`message-${entry.message.id}`} data-message-id={entry.message.id} className={`timeline-fragment ${messageMenu?.message.id === entry.message.id ? 'message-context-selected' : ''}`} tabIndex={focusedMessageId ? (focusedMessageId === entry.message.id ? 0 : -1) : (index === 0 ? 0 : -1)} role="group" aria-label={t('chat.message.keyboard_actions')} onFocus={() => setFocusedMessageId(entry.message.id)} onKeyDown={(event) => {
             if (event.target !== event.currentTarget || messageMenu || (entry.message as Message & { deleted?: boolean }).deleted) return
@@ -3098,7 +3161,7 @@ function App() {
             else if (action === 'copy') { event.preventDefault(); void copyMessage(entry.message) }
           }} onContextMenu={(event) => { event.preventDefault(); event.stopPropagation(); if ((entry.message as Message & { deleted?: boolean }).deleted) return; setFocusedMessageId(entry.message.id); setMessageMenu({ message: entry.message, x: event.clientX, y: event.clientY }) }}>
             {entry.timeSeparator && <div className="time-separator">{entry.timeSeparator}</div>}
-          <MessageBubble message={entry.message} taskAvatarBotId={entry.taskAvatarBotId} skillNames={skillsDataScope === hostScope ? getRenderableSkillNames(skills) : []} pending={Boolean(state.pending_messages[entry.message.id]) && entry.groupEnd} senderName={entry.message.sender?.kind === 'user' ? t('common.user') : state.bots[entry.message.sender?.bot_id ?? '']?.name || (entry.message.sender?.bot_id === currentMainBotId ? mainBotName : t('common.bot'))} senderRole={entry.message.sender?.bot_id ? String(state.bots[entry.message.sender.bot_id]?.label ?? state.bots[entry.message.sender.bot_id]?.title ?? '') : ''} mainBotName={mainBotName} groupStart={entry.groupStart} groupEnd={entry.groupEnd} showAvatar={entry.showAvatar} headerTime={entry.headerTime} exactTime={entry.exactTime} questions={currentQuestions} approvals={currentApprovalRecords} assignments={state.assignments} projects={state.projects} bots={state.bots} chats={state.chats} chatTitle={chatTitle(currentChat)} onOpenProject={openProject} onOpenChat={selectChat} onOpenApproval={openApprovalInChat} onLoopResolve={async (rootMessageId, action) => { const scope = hostScope; if (hostScopeRef.current !== scope) return; await invoke('protocol_request', { method: 'loop.resolve', params: { root_message_id: rootMessageId, action } }); if (hostScopeRef.current !== scope) return }} onRetryAssignment={retryAssignment} onOpenBotSettings={openBotPanel} onTakeoverStart={(botId) => { setPendingTakeoverAction({ botId, action: 'start', hostScope }); openComputer(botId) }} onTakeoverRelease={(botId) => { setPendingTakeoverAction({ botId, action: 'release', hostScope }); openComputer(botId) }} onTaskDetail={openTrace} onReact={(message, emoji) => void reactToMessage(message, emoji)} onOpenComputer={openComputer} onReadMessageFile={readMessageFile} onPreviewArtifact={(artifact) => void openArtifactReference(artifact)} onConfirmProject={(projectId, messageId, blockIndex) => confirmProject(projectId, messageId, blockIndex)} onRequestChanges={(projectId, messageId, blockIndex, text) => requestProjectChanges(projectId, messageId, blockIndex, text)} onApprovalDecide={decideApproval} onQuestionAnswer={answerQuestion} />
+          <MessageBubble message={entry.message} taskAvatarBotId={entry.taskAvatarBotId} skillNames={skillsDataScope === hostScope ? getRenderableSkillNames(skills) : []} pending={state.pending_messages[entry.message.id]?.chat_id === entry.message.chat_id && entry.groupEnd} senderName={entry.message.sender?.kind === 'user' ? t('common.user') : state.bots[entry.message.sender?.bot_id ?? '']?.name || (entry.message.sender?.bot_id === currentMainBotId ? mainBotName : t('common.bot'))} senderRole={entry.message.sender?.bot_id ? String(state.bots[entry.message.sender.bot_id]?.label ?? state.bots[entry.message.sender.bot_id]?.title ?? '') : ''} mainBotName={mainBotName} groupStart={entry.groupStart} groupEnd={entry.groupEnd} showAvatar={entry.showAvatar} headerTime={entry.headerTime} exactTime={entry.exactTime} questions={currentQuestions} approvals={currentApprovalRecords} assignments={state.assignments} projects={state.projects} bots={state.bots} chats={state.chats} chatTitle={chatTitle(currentChat)} onOpenProject={openProject} onOpenChat={selectChat} onOpenApproval={openApprovalInChat} onLoopResolve={async (rootMessageId, action) => { const scope = hostScope; if (hostScopeRef.current !== scope) return; await invoke('protocol_request', { method: 'loop.resolve', params: { root_message_id: rootMessageId, action } }); if (hostScopeRef.current !== scope) return }} onRetryAssignment={retryAssignment} onOpenBotSettings={openBotPanel} onTakeoverStart={(botId) => { setPendingTakeoverAction({ botId, action: 'start', hostScope }); openComputer(botId) }} onTakeoverRelease={(botId) => { setPendingTakeoverAction({ botId, action: 'release', hostScope }); openComputer(botId) }} onTaskDetail={openTrace} onReact={(message, emoji) => void reactToMessage(message, emoji)} onOpenComputer={openComputer} onReadMessageFile={readMessageFile} onPreviewArtifact={(artifact) => void openArtifactReference(artifact)} onConfirmProject={(projectId, messageId, blockIndex) => confirmProject(projectId, messageId, blockIndex)} onRequestChanges={(projectId, messageId, blockIndex, text) => requestProjectChanges(projectId, messageId, blockIndex, text)} onApprovalDecide={decideApproval} onQuestionAnswer={answerQuestion} />
           </div>
           </Fragment>)}
           {currentChat.bot_id && (currentChat.kind === 'main' || currentChat.kind === 'bot_dm') && state.typing[`${currentChat.id}:${currentChat.bot_id}`] && !currentMessages.some((message) => message.sender?.bot_id === currentChat?.bot_id && message.streaming === true) && <div className="bot-typing-indicator" role="status" aria-label={t('chat.typing')}><span className="bot-typing-dots" aria-hidden="true"><i /><i /><i /></span><span>{t('chat.typing')}</span></div>}
@@ -3111,7 +3174,7 @@ function App() {
                 { id: 'research', label: t('onboarding.suggest.research'), text: t('onboarding.suggest.research') },
                 { id: 'daily', label: t('onboarding.suggest.daily'), text: t('onboarding.suggest.daily') },
               ]}
-              onSuggestion={(text) => { setDraft(text); requestAnimationFrame(() => composerTextareaRef.current?.focus()) }}
+              onSuggestion={(text) => { if (currentChat.id) setDraftForChat(currentChat.id, text); requestAnimationFrame(() => composerTextareaRef.current?.focus()) }}
             /> : null}
       </div>
       <form className="composer-wrap" onSubmit={sendMessage}>
@@ -3124,7 +3187,7 @@ function App() {
           <div className="composer-input-wrap">
             {slashPicker && <ChatSkillPicker skills={skillPickerSkills} query={slashPicker.query} selectedIndex={slashSelectedIndex} targetBotId={skillTargetBotId} targetBotName={skillTargetBotName} loading={skillsLoading || skillsDataScope !== hostScope} error={skillsDataScope === hostScope ? skillsError : null} onSelect={selectComposerSkill} onCreateSkill={createSkillFromSlash} onRetry={() => void loadSkills()} />}
             {composerSkill && <div className="chat-composer-skill-chip"><Zap size={13} /><span>/{composerSkill.name}</span><button type="button" aria-label={t('common.close')} onMouseDown={(event) => event.preventDefault()} onClick={() => setComposerSkill(null)}><X size={12} /></button></div>}
-            <textarea ref={composerTextareaRef} value={draft} onChange={(event) => { setSendError(null); updateSlashPickerFromCaret(event.target.value, event.target.selectionStart) }} onClick={(event) => updateSlashPickerFromCaret(event.currentTarget.value, event.currentTarget.selectionStart)} onKeyUp={(event) => { if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) updateSlashPickerFromCaret(event.currentTarget.value, event.currentTarget.selectionStart) }} onKeyDown={handleComposerKeyDown} placeholder={currentChat ? t('chat.composer.placeholder.dm').replace('{name}', chatTitle(currentChat)) : t('chat.empty.select')} disabled={!currentChat || state.connection !== 'connected'} rows={2} />
+            <textarea ref={composerTextareaRef} value={draft} onChange={(event) => { setSendError(null); updateSlashPickerFromCaret(event.target.value, event.target.selectionStart) }} onClick={(event) => updateSlashPickerFromCaret(event.currentTarget.value, event.currentTarget.selectionStart)} onKeyUp={(event) => { if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) updateSlashPickerFromCaret(event.currentTarget.value, event.currentTarget.selectionStart) }} onKeyDown={handleComposerKeyDown} placeholder={currentChat ? ((currentChat.kind === 'project' || currentChat.project_id) ? t('chat.composer.placeholder.group').replace('{group}', chatTitle(currentChat)) : t('chat.composer.placeholder.dm').replace('{name}', chatTitle(currentChat))) : t('chat.empty.select')} disabled={!currentChat || state.connection !== 'connected'} rows={2} />
           </div>
           <div className="composer-actions"><div className="composer-attachment-anchor"><button type="button" className="composer-tool" aria-label={t('chat.composer.attach.file')} title={t('chat.composer.attach.file')} disabled={!currentChat || state.connection !== 'connected'} onClick={() => setAttachmentMenuOpen((open) => !open)}><Plus size={17} /></button>{attachmentMenuOpen && <AttachmentMenu onFiles={() => { setAttachmentMenuOpen(false); attachmentInputRef.current?.click() }} onImages={() => { setAttachmentMenuOpen(false); imageInputRef.current?.click() }} onScreenshot={() => addNativeAttachment('screenshot')} onHome={() => addNativeAttachment('home')} homeAvailable={typeof currentProject?.home_path === 'string' && currentProject.home_path.length > 0} onClose={() => setAttachmentMenuOpen(false)} />}</div><span className="composer-hint"><Command size={11} /> ↵ 发送</span>
             <button type="submit" className="send-button" disabled={(!draft.trim() && !attachments.some((item) => item.status === 'ready' && item.uploadId)) || attachments.some((item) => item.status === 'preparing' || item.status === 'uploading') || sending || !currentChat || state.connection !== 'connected'} aria-label={t('common.send')}><Send size={16} /></button></div>
@@ -3229,20 +3292,22 @@ function App() {
         <section className="follow-section"><div className="section-label">{t('group.members')}<span className="panel-section-count">{announcement?.members.length ?? 0}</span></div>
           {announcement?.members.length ? announcement.members.map((member) => {
             const botName = state.bots[member.bot_id]?.name ?? t('common.bot')
-            const assignment = member.current_assignment_id ? state.assignments[member.current_assignment_id] : undefined
-            const status = memberStatusKey(member.state)
-            return <button type="button" className={`group-member-row ${selectedAssignment === member.current_assignment_id ? 'selected' : ''}`} key={member.bot_id} onClick={() => {
-              if (member.current_assignment_id) openTrace(member.current_assignment_id)
+            const assignment = projectAssignmentForMember(currentProjectId ?? '', member.bot_id, member.current_assignment_id, state.assignments)
+            const effectiveState = assignmentStatus(assignment, member.state)
+            const assignmentId = typeof assignment?.id === 'string' ? assignment.id : member.current_assignment_id
+            const status = memberStatusKey(effectiveState)
+            return <button type="button" className={`group-member-row status-${effectiveState} ${selectedAssignment === assignmentId ? 'selected' : ''}`} key={member.bot_id} onClick={() => {
+              if (assignmentId) openTrace(assignmentId)
             }}>
               <BeanAvatar main={state.bots[member.bot_id]?.is_main === true} size="32" seed={botName} />
               <span className="group-member-copy"><strong>{botName}</strong><small>{member.role_note || (member.bot_id === currentProject?.lead_bot_id ? t('group.statusbar.lead') : '')}</small></span>
-              <span className={`group-member-status status-${member.state}`}>{statusText(status)}{assignment && member.state === 'working' ? ` · ${elapsedLabel(assignment.started_at)}` : ''}</span>
+              <span className={`group-member-status status-${effectiveState}`}>{statusText(status)}{assignment && effectiveState === 'working' ? ` · ${elapsedLabel(assignment.started_at)}` : ''}</span>
             </button>
           }) : <div className="panel-empty">{announcementLoading ? t('settings.permissions.loading') : t('group.members')}</div>}
         </section>
         <section className="follow-section"><div className="section-label">{t('group.artifacts')}<span className="panel-section-count">{announcement?.artifacts.length ?? 0}</span></div>
           {announcement?.artifacts.length ? announcement.artifacts.map((artifact) => <div className="group-artifact-row" key={artifact.id}>
-            <span className="group-artifact-icon">{artifact.kind === 'dir' ? <Folder size={14} /> : <MessageCircle size={14} />}</span><span className="group-artifact-copy"><strong>{artifact.title}</strong><small>{t('common.provided_by').replace('{bot}', state.bots[artifact.bot_id]?.name ?? t('common.bot'))}</small><code>{artifact.path_or_url}</code><small>{t('common.updated_at').replace('{time}', formatShortTime(artifact.updated_at))}</small></span><button type="button" className="trace-button" onClick={() => void openArtifactPage(currentProjectId, artifact.id)}>{t('common.preview')}</button>
+            <span className="group-artifact-icon">{artifact.kind === 'dir' ? <Folder size={14} /> : <MessageCircle size={14} />}</span><span className="group-artifact-copy"><strong>{artifact.title}</strong><small>{t('common.provided_by').replace('{bot}', state.bots[artifact.bot_id]?.name ?? t('common.bot'))}</small><code>{artifact.path_or_url}</code><small>{t('common.updated_at').replace('{time}', formatShortTime(artifact.updated_at))}</small></span>{artifact.kind === 'url' && /^https?:\/\//i.test(artifact.path_or_url) ? <a className="trace-button" href={artifact.path_or_url} target="_blank" rel="noreferrer">{t('artifact.preview.open_url')}</a> : <button type="button" className="trace-button" onClick={() => void openArtifactPage(currentProjectId, artifact.id)}>{t('common.preview')}</button>}
           </div>) : <div className="panel-empty">{announcementLoading ? t('settings.permissions.loading') : t('group.artifacts')}</div>}
         </section>
         {selectedAssignment && state.assignments[selectedAssignment] && <section className="follow-section"><div className="section-label">{t('trace.show')}</div><div className="assignment-card"><strong>{String(state.assignments[selectedAssignment].title ?? '')}</strong><div className="assignment-meta">{String(state.assignments[selectedAssignment].instruction ?? '')}</div><button className="trace-button" type="button" onClick={() => openTrace(selectedAssignment)}>{t('common.open')}</button></div></section>}
@@ -3253,7 +3318,8 @@ function App() {
             {followedProjects.length ? followedProjects.map((project) => {
               const projectChat = chats.find((chat) => chat.project_id === project.id) ?? chats.find((chat) => chat.id === project.chat_id)
               const statusKey = project.status === 'review' ? 'project.status.review' : 'project.status.active'
-              return <button type="button" className="follow-project-row" key={project.id} onClick={() => openPanelProject(project.id, projectChat?.id)}><span className="follow-project-avatar"><Users size={14} /></span><span className="follow-project-copy"><strong>{project.name ?? project.id}</strong><small>{t(statusKey)}</small></span><ChevronRight size={14} /></button>
+              const memberIds = projectChat ? groupMemberIds(projectChat) : orderedGroupMemberIds({ projectMembers: Array.isArray(project.members) ? project.members as unknown as { bot_id?: string; joined_at?: string }[] : [], bots: state.bots }) as string[]
+              return <button type="button" className="follow-project-row" key={project.id} onClick={() => openPanelProject(project.id, projectChat?.id)}><GroupAvatar memberBotIds={memberIds} bots={state.bots} size="24" label={project.name ?? project.id} /><span className="follow-project-copy"><strong>{project.name ?? project.id}</strong><small>{t(statusKey)}</small></span><ChevronRight size={14} /></button>
             }) : <div className="panel-empty">{t('follow.empty')}</div>}
           </section>
         </> : <>
@@ -3506,10 +3572,12 @@ function GroupStatusBar({ chat, announcement, project, bots, assignments, onSele
   return <div className="group-statusbar" aria-label={t('group.members')}>
     {members.map((member) => {
       const bot = bots[member.bot_id]
-      const assignment = member.current_assignment_id ? assignments[member.current_assignment_id] : undefined
-      const label = member.bot_id === leadBotId ? t('group.statusbar.lead') : statusText(memberStatusKey(member.state))
-      return <button type="button" className={`group-status-chip status-${member.state}`} key={member.bot_id} onClick={() => member.current_assignment_id && onSelectAssignment(member.current_assignment_id)} disabled={!member.current_assignment_id}>
-        <BeanAvatar main={bot?.is_main === true} size="32" seed={bot?.name ?? member.bot_id} /><span>{bot?.name ?? t('common.bot')} · {label}{assignment && member.state === 'working' ? ` ${elapsedLabel(assignment.started_at)}` : ''}</span>{Number(assignment?.pending_messages ?? 0) > 0 && <small className="group-status-pending"><Clock3 size={10} />{Number(assignment?.pending_messages)}</small>}
+      const assignment = projectAssignmentForMember(chat.project_id ?? '', member.bot_id, member.current_assignment_id, assignments)
+      const assignmentId = typeof assignment?.id === 'string' ? assignment.id : member.current_assignment_id
+      const effectiveState = assignmentStatus(assignment, member.state)
+      const label = member.bot_id === leadBotId ? `${t('group.statusbar.lead')} · ${statusText(memberStatusKey(effectiveState))}` : statusText(memberStatusKey(effectiveState))
+      return <button type="button" aria-label={`${bot?.name ?? t('common.bot')} · ${statusText(memberStatusKey(effectiveState))}`} title={`${bot?.name ?? t('common.bot')} · ${statusText(memberStatusKey(effectiveState))}`} className={`group-status-chip status-${effectiveState}`} key={member.bot_id} onClick={() => assignmentId && onSelectAssignment(assignmentId)} disabled={!assignmentId}>
+        <BeanAvatar main={bot?.is_main === true} size="32" seed={bot?.name ?? member.bot_id} /><span>{bot?.name ?? t('common.bot')} · {label}{assignment && effectiveState === 'working' ? ` ${elapsedLabel(assignment.started_at)}` : ''}</span>{Number(assignment?.pending_messages ?? 0) > 0 && <small className="group-status-pending"><Clock3 size={10} />{Number(assignment?.pending_messages)}</small>}
       </button>
     })}
   </div>
@@ -3525,6 +3593,19 @@ function memberStatusKey(status: string): CopyKey {
   if (status === 'failed') return 'status.failed'
   if (status === 'cancelled') return 'status.cancelled'
   return 'status.working'
+}
+
+function projectAssignmentForMember(projectId: string, botId: string, preferredId: string | null, assignments: BridgeState['assignments']) {
+  const preferred = preferredId ? assignments[preferredId] : undefined
+  if (preferred) return preferred
+  return Object.values(assignments)
+    .filter((assignment) => assignment.project_id === projectId && assignment.bot_id === botId)
+    .sort((left, right) => String(right.created_at ?? '').localeCompare(String(left.created_at ?? '')))[0]
+}
+
+function assignmentStatus(assignment: BridgeState['assignments'][string] | undefined, fallback: string) {
+  const status = typeof assignment?.status === 'string' ? assignment.status : ''
+  return ['queued', 'working', 'waiting_user', 'waiting_bot', 'blocked', 'done', 'failed', 'cancelled'].includes(status) ? status : fallback
 }
 
 function statusText(key: CopyKey) { return t(key) }
@@ -3688,10 +3769,10 @@ function GeneralSettings({ themeMode, translucent, reducedTransparency, preferen
   </section>
 }
 
-function ChatRow(props: { title: string; subtitle: string; approval?: { label: string; count: number }; selected: boolean; main?: boolean; onClick: () => void; onDetails?: () => void; detailsLabel?: string }) {
+function ChatRow(props: { title: string; subtitle: string; approval?: { label: string; count: number }; selected: boolean; main?: boolean; groupMemberBotIds?: string[]; bots?: BridgeState['bots']; onClick: () => void; onDetails?: () => void; detailsLabel?: string }) {
   return <div style={{ display: 'flex', alignItems: 'center', minWidth: 0 }}>
     <button className={`chat-row ${props.selected ? 'selected' : ''}${props.approval ? ' has-approval' : ''}`} style={{ minWidth: 0, flex: 1, width: 'auto', paddingRight: props.onDetails ? 40 : undefined }} onClick={props.onClick}>
-      <BeanAvatar main={props.main} size="40" seed={props.title} />
+      {props.groupMemberBotIds && props.bots ? <GroupAvatar memberBotIds={props.groupMemberBotIds} bots={props.bots} size="40" label={props.title} /> : <BeanAvatar main={props.main} size="40" seed={props.title} />}
       <span className="chat-row-text"><strong>{props.title}</strong>{props.approval ? <small className="chat-row-approval">{props.approval.label}</small> : props.subtitle && <small>{props.subtitle}</small>}</span>
       {props.approval && <span className="chat-row-approval-badge" aria-label={props.approval.label}>{props.approval.count}</span>}
       {props.selected && <ChevronRight size={14} className="row-chevron" />}
@@ -3820,7 +3901,7 @@ function MessageBubble({ message, taskAvatarBotId, skillNames, pending = false, 
   bots: BridgeState['bots']
   chats: BridgeState['chats']
   chatTitle: string
-  onOpenProject: (projectId: string, chatId?: string) => Promise<void>
+  onOpenProject: (projectId: string, chatId?: string, completionHandoff?: boolean) => Promise<void>
   onOpenChat: (chatId: string) => void
   onOpenApproval: (chatId: string, approvalId: string) => void
   onLoopResolve: (rootMessageId: string, action: 'continue' | 'end') => Promise<void>
@@ -3843,6 +3924,7 @@ function MessageBubble({ message, taskAvatarBotId, skillNames, pending = false, 
   const renderMode = messageRenderMode({ streaming: message.streaming, deleted })
   const quote = (message as Message & { quote?: { sender?: { kind?: string; bot_id?: string }; excerpt?: string; message_id?: string } | null }).quote
   const blocks = message.blocks ?? []
+  const mentionsUser = message.mentions?.some((mention) => mention.kind === 'user') === true
   const hasRenderable = !deleted && blocks.some((block) => block.type && block.type !== 'text')
   const hasPlainAssistantText = !isUser && blocks.length > 0 && blocks.every((block) => block.type === 'text')
   const text = deleted ? '' : blocks.map((block) => typeof block.markdown === 'string' ? block.markdown : typeof block.text === 'string' ? block.text : '').filter(Boolean).join('\n')
@@ -3886,8 +3968,8 @@ function MessageBubble({ message, taskAvatarBotId, skillNames, pending = false, 
             const questionList = questionIds.map((id) => questions[id]).filter((question): question is Question => Boolean(question))
             if (!questionList.length) return <div className="block-fallback" key={index}>{message.fallback_text || t('common.unsupported_block')}</div>
             return questionList.length > 1
-              ? <QuestionDeck key={`deck-${index}`} questions={questionList} botName={senderName} onAnswer={onQuestionAnswer} />
-              : <QuestionCard key={`${questionList[0].id}-${index}`} question={questionList[0]} botName={senderName} onAnswer={onQuestionAnswer} />
+              ? <QuestionDeck key={`deck-${index}`} questions={questionList} botName={senderName} mentionsUser={mentionsUser} onAnswer={onQuestionAnswer} />
+              : <QuestionCard key={`${questionList[0].id}-${index}`} question={questionList[0]} botName={senderName} mentionsUser={mentionsUser} onAnswer={onQuestionAnswer} />
           }
           if (block.type === 'approval' || block.type === 'approval_ref') {
             const id = typeof block.approval_id === 'string' ? block.approval_id : ''
@@ -3903,10 +3985,10 @@ function MessageBubble({ message, taskAvatarBotId, skillNames, pending = false, 
           }
           if (block.type === 'project_card') {
             const projectId = String(block.project_id ?? '')
-            const project = projects[projectId] as (Record<string, Json> & { chat_id?: string; name?: string; status?: string; members?: { bot_id?: string }[] }) | undefined
+            const project = projects[projectId] as (Record<string, Json> & { chat_id?: string; name?: string; status?: string; members?: { bot_id?: string; joined_at?: string }[] }) | undefined
             const targetChatId = project?.chat_id ?? Object.values(chats).find((chat) => chat.project_id === projectId)?.id ?? ''
             if (!projectId) return <FallbackCard key={index} text={message.fallback_text || t('common.unsupported_block')} />
-            return <ProjectCard key={`${projectId}-${index}`} projectId={projectId} context={String(block.context ?? '')} note={typeof block.note === 'string' ? block.note : null} project={{ ...project, chat_id: targetChatId }} bots={bots} onOpen={onOpenProject} />
+            return <ProjectCard key={`${projectId}-${index}`} projectId={projectId} context={String(block.context ?? '')} note={typeof block.note === 'string' ? block.note : null} project={{ ...project, chat_id: targetChatId }} memberBotIds={Array.isArray(chats[targetChatId]?.member_bot_ids) ? chats[targetChatId]!.member_bot_ids as string[] : []} bots={bots} handoff={Boolean(quote && block.context === 'mentioned')} onOpen={onOpenProject} />
           }
           if (block.type === 'task_card') {
             const assignmentId = String(block.assignment_id ?? '')
@@ -3973,7 +4055,7 @@ function MessageBubble({ message, taskAvatarBotId, skillNames, pending = false, 
   </article>
 }
 
-function QuestionDeck({ questions, botName, onAnswer }: { questions: Question[]; botName: string; onAnswer: (question: Question, answer: QuestionAnswer) => Promise<void> }) {
+function QuestionDeck({ questions, botName, mentionsUser, onAnswer }: { questions: Question[]; botName: string; mentionsUser: boolean; onAnswer: (question: Question, answer: QuestionAnswer) => Promise<void> }) {
   const [activeIndex, setActiveIndex] = useState(() => Math.max(0, questions.findIndex((question) => question.state === 'pending')))
   const active = questions[Math.min(activeIndex, questions.length - 1)]
   const answeredCount = questions.filter((question) => question.state === 'answered').length
@@ -4000,12 +4082,12 @@ function QuestionDeck({ questions, botName, onAnswer }: { questions: Question[];
     <nav className="question-deck-tabs" aria-label={t('block.question.tab').replace('{n}', String(activeIndex + 1))}>
       {questions.map((question, index) => <button type="button" key={question.id} className={`${activeIndex === index ? 'active' : ''} ${question.state === 'answered' ? 'answered' : ''}`} onClick={() => setActiveIndex(index)}>{question.state === 'answered' && '✓ '}{t('block.question.tab').replace('{n}', String(index + 1))}</button>)}
     </nav>
-    {active && <QuestionCard key={active.id} question={active} botName={botName} onAnswer={answer} />}
+    {active && <QuestionCard key={active.id} question={active} botName={botName} mentionsUser={mentionsUser} onAnswer={answer} />}
     {!allAnswered && questions.length - activeIndex > 1 && <div className="question-deck-stack" aria-hidden="true" />}
   </section>
 }
 
-function QuestionCard({ question, botName, onAnswer }: { question: Question; botName: string; onAnswer: (question: Question, answer: QuestionAnswer) => Promise<void> }) {
+function QuestionCard({ question, botName, mentionsUser, onAnswer }: { question: Question; botName: string; mentionsUser: boolean; onAnswer: (question: Question, answer: QuestionAnswer) => Promise<void> }) {
   const [selected, setSelected] = useState<number[]>([])
   const [otherOpen, setOtherOpen] = useState(false)
   const [reply, setReply] = useState('')
@@ -4037,7 +4119,7 @@ function QuestionCard({ question, botName, onAnswer }: { question: Question; bot
       if (other) { event.preventDefault(); other.click() }
     }
   }}>
-    <div className="question-kicker">{question.state === 'answered' && <span className="question-check">✓</span>}{title}</div>
+    <div className="question-kicker">{mentionsUser && <span className="question-mention">{t('block.question.mention')}</span>}{question.state === 'answered' && <span className="question-check">✓</span>}{title}</div>
     <strong className="question-prompt">{question.text}</strong>
     <div className="question-options">{question.options.map((option, index) => {
       const picked = selectedIndexes.includes(index)
@@ -4052,6 +4134,7 @@ function QuestionCard({ question, botName, onAnswer }: { question: Question; bot
       {!otherOpen ? <button type="button" className="question-other-toggle" onClick={() => setOtherOpen(true)}>✎ {t('block.question.other')}</button> : <><textarea autoFocus value={reply} onChange={(event) => setReply(event.target.value)} placeholder={t('block.question.free_text_hint')} /><button type="button" className="question-submit" disabled={!reply.trim() || busy} onClick={() => void submit({ text: reply.trim() })}>{t('common.send')}</button></>}
     </div>}
     {question.state === 'answered' && answer?.text && <div className="question-reply"><span>✎ {t('block.question.your_reply')}</span>{answer.text}</div>}
+    {question.state === 'answered' && <div className="question-received"><Check size={12} />{t('block.question.continuing').replace('{bot}', botName)}</div>}
   </section>
 }
 

@@ -15,6 +15,7 @@
     "test:skill-message": "node --test src/components/skillMessage.model.test.mjs",
     "test:dashboard": "node --test src/components/dashboard.model.test.mjs",
     "test:summary": "node --test src/summaryMarkdown.test.mjs",
+    "test:group-flow": "node --test src/groupConversation.model.test.mjs",
     "test:startup": "node --test tests/startupRendering.test.mjs",
     "tauri": "tauri"
   },

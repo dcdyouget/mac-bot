@@ -3,6 +3,9 @@ import { createPortal } from 'react-dom'
 import { AlertTriangle, Check, ChevronRight, Circle, Clock3, File, Folder, Globe, Image as ImageIcon, Link2, MessageCircle, PauseCircle, Reply, Target, X, Zap } from 'lucide-react'
 import { t } from '../i18n'
 import type { Json } from '../types'
+import { GroupAvatar } from './GroupAvatar'
+import { MarkdownPreview } from './ArtifactPage'
+import { orderedGroupMemberIds } from '../groupConversation.model.mjs'
 import { getTaskCardStatus } from './messageBlocksTaskCard'
 import { getSkillMessageDelivery, parseForcedSkillText, type LoadedSkillRecord, type SkillMessageDelivery } from './skillMessage.model'
 
@@ -10,7 +13,7 @@ export type ArtifactRef = { artifact_id: string; title: string; path_or_url: str
 export type MessageFileRef = { root: 'project' | 'bot' | 'upload'; root_id: string; path: string; name: string; size: number; mime: string }
 export type MessageFilePreview = { content: string; content_encoding: 'utf8' | 'base64'; mime: string; size: number }
 
-type ProjectData = { id?: string; chat_id?: string; name?: string; status?: string; done_at?: string | null; members?: { bot_id?: string }[] }
+type ProjectData = { id?: string; chat_id?: string; name?: string; status?: string; done_at?: string | null; members?: { bot_id?: string; joined_at?: string }[] }
 type BotMap = Record<string, { id: string; name?: string; is_main?: boolean }>
 
 export function SkillMessageText({ text, knownSkillNames }: { text: string; knownSkillNames: string[] }) {
@@ -35,25 +38,33 @@ export function SkillMessageLoadedStatus({ loadedSkills, bots }: { loadedSkills:
   </span>)}</div>
 }
 
-export function ProjectCard({ projectId, context, note, project, bots, onOpen }: { projectId: string; context?: string; note?: string | null; project?: ProjectData; bots: BotMap; onOpen: (projectId: string, chatId?: string) => Promise<void> }) {
+export function ProjectCard({ projectId, context, note, project, memberBotIds: memberIdsFallback = [], bots, handoff = false, onOpen }: { projectId: string; context?: string; note?: string | null; project?: ProjectData; memberBotIds?: string[]; bots: BotMap; handoff?: boolean; onOpen: (projectId: string, chatId?: string, completionHandoff?: boolean) => Promise<void> }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   if (!projectId) return <FallbackCard text={t('common.unsupported_block')} />
   const members = (project?.members ?? []).map((member) => bots[member.bot_id ?? '']?.name).filter((name): name is string => Boolean(name))
+  const memberBotIds = orderedGroupMemberIds({ memberBotIds: memberIdsFallback, projectMembers: project?.members ?? [], bots }) as string[]
   const status = context === 'created' ? 'new' : project?.status ?? 'active'
   const statusText = t(status === 'new' ? 'project.status.new' : status === 'review' ? 'project.status.review' : status === 'done' ? 'project.status.done' : status === 'archived' ? 'project.status.archived' : 'project.status.active')
   const chatId = project?.chat_id ?? ''
-  return <div className="project-card-wrap"><button type="button" className="project-card" disabled={busy} onClick={() => void open()}>
-    {context === 'created' && <div className="project-card-created">{t('block.project_card.created')}</div>}
-    <div className="project-card-heading"><span className="project-card-avatar"><MessageCircle size={19} /></span><span className="project-card-main"><strong>{project?.name ?? projectId}</strong><small>{t('block.project_card.subtitle').replace('{members}', members.join('、'))}</small></span><span className={`project-status status-${status}`}>{statusText}</span><ChevronRight size={15} /></div>
-    {note && <p className="project-card-note">{note}</p>}
-    <div className="project-card-foot"><MessageCircle size={13} />{t('block.project_card.enter')}</div>
-  </button>{error && <p className="project-card-error" role="alert">{error}</p>}</div>
+  const heading = <div className="project-card-heading"><GroupAvatar memberBotIds={memberBotIds} bots={bots} size="40" label={project?.name ?? projectId} /><span className="project-card-main"><strong>{project?.name ?? projectId}</strong><small>{t('block.project_card.subtitle').replace('{members}', members.join('、'))}</small></span><span className={`project-status status-${status}`}>{statusText}</span><ChevronRight size={15} /></div>
+  return <div className="project-card-wrap">{handoff
+    ? <div className="project-card project-card-handoff">
+      <div className="project-card-created">{t('block.project_card.acceptance')}</div>{heading}
+      {note && <p className="project-card-note">{note}</p>}
+      <button type="button" className="project-card-jump" disabled={busy} onClick={() => void open()}><MessageCircle size={13} />{t('block.project_card.jump_to_group')}<ChevronRight size={14} /></button>
+    </div>
+    : <button type="button" className="project-card" disabled={busy} onClick={() => void open()}>
+      {context === 'created' && <div className="project-card-created">{t('block.project_card.created')}</div>}
+      {heading}
+      {note && <p className="project-card-note">{note}</p>}
+      <div className="project-card-foot"><MessageCircle size={13} />{t('block.project_card.enter')}</div>
+    </button>}{error && <p className="project-card-error" role="alert">{error}</p>}</div>
 
   async function open() {
     setBusy(true)
     setError('')
-    try { await onOpen(projectId, chatId) } catch (reason) { setError(String(reason)) } finally { setBusy(false) }
+    try { await onOpen(projectId, chatId, handoff) } catch (reason) { setError(String(reason)) } finally { setBusy(false) }
   }
 }
 
@@ -226,7 +237,8 @@ export function CompletionCard({ block, bots, onPreview }: { block: Record<strin
   const artifacts = Array.isArray(block.artifacts) ? block.artifacts.filter(isArtifact) : []
   const next = Array.isArray(block.next) ? block.next.filter(isRecord) : []
   return <section className="completion-card">
-    <div className="completion-heading"><Check size={14} /><strong>{t('block.completion.done')}</strong><span>{summary}</span></div>
+    <div className="completion-heading"><Check size={14} /><strong>{t('block.completion.done')}</strong></div>
+    {summary && <div className="completion-summary"><MarkdownPreview content={summary} variant="message" /></div>}
     {artifacts.length > 0 && <ArtifactRows artifacts={artifacts} bots={bots} onPreview={onPreview} />}
     {next.length > 0 && <div className="completion-next">{next.map((item, index) => <div key={index}><ChevronRight size={13} /><b>@{bots[String(item.bot_id ?? '')]?.name ?? t('common.bot')}</b> {String(item.instruction ?? '')}</div>)}</div>}
     {block.notify_main === true && <div className="completion-next"><div><ChevronRight size={13} /><b>@{Object.values(bots).find((bot) => bot.is_main)?.name ?? t('common.bot')}</b> {t('block.completion.notify_main')}</div></div>}
@@ -259,9 +271,10 @@ export function ReviewCard({ projectName, state, confirmedAt, artifacts, bots, o
 export function ArtifactRows({ artifacts, bots, onPreview, compact = false }: { artifacts: ArtifactRef[]; bots: BotMap; onPreview: (artifact: ArtifactRef) => void; compact?: boolean }) {
   return <div className="artifact-rows">{artifacts.map((artifact) => {
     const Icon = artifact.kind === 'dir' ? Folder : artifact.kind === 'url' ? Globe : File
+    const externalUrl = artifact.kind === 'url' && /^https?:\/\//i.test(artifact.path_or_url)
     return <div className="artifact-row" key={artifact.artifact_id}>
       <span className="artifact-icon"><Icon size={16} /></span><span className="artifact-meta"><span className="artifact-title">{artifact.title}<small>{bots[artifact.bot_id ?? '']?.name ?? ''}</small></span><small className="artifact-path">{artifact.path_or_url}</small></span>
-      {!compact && <button type="button" className="artifact-preview" onClick={() => onPreview(artifact)}>{t('artifact.preview.tabs.preview')}</button>}
+      {!compact && (externalUrl ? <a className="artifact-preview" href={artifact.path_or_url} target="_blank" rel="noreferrer">{t('artifact.preview.open_url')}</a> : <button type="button" className="artifact-preview" onClick={() => onPreview(artifact)}>{t('artifact.preview.tabs.preview')}</button>)}
     </div>
   })}</div>
 }

@@ -175,6 +175,8 @@ button.protocol-status-block:hover { border-color: var(--accent); background: va
 .question-deck-tabs button.answered { border-color: var(--success); background: var(--success-soft); color: var(--success); }
 .question-deck-stack { position: absolute; z-index: -1; right: 8px; bottom: 1px; left: 8px; height: 8px; border-radius: 0 0 8px 8px; background: var(--bg-active); box-shadow: 0 2px 0 var(--bg-elevated); }
 .question-kicker { display: flex; align-items: center; gap: 5px; margin-bottom: 8px; color: var(--accent); font-size: 11px; font-weight: 600; }
+.question-mention { padding: 2px 6px; border-radius: 9px; background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+.question-received { display: flex; align-items: center; gap: 5px; margin-top: 8px; color: var(--success); font-size: 10px; }
 .question-instruction { margin-top: 6px; color: var(--text-tertiary); font-size: 10px; }
 .question-check { color: var(--success); }
 .question-prompt { display: block; margin-bottom: 9px; line-height: 19px; }
@@ -210,8 +212,8 @@ button.protocol-status-block:hover { border-color: var(--accent); background: va
 .approval-reference { width: 100%; border: 0; text-align: left; cursor: pointer; }
 .approval-reference > strong { margin-left: auto; font-size: 10px; font-weight: 500; }
 .approval-reference small { width: 100%; color: var(--text-secondary); }
-.project-card-wrap { min-width: 320px; }
-.project-card, .review-card, .completion-card { min-width: 320px; padding: 12px; border: 1px solid var(--border-default); border-radius: 12px; background: color-mix(in srgb, var(--bg-window) 82%, transparent); color: var(--text-primary); text-align: left; white-space: normal; }
+.project-card-wrap { width: 100%; min-width: 0; max-width: 100%; }
+.project-card, .review-card, .completion-card { box-sizing: border-box; width: 100%; min-width: 0; max-width: 100%; padding: 12px; border: 1px solid var(--border-default); border-radius: 12px; background: color-mix(in srgb, var(--bg-window) 82%, transparent); color: var(--text-primary); text-align: left; white-space: normal; }
 .project-card { display: block; width: 100%; cursor: pointer; }
 .project-card:hover:not(:disabled) { border-color: var(--accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 18%, transparent); }
 .project-card:disabled { cursor: default; opacity: .8; }
@@ -227,6 +229,10 @@ button.protocol-status-block:hover { border-color: var(--accent); background: va
 .project-status.status-done { background: var(--success-soft); color: var(--success); }
 .project-card-note { display: -webkit-box; overflow: hidden; margin: 9px 0; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-height: 16px; }
 .project-card-foot { display: flex; align-items: center; gap: 6px; margin: 9px -12px -12px; padding: 9px 12px; border-top: 1px solid var(--border-subtle); color: var(--accent); font-size: 11px; }
+.project-card-handoff { display: flex; flex-direction: column; gap: 8px; }
+.project-card-handoff .project-card-created { margin: 0; color: var(--success); font-weight: 600; }
+.project-card-jump { display: inline-flex; min-height: 30px; align-items: center; justify-content: center; gap: 6px; align-self: flex-start; padding: 0 10px; border: 1px solid var(--accent); border-radius: 7px; background: var(--accent-soft); color: var(--accent); font: inherit; font-size: 11px; cursor: pointer; }
+.project-card-jump:disabled { opacity: .6; cursor: default; }
 .task-card { position: relative; display: flex; min-height: 48px; align-items: center; gap: 9px; overflow: hidden; margin: 4px 0 4px 40px; padding: 8px 10px; border: 1px solid var(--border-subtle); border-radius: 10px; background: color-mix(in srgb, var(--bg-window) 84%, transparent); }
 .task-message-row { display: flex; width: min(100%, 560px); align-items: center; gap: 8px; margin: 4px 0; }
 .task-message-avatar { display: flex; width: 32px; height: 32px; flex: none; align-items: center; justify-content: center; }
@@ -248,9 +254,12 @@ button.protocol-status-block:hover { border-color: var(--accent); background: va
 .delegation-line svg { color: var(--text-tertiary); }
 .system-notice { margin: 12px auto; color: var(--text-tertiary); font-size: 11px; text-align: center; }
 .completion-card { border-color: var(--border-subtle); }
-.completion-heading { display: flex; align-items: baseline; gap: 5px; color: var(--success); line-height: 19px; }
+.completion-heading { display: flex; min-width: 0; align-items: center; gap: 6px; color: var(--success); line-height: 19px; }
 .completion-heading svg { flex: none; align-self: center; }
-.completion-heading span { color: var(--text-primary); }
+.completion-summary { min-width: 0; margin-top: 5px; overflow-wrap: anywhere; }
+.completion-summary .artifact-markdown { color: var(--text-primary); font-size: 12px; line-height: 18px; }
+.completion-summary .artifact-markdown > *:first-child { margin-top: 0; }
+.completion-summary .artifact-markdown > *:last-child { margin-bottom: 0; }
 .artifact-rows { display: flex; flex-direction: column; margin-top: 8px; }
 .artifact-row { display: flex; min-height: 46px; align-items: center; gap: 8px; padding: 5px 0; border-bottom: 1px solid var(--border-subtle); }
 .artifact-row:last-child { border-bottom: 0; }
@@ -508,6 +517,8 @@ button.protocol-status-block:hover { border-color: var(--accent); background: va
 .host-dialog footer button[type='submit'] { border-color: var(--accent); background: var(--accent); color: var(--accent-on); }
 
 .group-chat-avatar { display: grid; width: 32px; height: 32px; flex: none; place-items: center; border-radius: 9px; background: var(--accent-soft); color: var(--accent); }
+.gav.s24 { --s: 24px; gap: 1px; padding: 2px; }
+.group-avatar-overflow { display: grid; width: 100%; height: 100%; place-items: center; border-radius: 50%; background: var(--bg-elevated); color: var(--text-secondary); font-size: 8px; font-weight: 600; }
 .group-statusbar { display: flex; flex: none; gap: 4px; min-height: 36px; align-items: center; overflow-x: auto; padding: 4px 16px; border-bottom: 1px solid var(--border-subtle); scrollbar-width: none; }
 .group-statusbar::-webkit-scrollbar { display: none; }
 .group-status-loading { color: var(--text-secondary); font-size: 11px; }

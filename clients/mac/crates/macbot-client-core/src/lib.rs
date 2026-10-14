@@ -1400,6 +1400,12 @@ impl AppState {
                         if let Some(id) = message.get("id").and_then(Value::as_str) {
                             self.message_deltas.remove(id);
                         }
+                        if let (Some(chat_id), Some(bot_id)) = (
+                            message.get("chat_id").and_then(Value::as_str),
+                            message.pointer("/sender/bot_id").and_then(Value::as_str),
+                        ) {
+                            self.typing.remove(&format!("{chat_id}:{bot_id}"));
+                        }
                     }
                 }
             }
@@ -2461,14 +2467,14 @@ mod tests {
         state.apply_event(ProtocolEvent {
             seq: None,
             event: "message.updated".into(),
-            data: json!({"message":{"id":"msg_a","streaming":false,"fallback_text":"hi"}}),
+            data: json!({"message":{"id":"msg_a","chat_id":"chat_a","sender":{"bot_id":"bot_a"},"streaming":false,"fallback_text":"hi"}}),
         });
         state.apply_event(ProtocolEvent {
             seq: Some(2),
             event: "assignment.created".into(),
             data: json!({"assignment":{"id":"asg_a","status":"working"}}),
         });
-        assert!(state.typing["chat_a:bot_a"]);
+        assert!(!state.typing.contains_key("chat_a:bot_a"));
         assert_eq!(state.chats["chat_a"]["last_read_seq"], 3);
         assert_eq!(state.assignments["asg_a"]["status"], "working");
         assert!(!state.message_deltas.contains_key("msg_a"));
@@ -2499,14 +2505,20 @@ mod tests {
         assert_eq!(state.message_deltas["msg_stream"], "hello world");
         state.apply_event(ProtocolEvent {
             seq: Some(6),
+            event: "typing".into(),
+            data: json!({"chat_id":"chat_stream","bot_id":"bot_stream","on":true}),
+        });
+        state.apply_event(ProtocolEvent {
+            seq: Some(7),
             event: "message.updated".into(),
             data: json!({
-                "message":{"id":"msg_stream","streaming":false,"fallback_text":"hello world"}
+                "message":{"id":"msg_stream","chat_id":"chat_stream","sender":{"bot_id":"bot_stream"},"streaming":false,"fallback_text":"hello world"}
             }),
         });
         assert!(!state.message_deltas.contains_key("msg_stream"));
+        assert!(!state.typing.contains_key("chat_stream:bot_stream"));
         assert_eq!(state.messages["msg_stream"]["fallback_text"], "hello world");
-        assert_eq!(state.last_seq, 6);
+        assert_eq!(state.last_seq, 7);
     }
 
     #[test]
