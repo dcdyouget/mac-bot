@@ -24,7 +24,7 @@ import { EmptyGroupSuggestions, WelcomeTemplates, type WelcomeTemplateRecord } f
 import { welcomeTemplateRetryAction, type WelcomeTemplateChoice } from './components/welcomeTemplates.model'
 import { buildMainEmptySuggestionAction, splitSidebarGroups } from './components/sidebarGroups.model'
 import { classifyDeepLink, type PendingDeepLink } from './components/deepLinkRouting.model'
-import { CONTEXT_PANEL_TRANSITION_MS, transitionContextPanel, type ContextPanelPhase } from './components/contextPanelMotion.model'
+import { CONTEXT_PANEL_TRANSITION_MS, contextPanelWindowAction, transitionContextPanel, type ContextPanelPhase } from './components/contextPanelMotion.model'
 import { CLOSED_CONTEXT_PANEL_WINDOW, planContextPanelWindow, type ContextPanelWindowState, type SavedWindowFrame } from './components/contextPanelWindow.model'
 import { isLatestLocalPreferenceSave, mergeLocalPreferences, rollbackLocalPreferencePatch } from './components/localPreferences.model'
 import { captureChatScrollPosition, restoreChatScrollTop, type ChatScrollPosition } from './components/chatScrollPosition.model'
@@ -270,6 +270,7 @@ function App() {
   const [contextPanelPhase, setContextPanelPhase] = useState<ContextPanelPhase>('open')
   const contextPanelOpen = contextPanelPhase === 'open'
   const contextPanelRetained = contextPanelPhase !== 'closed'
+  const previousContextPanelPhaseRef = useRef<ContextPanelPhase>(contextPanelPhase)
   const contextPanelCloseTimerRef = useRef<number | null>(null)
   const nativeContextPanelWindowRef = useRef<ContextPanelWindowState>(CLOSED_CONTEXT_PANEL_WINDOW)
   const nativeContextPanelWindowQueueRef = useRef<Promise<void>>(Promise.resolve())
@@ -387,8 +388,11 @@ function App() {
   }, [])
 
   useEffect(() => {
-    if (contextPanelPhase === 'open') void resizeContextPanelWindow(true).catch(() => undefined)
-    else if (contextPanelPhase === 'closed') void resizeContextPanelWindow(false).catch(() => undefined)
+    const previousPhase = previousContextPanelPhaseRef.current
+    previousContextPanelPhaseRef.current = contextPanelPhase
+    const action = contextPanelWindowAction(previousPhase, contextPanelPhase)
+    if (action === 'open') void resizeContextPanelWindow(true).catch(() => undefined)
+    else if (action === 'close') void resizeContextPanelWindow(false).catch(() => undefined)
   }, [contextPanelPhase, resizeContextPanelWindow])
 
   useLayoutEffect(() => {

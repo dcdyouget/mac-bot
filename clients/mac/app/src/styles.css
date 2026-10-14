@@ -571,7 +571,9 @@ button.protocol-status-block:hover { border-color: var(--accent); background: va
 .group-status-pending { display: inline-flex; flex: none; align-items: center; gap: 2px; padding: 1px 4px; border: 1px solid var(--border-subtle); border-radius: 6px; background: var(--bg-window); color: var(--warning); font-size: 9px; }
 
 .connect-screen { display: flex; width: 100%; height: 100%; background: var(--bg-window); }
-.connect-form-side { display: flex; width: 50%; min-width: 480px; flex-direction: column; padding: 96px 72px 40px; background: var(--bg-sidebar); }
+.connect-form-side { display: flex; width: 50%; min-width: 480px; align-items: center; flex-direction: column; padding: 96px 72px 40px; background: var(--bg-sidebar); }
+.connect-form-side > .connect-brand, .connect-form-side > .saved-host-list, .connect-form-side > .connect-local-note { width: min(100%, 480px); }
+.connect-form-side > .connect-form { width: min(100%, 360px); }
 .connect-brand { display: flex; align-items: center; gap: 16px; margin-bottom: 30px; }
 .connect-avatar { width: 64px; height: 64px; font-size: 22px; }
 .eyebrow { color: var(--text-tertiary); font-size: 10px; font-weight: 600; letter-spacing: 1px; }
@@ -589,7 +591,8 @@ button.protocol-status-block:hover { border-color: var(--accent); background: va
 .connect-button:not(:disabled) { padding-left: 28px; }
 .connect-error { padding: 9px 11px; border-radius: 8px; background: var(--danger-soft); color: var(--danger); font-size: 12px; line-height: 17px; overflow-wrap: anywhere; }
 .connect-local-note { margin-top: auto; color: var(--text-tertiary); font-size: 11px; }
-.template-side { display: flex; width: 50%; flex-direction: column; gap: 14px; padding: 100px 72px 48px; }
+.template-side { display: flex; width: 50%; align-items: center; flex-direction: column; gap: 14px; padding: 100px 72px 48px; }
+.template-side > .welcome-templates { width: min(100%, 560px); }
 .template-side h2 { margin: 8px 0; font-size: 22px; line-height: 28px; }
 .template-side > div > p { font-size: 13px; }
 .template-card { display: flex; align-items: center; gap: 12px; min-height: 72px; padding: 14px 16px; border-radius: 12px; background: var(--bg-elevated); box-shadow: 0 0 0 1px var(--border-subtle), var(--elevation-1); }
