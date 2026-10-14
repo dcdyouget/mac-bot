@@ -360,7 +360,11 @@ pub type RpcResult = Result<Value, RpcError>;
 struct AuthStore {
     path: PathBuf,
     hash: Arc<RwLock<Option<String>>>,
+    sessions: Arc<Mutex<HashMap<String, Instant>>>,
 }
+
+const ADMIN_SESSION_COOKIE: &str = "macbot_admin_session";
+const ADMIN_SESSION_TTL: std::time::Duration = std::time::Duration::from_secs(12 * 60 * 60);
 
 impl AuthStore {
     fn load(home: &FsPath, initial_password: Option<&str>) -> Self {
@@ -392,6 +396,7 @@ impl AuthStore {
         let store = Self {
             path,
             hash: Arc::new(RwLock::new(hash.clone())),
+            sessions: Arc::new(Mutex::new(HashMap::new())),
         };
         if let Some(hash) = hash {
             if let Err(error) = store.write_hash_sync(&hash) {
@@ -427,9 +432,58 @@ impl AuthStore {
             .hash_password(password.as_bytes(), &salt)
             .map_err(|e| e.to_string())?
             .to_string();
-        self.write_hash_sync(&hash).map_err(|e| e.to_string())?;
-        *self.hash.write().await = Some(hash);
+        {
+            let mut current = self.hash.write().await;
+            self.write_hash_sync(&hash).map_err(|e| e.to_string())?;
+            *current = Some(hash);
+        }
+        self.sessions.lock().await.clear();
         Ok(())
+    }
+
+    async fn setup_password(&self, password: &str) -> Result<(), SetupPasswordError> {
+        if password.is_empty() {
+            return Err(SetupPasswordError::Invalid);
+        }
+        let salt = SaltString::generate(&mut OsRng);
+        let hash = Argon2::default()
+            .hash_password(password.as_bytes(), &salt)
+            .map_err(|error| SetupPasswordError::Persist(error.to_string()))?
+            .to_string();
+        let mut current = self.hash.write().await;
+        if current.is_some() {
+            return Err(SetupPasswordError::AlreadyConfigured);
+        }
+        self.write_hash_sync(&hash)
+            .map_err(|error| SetupPasswordError::Persist(error.to_string()))?;
+        *current = Some(hash);
+        Ok(())
+    }
+
+    async fn issue_session(&self) -> String {
+        let mut bytes = [0_u8; 32];
+        let mut rng = OsRng;
+        rand_core::RngCore::fill_bytes(&mut rng, &mut bytes);
+        let token = bytes
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect::<String>();
+        self.sessions
+            .lock()
+            .await
+            .insert(token.clone(), Instant::now() + ADMIN_SESSION_TTL);
+        token
+    }
+
+    async fn has_session(&self, token: &str) -> bool {
+        let now = Instant::now();
+        let mut sessions = self.sessions.lock().await;
+        sessions.retain(|_, expires_at| *expires_at > now);
+        sessions.contains_key(token)
+    }
+
+    async fn revoke_session(&self, token: &str) {
+        self.sessions.lock().await.remove(token);
     }
 
     async fn verify(&self, password: &str) -> AuthState {
@@ -457,6 +511,12 @@ impl AuthStore {
     async fn setup_required(&self) -> bool {
         self.hash.read().await.is_none()
     }
+}
+
+enum SetupPasswordError {
+    AlreadyConfigured,
+    Invalid,
+    Persist(String),
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -781,6 +841,8 @@ impl Gateway {
             .route("/admin", get(admin_handler))
             .route("/admin/assets/tokens.css", get(admin_tokens_handler))
             .route("/admin/setup", post(admin_setup_handler))
+            .route("/admin/login", post(admin_login_handler))
+            .route("/admin/logout", post(admin_logout_handler))
             .route("/admin/settings", post(admin_settings_handler))
             .route("/admin/password", post(admin_password_handler))
             .route("/admin/status", get(admin_status_handler))
@@ -3247,44 +3309,16 @@ fn usage_breakdown_csv(value: &Value) -> String {
     csv
 }
 
-async fn admin_handler(
-    State(gw): State<Gateway>,
-    ConnectInfo(remote): ConnectInfo<SocketAddr>,
-    headers: HeaderMap,
-) -> Response {
-    if !is_local_or_basic(remote, &headers, &gw).await {
-        let mut response = error_response(
-            StatusCode::UNAUTHORIZED,
-            "unauthorized",
-            "admin authentication required",
-        );
-        response.headers_mut().insert(
-            header::WWW_AUTHENTICATE,
-            HeaderValue::from_static("Basic realm=\"Mac Bot\""),
-        );
-        return response;
-    }
+async fn admin_handler() -> Response {
     let html = AdminAssets::get("admin.html").expect("embedded admin.html asset");
-    Html(String::from_utf8_lossy(&html.data).into_owned()).into_response()
+    let mut response = Html(String::from_utf8_lossy(&html.data).into_owned()).into_response();
+    response
+        .headers_mut()
+        .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    response
 }
 
-async fn admin_tokens_handler(
-    State(gw): State<Gateway>,
-    ConnectInfo(remote): ConnectInfo<SocketAddr>,
-    headers: HeaderMap,
-) -> Response {
-    if !is_local_or_basic(remote, &headers, &gw).await {
-        let mut response = error_response(
-            StatusCode::UNAUTHORIZED,
-            "unauthorized",
-            "admin authentication required",
-        );
-        response.headers_mut().insert(
-            header::WWW_AUTHENTICATE,
-            HeaderValue::from_static("Basic realm=\"Mac Bot\""),
-        );
-        return response;
-    }
+async fn admin_tokens_handler() -> Response {
     let Some(css) = AdminAssets::get("admin-tokens.css") else {
         return error_response(
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -3301,74 +3335,127 @@ async fn admin_tokens_handler(
     )
         .into_response()
 }
-async fn is_local_or_basic(remote: SocketAddr, headers: &HeaderMap, gw: &Gateway) -> bool {
-    if gw.auth.setup_required().await {
-        return remote.ip().is_loopback();
-    }
-    if let Some(v) = headers
-        .get(header::AUTHORIZATION)
-        .and_then(|v| v.to_str().ok())
-    {
-        if let Some(encoded) = v.strip_prefix("Basic ") {
-            if let Ok(bytes) = base64::engine::general_purpose::STANDARD.decode(encoded) {
-                if let Ok(s) = String::from_utf8(bytes) {
-                    return gw
-                        .auth
-                        .verify(s.split_once(':').map(|(_, p)| p).unwrap_or(""))
-                        .await
-                        == AuthState::Authorized;
-                }
-            }
-        }
-    }
-    false
+
+fn admin_session_token(headers: &HeaderMap) -> Option<&str> {
+    headers
+        .get(header::COOKIE)?
+        .to_str()
+        .ok()?
+        .split(';')
+        .filter_map(|cookie| cookie.trim().split_once('='))
+        .find_map(|(name, value)| (name == ADMIN_SESSION_COOKIE).then_some(value))
 }
+
+async fn has_admin_session(headers: &HeaderMap, gw: &Gateway) -> bool {
+    match admin_session_token(headers) {
+        Some(token) => gw.auth.has_session(token).await,
+        None => false,
+    }
+}
+
+fn set_admin_session_cookie(response: &mut Response, token: &str) {
+    if let Ok(value) = HeaderValue::from_str(&format!(
+        "{ADMIN_SESSION_COOKIE}={token}; Max-Age={}; Path=/; HttpOnly; SameSite=Strict",
+        ADMIN_SESSION_TTL.as_secs()
+    )) {
+        response.headers_mut().append(header::SET_COOKIE, value);
+    }
+}
+
+fn clear_admin_session_cookie(response: &mut Response) {
+    response.headers_mut().append(
+        header::SET_COOKIE,
+        HeaderValue::from_static(
+            "macbot_admin_session=; Max-Age=0; Path=/; HttpOnly; SameSite=Strict",
+        ),
+    );
+}
+
 async fn admin_setup_handler(
     State(gw): State<Gateway>,
     ConnectInfo(remote): ConnectInfo<SocketAddr>,
-    headers: HeaderMap,
     form: axum::extract::Form<HashMap<String, String>>,
 ) -> Response {
-    if !gw.auth.setup_required().await {
-        return error_response(
-            StatusCode::CONFLICT,
-            "conflict",
-            "password already configured",
-        );
-    }
-    if !remote.ip().is_loopback() || !is_local_or_basic(remote, &headers, &gw).await {
+    if !remote.ip().is_loopback() {
         return error_response(
             StatusCode::UNAUTHORIZED,
             "unauthorized",
             "setup is local only",
         );
     }
-    match gw
-        .auth
-        .set_password(form.get("password").map(String::as_str).unwrap_or(""))
-        .await
-    {
-        Ok(()) => Html("密码已设置，请返回客户端连接。").into_response(),
-        Err(e) => error_response(StatusCode::BAD_REQUEST, "invalid_params", &e),
+    let password = form.get("password").map(String::as_str).unwrap_or("");
+    match gw.auth.setup_password(password).await {
+        Ok(()) => {
+            let token = gw.auth.issue_session().await;
+            let mut response = Json(json!({"ok":true})).into_response();
+            set_admin_session_cookie(&mut response, &token);
+            response
+        }
+        Err(SetupPasswordError::AlreadyConfigured) => error_response(
+            StatusCode::CONFLICT,
+            "conflict",
+            "password already configured",
+        ),
+        Err(SetupPasswordError::Invalid) => error_response(
+            StatusCode::BAD_REQUEST,
+            "invalid_params",
+            "password must not be empty",
+        ),
+        Err(SetupPasswordError::Persist(error)) => {
+            error_response(StatusCode::INTERNAL_SERVER_ERROR, "auth", &error)
+        }
     }
 }
+
+async fn admin_login_handler(
+    State(gw): State<Gateway>,
+    form: axum::extract::Form<HashMap<String, String>>,
+) -> Response {
+    if gw.auth.setup_required().await {
+        return error_response(
+            StatusCode::CONFLICT,
+            "setup_required",
+            "password setup is required",
+        );
+    }
+    if gw
+        .auth
+        .verify(form.get("password").map(String::as_str).unwrap_or(""))
+        .await
+        != AuthState::Authorized
+    {
+        return error_response(
+            StatusCode::UNAUTHORIZED,
+            "unauthorized",
+            "password is incorrect",
+        );
+    }
+    let token = gw.auth.issue_session().await;
+    let mut response = Json(json!({"ok":true})).into_response();
+    set_admin_session_cookie(&mut response, &token);
+    response
+}
+
+async fn admin_logout_handler(State(gw): State<Gateway>, headers: HeaderMap) -> Response {
+    if let Some(token) = admin_session_token(&headers) {
+        gw.auth.revoke_session(token).await;
+    }
+    let mut response = Json(json!({"ok":true})).into_response();
+    clear_admin_session_cookie(&mut response);
+    response
+}
+
 async fn admin_settings_handler(
     State(gw): State<Gateway>,
-    ConnectInfo(remote): ConnectInfo<SocketAddr>,
     headers: HeaderMap,
     Json(patch): Json<Value>,
 ) -> Response {
-    if !is_local_or_basic(remote, &headers, &gw).await {
-        let mut response = error_response(
+    if !has_admin_session(&headers, &gw).await {
+        return error_response(
             StatusCode::UNAUTHORIZED,
             "unauthorized",
             "admin authentication required",
         );
-        response.headers_mut().insert(
-            header::WWW_AUTHENTICATE,
-            HeaderValue::from_static("Basic realm=\"Mac Bot\""),
-        );
-        return response;
     }
     local_settings_handler(State(gw), Json(patch)).await
 }
@@ -3378,7 +3465,17 @@ async fn admin_status_handler(
     ConnectInfo(remote): ConnectInfo<SocketAddr>,
     headers: HeaderMap,
 ) -> Response {
-    if !is_local_or_basic(remote, &headers, &gw).await {
+    if gw.auth.setup_required().await {
+        if !remote.ip().is_loopback() {
+            return error_response(
+                StatusCode::UNAUTHORIZED,
+                "setup_local_only",
+                "initial password setup is available only from this Mac",
+            );
+        }
+        return Json(json!({"setup_required":true,"port":gw.bind_addr.port()})).into_response();
+    }
+    if !has_admin_session(&headers, &gw).await {
         return error_response(
             StatusCode::UNAUTHORIZED,
             "unauthorized",
@@ -3454,11 +3551,10 @@ struct AdminLogQuery {
 
 async fn admin_logs_handler(
     State(gw): State<Gateway>,
-    ConnectInfo(remote): ConnectInfo<SocketAddr>,
     headers: HeaderMap,
     Query(query): Query<AdminLogQuery>,
 ) -> Response {
-    if !is_local_or_basic(remote, &headers, &gw).await {
+    if !has_admin_session(&headers, &gw).await {
         return error_response(
             StatusCode::UNAUTHORIZED,
             "unauthorized",
@@ -3512,11 +3608,10 @@ struct AdminPasswordChange {
 
 async fn admin_password_handler(
     State(gw): State<Gateway>,
-    ConnectInfo(remote): ConnectInfo<SocketAddr>,
     headers: HeaderMap,
     Json(payload): Json<AdminPasswordChange>,
 ) -> Response {
-    if !is_local_or_basic(remote, &headers, &gw).await
+    if !has_admin_session(&headers, &gw).await
         || gw.auth.verify(&payload.current_password).await != AuthState::Authorized
     {
         return error_response(
@@ -3526,7 +3621,11 @@ async fn admin_password_handler(
         );
     }
     match gw.auth.set_password(&payload.new_password).await {
-        Ok(()) => Json(json!({"ok": true})).into_response(),
+        Ok(()) => {
+            let mut response = Json(json!({"ok": true})).into_response();
+            clear_admin_session_cookie(&mut response);
+            response
+        }
         Err(error) => error_response(StatusCode::BAD_REQUEST, "invalid_password", &error),
     }
 }
@@ -3774,12 +3873,8 @@ async fn local_update_handler(State(_gw): State<Gateway>) -> Response {
     }
 }
 
-async fn admin_restart_handler(
-    State(gw): State<Gateway>,
-    ConnectInfo(remote): ConnectInfo<SocketAddr>,
-    headers: HeaderMap,
-) -> Response {
-    if !is_local_or_basic(remote, &headers, &gw).await {
+async fn admin_restart_handler(State(gw): State<Gateway>, headers: HeaderMap) -> Response {
+    if !has_admin_session(&headers, &gw).await {
         return error_response(
             StatusCode::UNAUTHORIZED,
             "unauthorized",
@@ -3881,8 +3976,55 @@ mod tests {
     use axum::body::Body;
     use tower::ServiceExt;
 
+    async fn admin_request(
+        gateway: &Gateway,
+        method: &str,
+        uri: &str,
+        remote: &str,
+        cookie: Option<&str>,
+        content_type: Option<&str>,
+        body: &str,
+    ) -> Response {
+        let mut builder = http::Request::builder()
+            .method(method)
+            .uri(uri)
+            .extension(ConnectInfo(remote.parse::<SocketAddr>().unwrap()));
+        if let Some(cookie) = cookie {
+            builder = builder.header(header::COOKIE, cookie);
+        }
+        if let Some(content_type) = content_type {
+            builder = builder.header(header::CONTENT_TYPE, content_type);
+        }
+        gateway
+            .router()
+            .oneshot(builder.body(Body::from(body.to_owned())).unwrap())
+            .await
+            .unwrap()
+    }
+
+    fn response_cookie(response: &Response) -> String {
+        response
+            .headers()
+            .get(header::SET_COOKIE)
+            .expect("session cookie")
+            .to_str()
+            .unwrap()
+            .split(';')
+            .next()
+            .unwrap()
+            .to_owned()
+    }
+
+    async fn session_headers(gateway: &Gateway) -> HeaderMap {
+        let token = gateway.auth.issue_session().await;
+        HeaderMap::from_iter([(
+            header::COOKIE,
+            HeaderValue::from_str(&format!("{ADMIN_SESSION_COOKIE}={token}")).unwrap(),
+        )])
+    }
+
     #[tokio::test]
-    async fn root_serves_the_authenticated_admin_page_and_admin_path_stays_available() {
+    async fn root_and_admin_path_serve_the_custom_login_page_without_a_challenge() {
         let dir = tempfile::tempdir().unwrap();
         let gw = Gateway::new(GatewayConfig {
             home: dir.path().into(),
@@ -3895,7 +4037,6 @@ mod tests {
                 .oneshot(
                     http::Request::builder()
                         .uri(path)
-                        .header("authorization", "Basic YWRtaW46ZGV2")
                         .extension(ConnectInfo("127.0.0.1:1234".parse::<SocketAddr>().unwrap()))
                         .body(Body::empty())
                         .unwrap(),
@@ -3903,6 +4044,7 @@ mod tests {
                 .await
                 .unwrap();
             assert_eq!(response.status(), StatusCode::OK, "{path}");
+            assert!(!response.headers().contains_key(header::WWW_AUTHENTICATE));
             let body = axum::body::to_bytes(response.into_body(), usize::MAX)
                 .await
                 .unwrap();
@@ -3913,32 +4055,278 @@ mod tests {
             assert!(html.contains("disabled=hostNameManaged(x)"), "{path}");
             assert!(html.contains("x.config_path"), "{path}");
             assert!(html.contains("由 {path} 管理"), "{path}");
+            assert!(html.contains("id=\"login-form\""), "{path}");
         }
     }
 
     #[tokio::test]
-    async fn root_uses_the_same_admin_authentication_as_admin_path() {
+    async fn protected_admin_status_rejects_missing_session_without_a_challenge() {
         let dir = tempfile::tempdir().unwrap();
         let gw = Gateway::new(GatewayConfig {
             home: dir.path().into(),
             password: Some("dev".into()),
             ..Default::default()
         });
-        for path in ["/", "/admin"] {
-            let response = gw
-                .router()
-                .oneshot(
-                    http::Request::builder()
-                        .uri(path)
-                        .extension(ConnectInfo("10.0.0.1:1234".parse::<SocketAddr>().unwrap()))
-                        .body(Body::empty())
-                        .unwrap(),
-                )
-                .await
-                .unwrap();
-            assert_eq!(response.status(), StatusCode::UNAUTHORIZED, "{path}");
-            assert!(response.headers().contains_key(header::WWW_AUTHENTICATE));
+        let response =
+            admin_request(&gw, "GET", "/admin/status", "10.0.0.1:1234", None, None, "").await;
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+        assert!(!response.headers().contains_key(header::WWW_AUTHENTICATE));
+    }
+
+    #[tokio::test]
+    async fn initial_setup_is_loopback_only_sets_a_session_and_cannot_repeat() {
+        let dir = tempfile::tempdir().unwrap();
+        let gw = Gateway::new(GatewayConfig {
+            home: dir.path().into(),
+            ..Default::default()
+        });
+        let remote_attempt = admin_request(
+            &gw,
+            "POST",
+            "/admin/setup",
+            "192.0.2.2:1234",
+            None,
+            Some("application/x-www-form-urlencoded"),
+            "password=dev",
+        )
+        .await;
+        assert_eq!(remote_attempt.status(), StatusCode::UNAUTHORIZED);
+        assert!(!remote_attempt
+            .headers()
+            .contains_key(header::WWW_AUTHENTICATE));
+
+        let setup = admin_request(
+            &gw,
+            "POST",
+            "/admin/setup",
+            "127.0.0.1:1234",
+            None,
+            Some("application/x-www-form-urlencoded"),
+            "password=dev",
+        )
+        .await;
+        assert_eq!(setup.status(), StatusCode::OK);
+        assert!(!setup.headers().contains_key(header::WWW_AUTHENTICATE));
+        let set_cookie = setup
+            .headers()
+            .get(header::SET_COOKIE)
+            .unwrap()
+            .to_str()
+            .unwrap();
+        assert!(set_cookie.contains("HttpOnly"));
+        assert!(set_cookie.contains("SameSite=Strict"));
+        assert!(set_cookie.contains("Path=/"));
+        assert!(set_cookie.contains("Max-Age=43200"));
+        let cookie = response_cookie(&setup);
+
+        let auth_path = dir.path().join("data/auth.json");
+        let auth_contents = std::fs::read_to_string(&auth_path).unwrap();
+        let auth_json: Value = serde_json::from_str(&auth_contents).unwrap();
+        let password_hash = auth_json["password_hash"].as_str().unwrap();
+        assert!(password_hash.starts_with("$argon2id$"));
+        assert_ne!(password_hash, "dev");
+        assert!(!auth_contents.contains("\"password_hash\": \"dev\""));
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(
+                std::fs::metadata(&auth_path).unwrap().permissions().mode() & 0o777,
+                0o600
+            );
         }
+
+        let status = admin_request(
+            &gw,
+            "GET",
+            "/admin/status",
+            "127.0.0.1:1234",
+            Some(&cookie),
+            None,
+            "",
+        )
+        .await;
+        assert_eq!(status.status(), StatusCode::OK);
+        assert!(!status.headers().contains_key(header::WWW_AUTHENTICATE));
+
+        let restarted = Gateway::new(GatewayConfig {
+            home: dir.path().into(),
+            ..Default::default()
+        });
+        let old_cookie = admin_request(
+            &restarted,
+            "GET",
+            "/admin/status",
+            "127.0.0.1:1234",
+            Some(&cookie),
+            None,
+            "",
+        )
+        .await;
+        assert_eq!(old_cookie.status(), StatusCode::UNAUTHORIZED);
+
+        let repeated = admin_request(
+            &gw,
+            "POST",
+            "/admin/setup",
+            "127.0.0.1:1234",
+            None,
+            Some("application/x-www-form-urlencoded"),
+            "password=another",
+        )
+        .await;
+        assert_eq!(repeated.status(), StatusCode::CONFLICT);
+    }
+
+    #[tokio::test]
+    async fn login_logout_and_password_change_manage_admin_sessions() {
+        let dir = tempfile::tempdir().unwrap();
+        let gw = Gateway::new(GatewayConfig {
+            home: dir.path().into(),
+            password: Some("dev".into()),
+            ..Default::default()
+        });
+        let wrong = admin_request(
+            &gw,
+            "POST",
+            "/admin/login",
+            "127.0.0.1:1234",
+            None,
+            Some("application/x-www-form-urlencoded"),
+            "password=wrong",
+        )
+        .await;
+        assert_eq!(wrong.status(), StatusCode::UNAUTHORIZED);
+        assert!(!wrong.headers().contains_key(header::WWW_AUTHENTICATE));
+
+        let login = admin_request(
+            &gw,
+            "POST",
+            "/admin/login",
+            "127.0.0.1:1234",
+            None,
+            Some("application/x-www-form-urlencoded"),
+            "password=dev",
+        )
+        .await;
+        assert_eq!(login.status(), StatusCode::OK);
+        let cookie = response_cookie(&login);
+        let status = admin_request(
+            &gw,
+            "GET",
+            "/admin/status",
+            "127.0.0.1:1234",
+            Some(&cookie),
+            None,
+            "",
+        )
+        .await;
+        assert_eq!(status.status(), StatusCode::OK);
+
+        let logout = admin_request(
+            &gw,
+            "POST",
+            "/admin/logout",
+            "127.0.0.1:1234",
+            Some(&cookie),
+            None,
+            "",
+        )
+        .await;
+        assert_eq!(logout.status(), StatusCode::OK);
+        assert!(logout
+            .headers()
+            .get(header::SET_COOKIE)
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .contains("Max-Age=0"));
+        let after_logout = admin_request(
+            &gw,
+            "GET",
+            "/admin/status",
+            "127.0.0.1:1234",
+            Some(&cookie),
+            None,
+            "",
+        )
+        .await;
+        assert_eq!(after_logout.status(), StatusCode::UNAUTHORIZED);
+
+        let first_session = admin_request(
+            &gw,
+            "POST",
+            "/admin/login",
+            "127.0.0.1:1234",
+            None,
+            Some("application/x-www-form-urlencoded"),
+            "password=dev",
+        )
+        .await;
+        let first_cookie = response_cookie(&first_session);
+        let second_session = admin_request(
+            &gw,
+            "POST",
+            "/admin/login",
+            "127.0.0.1:1234",
+            None,
+            Some("application/x-www-form-urlencoded"),
+            "password=dev",
+        )
+        .await;
+        let second_cookie = response_cookie(&second_session);
+        let changed = admin_request(
+            &gw,
+            "POST",
+            "/admin/password",
+            "127.0.0.1:1234",
+            Some(&first_cookie),
+            Some("application/json"),
+            r#"{"current_password":"dev","new_password":"new-dev"}"#,
+        )
+        .await;
+        assert_eq!(changed.status(), StatusCode::OK);
+        assert!(changed
+            .headers()
+            .get(header::SET_COOKIE)
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .contains("Max-Age=0"));
+        for cookie in [&first_cookie, &second_cookie] {
+            let revoked = admin_request(
+                &gw,
+                "GET",
+                "/admin/status",
+                "127.0.0.1:1234",
+                Some(cookie),
+                None,
+                "",
+            )
+            .await;
+            assert_eq!(revoked.status(), StatusCode::UNAUTHORIZED);
+        }
+        let old_login = admin_request(
+            &gw,
+            "POST",
+            "/admin/login",
+            "127.0.0.1:1234",
+            None,
+            Some("application/x-www-form-urlencoded"),
+            "password=dev",
+        )
+        .await;
+        assert_eq!(old_login.status(), StatusCode::UNAUTHORIZED);
+        let new_login = admin_request(
+            &gw,
+            "POST",
+            "/admin/login",
+            "127.0.0.1:1234",
+            None,
+            Some("application/x-www-form-urlencoded"),
+            "password=new-dev",
+        )
+        .await;
+        assert_eq!(new_login.status(), StatusCode::OK);
     }
 
     #[test]
@@ -4121,37 +4509,12 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn configured_admin_requires_basic_even_on_loopback() {
-        let dir = tempfile::tempdir().unwrap();
-        let gw = Gateway::new(GatewayConfig {
-            home: dir.path().into(),
-            password: Some("dev".into()),
-            ..Default::default()
-        });
-        let remote = "127.0.0.1:1234".parse().unwrap();
-        let mut headers = HeaderMap::new();
-        assert!(!is_local_or_basic(remote, &headers, &gw).await);
-        headers.insert(
-            header::AUTHORIZATION,
-            HeaderValue::from_static("Basic YWRtaW46ZGV2"),
-        );
-        assert!(is_local_or_basic(remote, &headers, &gw).await);
-        let fresh = Gateway::new(GatewayConfig {
-            home: dir.path().join("fresh"),
-            ..Default::default()
-        });
-        assert!(is_local_or_basic(remote, &HeaderMap::new(), &fresh).await);
-        assert!(
-            !is_local_or_basic("192.0.2.1:1234".parse().unwrap(), &HeaderMap::new(), &fresh).await
-        );
-    }
-
-    #[tokio::test]
     async fn admin_status_reports_persisted_curator_failures_and_pending_operations() {
         let dir = tempfile::tempdir().unwrap();
         let gw = Gateway::new(GatewayConfig {
             home: dir.path().into(),
             mock: true,
+            password: Some("dev".into()),
             ..Default::default()
         });
         let curator_path = dir.path().join("data/memory/curator.json");
@@ -4170,10 +4533,11 @@ mod tests {
         .await
         .unwrap();
 
+        let headers = session_headers(&gw).await;
         let response = admin_status_handler(
             State(gw),
             ConnectInfo("127.0.0.1:1234".parse().unwrap()),
-            HeaderMap::new(),
+            headers,
         )
         .await;
         assert_eq!(response.status(), StatusCode::OK);
@@ -4206,14 +4570,9 @@ mod tests {
         fs::write(&path, serde_json::to_vec(&prior).unwrap())
             .await
             .unwrap();
-        let mut headers = HeaderMap::new();
-        headers.insert(
-            header::AUTHORIZATION,
-            HeaderValue::from_static("Basic YWRtaW46ZGV2"),
-        );
+        let headers = session_headers(&gw).await;
         let response = admin_settings_handler(
             State(gw.clone()),
-            ConnectInfo("127.0.0.1:1234".parse().unwrap()),
             headers,
             Json(json!({"host_name":"after","port":7801})),
         )
@@ -4248,13 +4607,11 @@ mod tests {
             config_path: config_path.clone(),
             ..Default::default()
         });
+        let headers = session_headers(&gw).await;
         let status = admin_status_handler(
             State(gw.clone()),
             ConnectInfo("127.0.0.1:1234".parse::<SocketAddr>().unwrap()),
-            HeaderMap::from_iter([(
-                header::AUTHORIZATION,
-                HeaderValue::from_static("Basic YWRtaW46ZGV2"),
-            )]),
+            headers,
         )
         .await;
         assert_eq!(status.status(), StatusCode::OK);
@@ -4313,13 +4670,11 @@ mod tests {
         });
         assert_eq!(gw.state.host_name.read().await.as_str(), "Configured Host");
 
+        let headers = session_headers(&gw).await;
         let status = admin_status_handler(
             State(gw.clone()),
             ConnectInfo("127.0.0.1:1234".parse::<SocketAddr>().unwrap()),
-            HeaderMap::from_iter([(
-                header::AUTHORIZATION,
-                HeaderValue::from_static("Basic YWRtaW46ZGV2"),
-            )]),
+            headers,
         )
         .await;
         assert_eq!(status.status(), StatusCode::OK);
@@ -4395,14 +4750,9 @@ mod tests {
         })
         .with_backend(backend);
         assert!(!dir.path().join("data/settings.json").exists());
-        let mut admin_headers = HeaderMap::new();
-        admin_headers.insert(
-            header::AUTHORIZATION,
-            HeaderValue::from_static("Basic YWRtaW46ZGV2"),
-        );
+        let admin_headers = session_headers(&gw).await;
         let saved = admin_settings_handler(
             State(gw.clone()),
-            ConnectInfo("127.0.0.1:1234".parse().unwrap()),
             admin_headers,
             Json(json!({"host_name":"QA Host","port":48155})),
         )

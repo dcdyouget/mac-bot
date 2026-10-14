@@ -28,7 +28,7 @@ data_home = "~/MacBot"
 host_name = "Mac Bot"
 ```
 
-相对 `data_home` 路径按配置文件所在目录解析；`~` 指当前用户目录。配置优先级为命令行参数（例如 `--port`、`--home`、`--config`）> 对应环境变量（`MACBOT_PORT`、`MACBOT_HOME`、`MACBOT_CONFIG`）> `config.toml` > 旧版 `data/settings.json` > 默认值。旧版数据中仅保存了原默认端口 `7788` 时，只迁移一次到 `28789`，并在 settings 中写入迁移标记；迁移后用户通过管理页或 CLI 明确保存的 `7788` 不会再被改写。命令行、环境变量和 TOML 中显式设置的 `7788` 始终优先保留。管理页状态会显示端口来源；由启动参数、`MACBOT_PORT` 或 TOML 管理的端口不可在管理页保存，配置冲突返回 `409 port_managed_by_startup`，同一次请求中的其他设置仍会保存。非整数或越界端口明确返回 `400 invalid_port`，不会被静默忽略。`--password` 只在 `data/auth.json` 不存在时初始化，不覆盖已有密码。已有密码可用 `macbotd passwd --password <password>` 重置；密码只保存为 Argon2 哈希，文件权限为 0600。首次设置密码必须通过 loopback 的管理页面完成；健康检查公开，其余接口在 `setup_required` 状态拒绝访问。`/api/v1/health` 无需鉴权。
+相对 `data_home` 路径按配置文件所在目录解析；`~` 指当前用户目录。配置优先级为命令行参数（例如 `--port`、`--home`、`--config`）> 对应环境变量（`MACBOT_PORT`、`MACBOT_HOME`、`MACBOT_CONFIG`）> `config.toml` > 旧版 `data/settings.json` > 默认值。旧版数据中仅保存了原默认端口 `7788` 时，只迁移一次到 `28789`，并在 settings 中写入迁移标记；迁移后用户通过管理页或 CLI 明确保存的 `7788` 不会再被改写。命令行、环境变量和 TOML 中显式设置的 `7788` 始终优先保留。管理页状态会显示端口来源；由启动参数、`MACBOT_PORT` 或 TOML 管理的端口不可在管理页保存，配置冲突返回 `409 port_managed_by_startup`，同一次请求中的其他设置仍会保存。非整数或越界端口明确返回 `400 invalid_port`，不会被静默忽略。`--password` 只在 `data/auth.json` 不存在时初始化，不覆盖已有密码。已有密码可用 `macbotd passwd --password <password>` 重置；密码只保存为 Argon2 哈希，文件权限为 0600。首次设置密码必须通过 loopback 的管理页面完成；健康检查公开，未完成设置时管理页仅向 loopback 返回设置状态，其他受保护接口拒绝访问。`/api/v1/health` 无需鉴权。
 
 ## HTTP/WebSocket
 
@@ -37,7 +37,7 @@ host_name = "Mac Bot"
 - `GET /ws`：控制连接，支持 query `?token=<password>` 或 Bearer header。
 - `GET /ws/screen`：画面连接，同样需要鉴权；二进制帧为 4 字节大端 JSON 头加 JPEG，客户端 ACK 后才发送下一帧。
 - `/api/v1/files`、`/api/v1/uploads`、`/api/v1/usage/export.csv`：鉴权后的文件与用量接口。
-- `/` 和 `/admin`：同一个首次设置密码和管理页面；已设置密码后使用 HTTP Basic Auth。浏览器打开服务根地址会直接显示管理页。
+- `/` 和 `/admin`：同一个首次设置、登录和管理页面。首次设置仅允许 loopback 请求；设置后通过自定义密码表单登录，服务端签发 HttpOnly、SameSite=Strict、Path=/、12 小时 session cookie，浏览器打开服务根地址会显示对应的设置、登录或管理界面。session 仅保存在服务进程内，重启后失效；退出登录会撤销当前 session，修改密码会撤销全部 session。管理 HTTP 页面不使用浏览器 HTTP Basic 认证。
 
 正式画面连接会读取 Bot 和设置中的浏览器配置，服务重启后可直接恢复旧 Computer，无需先发送模型请求。无头模式会核对保存的任务标签页与真实 sidecar 页面，缺失时恢复保存的 URL；attach 模式不会自动重建用户已关闭的标签页。
 

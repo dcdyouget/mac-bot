@@ -7,7 +7,6 @@ standard library so it can run on a freshly installed Mac Bot host.
 from __future__ import annotations
 
 import argparse
-import base64
 import json
 import os
 from pathlib import Path
@@ -20,6 +19,8 @@ import urllib.request
 import uuid
 from typing import Dict, Optional, Tuple
 
+ADMIN_COOKIE: Optional[str] = None
+
 
 def fail(message: str) -> None:
     raise AssertionError(message)
@@ -31,8 +32,8 @@ def request(base: str, method: str, path: str, password: Optional[str] = None,
     headers = {"Accept": "application/json"}
     if password is not None:
         if path.startswith("/admin"):
-            token = base64.b64encode(f"admin:{password}".encode()).decode()
-            headers["Authorization"] = f"Basic {token}"
+            if ADMIN_COOKIE:
+                headers["Cookie"] = ADMIN_COOKIE
         else:
             headers["Authorization"] = f"Bearer {password}"
     if content_type:
@@ -89,6 +90,7 @@ def multipart(file_name: str, payload: bytes) -> tuple[bytes, str]:
 
 
 def main() -> int:
+    global ADMIN_COOKIE
     parser = argparse.ArgumentParser()
     parser.add_argument("--url", default="http://127.0.0.1:7789")
     parser.add_argument("--home", type=Path,
@@ -105,7 +107,23 @@ def main() -> int:
         fail(f"health response is not healthy: {health}")
 
     status, headers, _ = request(args.url, "GET", "/admin/status")
-    assert_status(status, 401, "admin auth challenge")
+    assert_status(status, 401, "admin session required")
+    if "www-authenticate" in {key.lower() for key in headers}:
+        fail("admin endpoint must not trigger a browser authentication challenge")
+
+    login_body = urllib.parse.urlencode({"password": args.password}).encode()
+    status, headers, _ = request(
+        args.url,
+        "POST",
+        "/admin/login",
+        body=login_body,
+        content_type="application/x-www-form-urlencoded",
+    )
+    assert_status(status, 200, "admin login")
+    set_cookie = {key.lower(): value for key, value in headers.items()}.get("set-cookie", "")
+    ADMIN_COOKIE = set_cookie.split(";", 1)[0]
+    if not ADMIN_COOKIE.startswith("macbot_admin_session="):
+        fail("admin login did not set a session cookie")
 
     status, admin, _ = json_request(args.url, "GET", "/admin/status", args.password, None)
     assert_status(status, 200, "admin status")
