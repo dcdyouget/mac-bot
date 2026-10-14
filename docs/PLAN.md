@@ -85,7 +85,7 @@
 #### 5.0.1 鉴权
 
 - 密码只存 argon2 哈希（`data/auth.json`，权限 0600）。
-- 客户端每次连接都带 `Authorization: Bearer <密码>`；`/admin` 用 HTTP Basic Auth，密码相同。
+- 客户端每次连接都带 `Authorization: Bearer <密码>`；管理页使用自己的登录表单和进程内 session cookie，密码相同。密码仅以 Argon2id 哈希保存在权限为 `0600` 的 `auth.json`，不调用系统 Keychain；服务重启、退出登录或改密后 session 失效。
 - **设置密码之前，只接受来自 localhost 的请求。**
 - 忘记密码时，在本机执行 `macbot passwd` 重置。
 
