@@ -23,7 +23,8 @@ APP_BIN="$APP_DST/Contents/MacOS/macbotd"
 # Bundle relocation must remain disabled in the package component metadata.
 if [ ! -x "$APP_SRC/Contents/MacOS/macbotd" ] || \
    [ ! -x "$APP_SRC/Contents/MacOS/agent-browser" ] || \
-   [ ! -f "$APP_SRC/Contents/Resources/com.macbot.server.plist" ]; then
+   [ ! -f "$APP_SRC/Contents/Resources/com.macbot.server.plist" ] || \
+   [ ! -f "$APP_SRC/Contents/Resources/wait-for-admin.sh" ]; then
   echo "Mac Bot payload is missing or incomplete at $APP_SRC" >&2
   exit 1
 fi
@@ -46,4 +47,13 @@ chown "$CONSOLE_USER":staff "$PLIST"
 launchctl bootout "gui/$CONSOLE_UID/com.macbot.server" 2>/dev/null || true
 launchctl bootstrap "gui/$CONSOLE_UID" "$PLIST"
 launchctl enable "gui/$CONSOLE_UID/com.macbot.server" || true
-launchctl asuser "$CONSOLE_UID" open "http://localhost:28789" 2>/dev/null || true
+if /bin/sh "$APP_DST/Contents/Resources/wait-for-admin.sh" \
+    "http://127.0.0.1:28789/admin" 30; then
+  if ! launchctl asuser "$CONSOLE_UID" open "http://localhost:28789/admin" 2>/dev/null; then
+    echo "Mac Bot is ready, but the browser could not be opened automatically." >&2
+    /usr/bin/logger -t MacBotInstaller "Mac Bot is ready, but the browser could not be opened automatically." 2>/dev/null || true
+  fi
+else
+  echo "Mac Bot was installed, but its admin page did not become ready within 30 seconds; browser was not opened." >&2
+  /usr/bin/logger -t MacBotInstaller "Mac Bot admin page readiness timed out; browser was not opened." 2>/dev/null || true
+fi

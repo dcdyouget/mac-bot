@@ -24,6 +24,7 @@ cp "$ROOT/macbotd/packaging/agent-browser.LICENSE" "$APP/Contents/Resources/agen
 cp "$ROOT/macbotd/packaging/MacBot Server.app/Contents/Info.plist" "$APP/Contents/Info.plist"
 cp "$ROOT/macbotd/packaging/com.macbot.server.plist" "$APP/Contents/Resources/com.macbot.server.plist"
 cp "$ROOT/macbotd/packaging/render-launchagent.sh" "$APP/Contents/Resources/render-launchagent.sh"
+cp "$ROOT/macbotd/packaging/wait-for-admin.sh" "$APP/Contents/Resources/wait-for-admin.sh"
 cp "$ROOT/macbotd/packaging/update-installed.sh" "$APP/Contents/Resources/update-installed.sh"
 chmod 755 "$APP/Contents/Resources/update-installed.sh"
 printf '%s\n' "$SOURCE_COMMIT" > "$APP/Contents/Resources/source-commit.txt"

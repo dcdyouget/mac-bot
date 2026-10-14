@@ -76,6 +76,7 @@ def inspect_pkg(pkg, destination):
         "Contents/Resources/update-manifest.json",
         "Contents/Resources/com.macbot.server.plist",
         "Contents/Resources/render-launchagent.sh",
+        "Contents/Resources/wait-for-admin.sh",
         "Contents/Resources/source-commit.txt",
         "Contents/Resources/build-info.json",
     ):
@@ -83,6 +84,8 @@ def inspect_pkg(pkg, destination):
     info = plistlib.loads((app / "Contents/Info.plist").read_bytes())
     assert info["LSUIElement"] and info["CFBundleExecutable"] == "macbotd"
     assert list(destination.glob("**/Scripts/postinstall"))
+    postinstall = list(destination.glob("**/Scripts/postinstall"))[0].read_text()
+    assert postinstall.index("wait-for-admin.sh") < postinstall.index('launchctl asuser "$CONSOLE_UID" open')
     daemon = app / "Contents/MacOS/macbotd"
     sidecar = app / "Contents/MacOS/agent-browser"
     assert subprocess.check_output([str(daemon), "--version"]).startswith(b"macbotd ")
