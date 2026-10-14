@@ -54,6 +54,7 @@ import bot.mac.mobile.feature.approval.ApprovalScreen
 import bot.mac.mobile.feature.dashboard.DashboardScreen
 import bot.mac.mobile.feature.skills.SkillsScreen
 import bot.mac.mobile.feature.search.SearchScreen
+import bot.mac.mobile.feature.search.searchChatTarget
 import bot.mac.mobile.feature.routines.RoutinesScreen
 import bot.mac.mobile.feature.computer.ComputerScreen
 import bot.mac.mobile.feature.computer.shouldReleaseTakeoverOnHostChange
@@ -260,7 +261,7 @@ import org.jetbrains.compose.resources.stringResource
                     }
                 }
             ) { padding ->
-                Column(Modifier.padding(padding).imePadding()) {
+                Column(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding).imePadding()) {
                     actionError?.let { Text(it,Modifier.fillMaxWidth().semantics { liveRegion = LiveRegionMode.Polite }.padding(8.dp),color=MaterialTheme.colorScheme.error) }
                     if (hosts.isNotEmpty() && !state.connected && page != "connect") {
                         val message = when {
@@ -380,7 +381,7 @@ import org.jetbrains.compose.resources.stringResource
                                         if(!found) result.str("chat_id").takeIf{it.isNotBlank()}?.let{openChat(it)}
                                     }.onFailure{actionError=it.message} }
                                 }
-                                else -> result.str("chat_id").ifBlank { if(result.str("kind") == "chat") result.str("id") else "" }.takeIf { it.isNotBlank() }?.let { openChat(it) }
+                                else -> searchChatTarget(result)?.let { openChat(it.chatId, it.messageId) }
                             }
                         }, back)
                         else -> when(tab) {

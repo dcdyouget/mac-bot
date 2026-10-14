@@ -1,6 +1,8 @@
 package bot.mac.mobile.feature.search
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -118,7 +120,7 @@ fun SearchScreen(repository: MobileRepository, onOpenResult: (JsonObject) -> Uni
             }
         }
         OutlinedTextField(query, { query = it }, Modifier.fillMaxWidth().padding(horizontal = 12.dp), singleLine = true, placeholder = { Text(stringResource(Res.string.search_placeholder)) })
-        Row(Modifier.fillMaxWidth().padding(12.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(12.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             SearchKind.entries.forEach { candidate -> FilterChip(kind == candidate, { kind = candidate }, label = { Text(candidate.label()) }) }
         }
         HorizontalDivider()
@@ -153,6 +155,16 @@ private fun SearchResult(result: JsonObject, onClick: () -> Unit) {
 
 internal fun searchKindParameter(kind: String): String? = when (kind) {
     "message", "chat", "bot", "artifact", "routine" -> kind
+    else -> null
+}
+
+internal data class SearchChatTarget(val chatId: String, val messageId: String? = null)
+
+internal fun searchChatTarget(result: JsonObject): SearchChatTarget? = when (result.str("kind")) {
+    "message" -> result.str("chat_id").takeIf(String::isNotBlank)?.let { chatId ->
+        SearchChatTarget(chatId, result.str("id").takeIf(String::isNotBlank))
+    }
+    "chat" -> result.str("chat_id").ifBlank { result.str("id") }.takeIf(String::isNotBlank)?.let(::SearchChatTarget)
     else -> null
 }
 private fun kindsJson(kind: SearchKind): kotlinx.serialization.json.JsonPrimitive = kotlinx.serialization.json.JsonPrimitive(kind.name.lowercase())

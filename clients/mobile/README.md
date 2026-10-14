@@ -130,8 +130,6 @@ reinstall the app to hide quota failures.
 
 ## Verification
 
-Phase evidence and emulator screenshots are stored under `verification/`. See `verification/STATUS.md` for completed checks and remaining integration dependencies.
-
 For repeatable performance checks on this M4 Mac, use `-gpu host`. The AVD default has GPU acceleration disabled and uses SwiftShader; keep software-rendered measurements separate. Verified hardware backend: Android Emulator OpenGL ES Translator (Apple M4).
 
 ```sh

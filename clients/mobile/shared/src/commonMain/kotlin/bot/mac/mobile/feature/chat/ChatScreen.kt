@@ -729,7 +729,7 @@ fun ChatScreen(
                         } else error = quoteOriginalUnloaded
                     },
                     highlighted = highlightedMessageId == message.str("id"),
-                    onReply = { replyTo = it },
+                    onReply = { quoteMode = "reply"; replyTo = it },
                     onQuote = { id, mode -> quoteMode = mode; replyTo = id },
                     onReact = { id, emoji, enabled -> scope.launch { runCatching { repository.call("chat.react", buildJsonObject { put("message_id", id); put("emoji", emoji); put("on", enabled) }) }.onFailure { error = it.message ?: sendError } } },
                     onOpenTrace = openTraceFromChat,
