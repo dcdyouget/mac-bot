@@ -3651,10 +3651,15 @@ impl Inner {
             )?;
         }
         let mut seen = HashSet::new();
+        // Group completion is already delivered to the user with a durable
+        // main-chat project card by the gateway. Preserve the visible @main
+        // mention, but do not turn a terminal worker report into another
+        // model assignment that can itself finish without a report.
+        let terminal_completion = req.intent == "done";
         for mention in msg.mentions.clone() {
             match mention {
                 Mention::Main => {
-                    if seen.insert("main".into()) {
+                    if seen.insert("main".into()) && !terminal_completion {
                         self.wake_main_for_message(
                             project_id.as_deref(),
                             &msg,
@@ -3690,14 +3695,16 @@ impl Inner {
                         continue;
                     }
                     if bot_id == "main" {
-                        self.wake_main_for_message(
-                            project_id.as_deref(),
-                            &msg,
-                            req.assignment_id.clone(),
-                            &root,
-                            parent_hops,
-                            "主 Bot 汇总",
-                        )?;
+                        if !terminal_completion {
+                            self.wake_main_for_message(
+                                project_id.as_deref(),
+                                &msg,
+                                req.assignment_id.clone(),
+                                &root,
+                                parent_hops,
+                                "主 Bot 汇总",
+                            )?;
+                        }
                         continue;
                     }
                     if parent_hops >= self.settings.loop_hops {
@@ -6851,7 +6858,7 @@ mod tests {
     }
 
     #[test]
-    fn worker_done_to_main_wakes_main_with_project_context_and_artifacts() {
+    fn worker_done_keeps_main_mention_without_creating_redundant_summary_assignment() {
         let o = Orchestrator::default();
         let worker = bot(&o, "汇报 worker");
         let project = tokio::runtime::Runtime::new()
@@ -6900,19 +6907,32 @@ mod tests {
             .unwrap();
         let snapshot = o.snapshot().unwrap();
         assert_eq!(snapshot["projects"][&project_id]["status"], "active");
-        let main = snapshot["assignments"]
+        let main_assignments = snapshot["assignments"]
             .as_object()
             .unwrap()
             .values()
-            .find(|assignment| {
+            .filter(|assignment| {
                 assignment["bot_id"] == "main"
                     && assignment["project_id"] == project_id
                     && assignment["trigger_message_id"] == report.id
             })
-            .expect("main coordination assignment");
-        assert_eq!(main["origin_chat_id"], chat_id);
-        assert_eq!(main["parent_assignment_id"], source.id);
-        assert!(main["instruction"].as_str().unwrap().contains("report.md"));
+            .count();
+        assert_eq!(
+            main_assignments, 0,
+            "terminal completion uses the durable main-chat notification"
+        );
+        assert!(report.mentions.iter().any(|mention| matches!(
+            mention,
+            Mention::Bot { bot_id, .. } if bot_id == "main"
+        )));
+        assert!(snapshot["artifacts"]
+            .as_object()
+            .unwrap()
+            .values()
+            .any(|artifact| {
+                artifact["assignment_id"] == source.id
+                    && artifact["path_or_url"] == "code/report.md"
+            }));
     }
 
     #[test]

@@ -2336,6 +2336,9 @@ impl ProductionBackend {
                 if let Some(id) = id {
                     if let Ok((_, mut message)) = self.find_chat_message(id) {
                         normalize_message(&mut message);
+                        if method == "send_msg" {
+                            enrich_completion_message_artifacts(&mut message, snapshot);
+                        }
                         if result.get("message").is_some() {
                             canonical["message"] = message;
                         } else {
@@ -4077,6 +4080,8 @@ impl RpcBackend for ProductionBackend {
         })?;
         let mut result = result;
         if method == "send_msg" {
+            let snapshot = self.orchestrator.snapshot().map_err(Self::error)?;
+            enrich_completion_message_artifacts(&mut result, &snapshot);
             append_link_preview_blocks(&mut result, &params)?;
             append_project_card_blocks(self, &mut result, &params).await?;
             result = self.persist_client_message(&result)?;
@@ -9663,15 +9668,29 @@ fn assignment_result_artifacts(
             bots.values()
                 .find(|bot| bot.get("dm_chat_id").and_then(Value::as_str) == Some(target_chat_id))
         });
-    let Some(requested) = canonical.get("artifacts").and_then(Value::as_array) else {
-        return Vec::new();
-    };
     let Some(artifacts) = snapshot.get("artifacts").and_then(Value::as_object) else {
         return Vec::new();
     };
+    // A completion message may omit the input artifact refs even though the
+    // worker already registered them during its run. Include every artifact
+    // durably owned by this assignment so clients can hydrate the completion
+    // block directly (and not only through the project announcement).
+    let mut requested = canonical
+        .get("artifacts")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    requested.extend(artifacts.values().filter_map(|artifact| {
+        (artifact.get("assignment_id").and_then(Value::as_str) == Some(assignment_id)).then(|| {
+            json!({
+                "title":artifact.get("title"),
+                "path_or_url":artifact.get("path_or_url")
+            })
+        })
+    }));
     let mut copied = Vec::new();
     let mut seen = HashSet::new();
-    for reference in requested {
+    for reference in &requested {
         let Some(path_or_url) = reference.get("path_or_url").and_then(Value::as_str) else {
             continue;
         };
@@ -9710,6 +9729,30 @@ fn assignment_result_artifacts(
         }));
     }
     copied
+}
+
+fn enrich_completion_message_artifacts(message: &mut Value, snapshot: &Value) {
+    if message.get("intent").and_then(Value::as_str) != Some("done") {
+        return;
+    }
+    let (Some(assignment_id), Some(chat_id)) = (
+        message.get("assignment_id").and_then(Value::as_str),
+        message.get("chat_id").and_then(Value::as_str),
+    ) else {
+        return;
+    };
+    let artifacts = assignment_result_artifacts(snapshot, message, assignment_id, chat_id);
+    if let Some(block) = message
+        .get_mut("blocks")
+        .and_then(Value::as_array_mut)
+        .and_then(|blocks| {
+            blocks
+                .iter_mut()
+                .find(|block| block.get("type").and_then(Value::as_str) == Some("completion"))
+        })
+    {
+        block["artifacts"] = json!(artifacts);
+    }
 }
 
 /// `next` is derived from canonical message mentions, never arbitrary client
@@ -13786,6 +13829,204 @@ mod tests {
         assert_eq!(
             assignment_result_next(&snapshot, &canonical, "summary", "dm_peer"),
             vec![json!({"bot_id":"peer","instruction":"review"})]
+        );
+    }
+
+    #[tokio::test]
+    async fn group_dispatch_ack_artifact_done_notifies_main_once_without_summary_assignment() {
+        let home = tempdir().unwrap();
+        let gateway = Gateway::new(GatewayConfig {
+            home: home.path().to_path_buf(),
+            ..Default::default()
+        });
+        let backend = ProductionBackend::open(home.path()).unwrap();
+        let worker = backend
+            .call("bot.create", json!({"name":"闭环 worker"}), &gateway.state)
+            .await
+            .unwrap();
+        let worker_id = worker["bot"]["id"].as_str().unwrap();
+        let root = backend
+            .call(
+                "chat.send",
+                json!({"chat_id":"chat_main","text":"请审阅设计并给出结论","mentions":[]}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        let root_id = root["message"]["id"].as_str().unwrap();
+        let project = backend
+            .call(
+                "project.create",
+                json!({"name":"闭环项目","goal":"验证群协作","member_bot_ids":[worker_id]}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        let project_id = project["project"]["id"].as_str().unwrap();
+        let group_chat_id = project["project"]["chat_id"].as_str().unwrap();
+        let dispatch = backend
+            .call(
+                "send_msg",
+                json!({
+                    "bot_id":"main",
+                    "chat_id":group_chat_id,
+                    "intent":"ack",
+                    "text":"请审阅设计并给出结论，材料位于 /tmp/design.md",
+                    "mentions":[{"bot":worker_id,"instruction":"审阅设计并提交报告"}],
+                    "artifacts":[],
+                    "options":[],
+                    "_assignment_root_message_id":root_id,
+                    "client_request_id":"group-terminal-closure-dispatch"
+                }),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        let assignment_id = backend.orchestrator.snapshot().unwrap()["assignments"]
+            .as_object()
+            .unwrap()
+            .values()
+            .find(|assignment| assignment["trigger_message_id"] == dispatch["id"])
+            .unwrap()["id"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        assert_eq!(
+            backend
+                .call(
+                    "assignment.get",
+                    json!({"assignment_id":assignment_id}),
+                    &gateway.state,
+                )
+                .await
+                .unwrap()["assignment"]["root_message_id"],
+            root_id
+        );
+
+        let ack = backend
+            .execution_send_msg(
+                &gateway.state,
+                json!({
+                    "receipt":{"run_id":"group-terminal-closure","call_id":"ack"},
+                    "message":{
+                        "message_id":"msg_group_terminal_ack",
+                        "bot_id":worker_id,"chat_id":group_chat_id,"assignment_id":assignment_id,
+                        "intent":"ack","text":"收到，开始审阅。","mentions":[]
+                    }
+                }),
+            )
+            .await
+            .unwrap();
+        assert_eq!(ack["chat_id"], group_chat_id);
+        assert_eq!(ack["intent"], "ack");
+
+        let done_envelope = json!({
+            "receipt":{"run_id":"group-terminal-closure","call_id":"done"},
+            "message":{
+                "message_id":"msg_group_terminal_done",
+                "bot_id":worker_id,"chat_id":group_chat_id,"assignment_id":assignment_id,
+                "intent":"done","text":"审阅完成：无阻断问题。",
+                "mentions":["main","user"],
+                "artifacts":[{"title":"审阅报告","path_or_url":"reports/review.md"}]
+            }
+        });
+        let done = backend
+            .execution_send_msg(&gateway.state, done_envelope.clone())
+            .await
+            .unwrap();
+        assert_eq!(done["blocks"][0]["type"], "completion");
+        assert_eq!(done["blocks"][0]["artifacts"].as_array().unwrap().len(), 1);
+        let artifact_id = done["blocks"][0]["artifacts"][0]["artifact_id"]
+            .as_str()
+            .unwrap();
+        assert_eq!(
+            done["blocks"][0]["artifacts"][0]["path_or_url"],
+            "reports/review.md"
+        );
+        let project_view = backend
+            .call(
+                "project.get",
+                json!({"project_id":project_id}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        assert!(project_view["announcement"]["artifacts"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|artifact| artifact["id"] == artifact_id));
+        assert!(backend.store.events_since(0).unwrap().iter().any(|event| {
+            event.event == "assignment.updated"
+                && event.data["assignment"]["id"] == assignment_id
+                && event.data["assignment"]["status"] == "done"
+        }));
+
+        let main_history = backend
+            .call(
+                "chat.history",
+                json!({"chat_id":"chat_main","limit":100}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        let main_notice_id = format!("msg_main_assignment_result_{assignment_id}");
+        let main_notice = main_history["messages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|message| message["id"] == main_notice_id)
+            .expect("deterministic main-chat completion notice");
+        assert_eq!(main_notice["fallback_text"], "完成请验收");
+        assert_eq!(main_notice["quote"]["message_id"], root_id);
+        assert_eq!(main_notice["blocks"][1]["type"], "project_card");
+        assert_eq!(main_notice["blocks"][1]["project_id"], project_id);
+        let attention = backend
+            .refresh_project_attention(&gateway.state, Utc::now())
+            .await
+            .unwrap();
+        assert!(!attention["notices"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|notice| {
+                notice["code"] == "task_no_report"
+                    && notice["message"]["assignment_id"] == assignment_id
+            }));
+        assert_eq!(
+            backend.orchestrator.snapshot().unwrap()["assignments"]
+                .as_object()
+                .unwrap()
+                .values()
+                .filter(|assignment| {
+                    assignment["bot_id"] == "main" && assignment["trigger_message_id"] == done["id"]
+                })
+                .count(),
+            0,
+            "terminal completion notification must not enqueue a redundant main summary assignment"
+        );
+
+        let replay = backend
+            .execution_send_msg(&gateway.state, done_envelope)
+            .await
+            .unwrap();
+        assert_eq!(replay["id"], done["id"]);
+        let main_after_replay = backend
+            .call(
+                "chat.history",
+                json!({"chat_id":"chat_main","limit":100}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            main_after_replay["messages"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|message| message["id"] == main_notice_id)
+                .count(),
+            1
         );
     }
 
