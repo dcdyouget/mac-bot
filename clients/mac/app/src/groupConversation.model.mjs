@@ -35,6 +35,15 @@ export function orderedGroupMemberIds({ memberBotIds = [], projectMembers = [], 
   return mainId ? [mainId, ...ids.filter((id) => id !== mainId)] : ids
 }
 
+export function projectAssignmentForMember(projectId, chatId, botId, preferredId, assignments = {}) {
+  if (!projectId || !chatId || !botId) return undefined
+  const preferred = preferredId ? assignments[preferredId] : undefined
+  if (preferred?.project_id === projectId && preferred?.origin_chat_id === chatId && preferred?.bot_id === botId) return preferred
+  return Object.values(assignments)
+    .filter((assignment) => assignment?.project_id === projectId && assignment?.origin_chat_id === chatId && assignment?.bot_id === botId)
+    .sort((left, right) => String(right.created_at ?? '').localeCompare(String(left.created_at ?? '')))[0]
+}
+
 const groupProductBlocks = new Set(['text', 'question', 'completion', 'blocked', 'project_card', 'review_card'])
 
 export function groupProductMessage(message) {

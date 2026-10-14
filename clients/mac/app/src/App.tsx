@@ -44,7 +44,7 @@ import { chatSendMentions, messageAssignmentId, messageRenderMode, messageShortc
 import { findForcedSkillTextBlockIndex, getRenderableSkillNames, getValidLoadedSkills, parseForcedSkillText } from './components/skillMessage.model'
 import { mainBotDisplayName } from './components/mainBotDisplayName.model'
 import { GroupAvatar } from './components/GroupAvatar'
-import { chatDraftKey, groupProductMessage, mergeChatMessages, orderedGroupMemberIds, setChatDraft } from './groupConversation.model.mjs'
+import { chatDraftKey, groupProductMessage, mergeChatMessages, orderedGroupMemberIds, projectAssignmentForMember, setChatDraft } from './groupConversation.model.mjs'
 
 type ThemeMode = 'light' | 'dark' | 'system'
 type ContextPanelPage = 'context' | 'group-settings'
@@ -3111,7 +3111,7 @@ function App() {
       </nav>
     </aside>
     {activePage === 'chat' && <>
-    <section className="conversation" onDragEnter={handleFileDragEnter} onDragOver={handleFileDragOver} onDragLeave={handleFileDragLeave} onDrop={handleFileDrop}>
+    <section className={`conversation${currentChat?.kind === 'project' || currentChat?.project_id ? ' group-conversation' : ''}`} onDragEnter={handleFileDragEnter} onDragOver={handleFileDragOver} onDragLeave={handleFileDragLeave} onDrop={handleFileDrop}>
       <header className="conversation-toolbar glass-toolbar drag-region" data-window-drag-region>
         {currentChat?.kind === 'project' || currentChat?.project_id ? <GroupAvatar memberBotIds={groupMemberIds(currentChat)} bots={state.bots} size="32" label={chatTitle(currentChat)} /> : currentChatBotId ? <button type="button" aria-label={t('bot.action.settings')} title={t('bot.action.settings')} onClick={() => openBotPanel(currentChatBotId)} style={{ width: 32, height: 32, display: 'grid', flex: 'none', placeItems: 'center', padding: 0, border: 0, borderRadius: '50%', background: 'transparent', cursor: 'pointer' }}><BeanAvatar main={state.bots[currentChatBotId]?.is_main === true} size="32" seed={state.bots[currentChatBotId]?.name ?? ''} /></button> : <BeanAvatar main size="32" />}
         <div className="conversation-heading"><strong>{currentChat ? chatTitle(currentChat) : mainBotName}</strong>
@@ -3292,9 +3292,9 @@ function App() {
         <section className="follow-section"><div className="section-label">{t('group.members')}<span className="panel-section-count">{announcement?.members.length ?? 0}</span></div>
           {announcement?.members.length ? announcement.members.map((member) => {
             const botName = state.bots[member.bot_id]?.name ?? t('common.bot')
-            const assignment = projectAssignmentForMember(currentProjectId ?? '', member.bot_id, member.current_assignment_id, state.assignments)
+            const assignment = projectAssignmentForMember(currentProjectId ?? '', currentChat?.id ?? '', member.bot_id, member.current_assignment_id, state.assignments)
             const effectiveState = assignmentStatus(assignment, member.state)
-            const assignmentId = typeof assignment?.id === 'string' ? assignment.id : member.current_assignment_id
+            const assignmentId = typeof assignment?.id === 'string' ? assignment.id : null
             const status = memberStatusKey(effectiveState)
             return <button type="button" className={`group-member-row status-${effectiveState} ${selectedAssignment === assignmentId ? 'selected' : ''}`} key={member.bot_id} onClick={() => {
               if (assignmentId) openTrace(assignmentId)
@@ -3572,8 +3572,9 @@ function GroupStatusBar({ chat, announcement, project, bots, assignments, onSele
   return <div className="group-statusbar" aria-label={t('group.members')}>
     {members.map((member) => {
       const bot = bots[member.bot_id]
-      const assignment = projectAssignmentForMember(chat.project_id ?? '', member.bot_id, member.current_assignment_id, assignments)
-      const assignmentId = typeof assignment?.id === 'string' ? assignment.id : member.current_assignment_id
+      const projectId = chat.project_id ?? (typeof project?.id === 'string' ? project.id : '')
+      const assignment = projectAssignmentForMember(projectId, chat.id, member.bot_id, member.current_assignment_id, assignments)
+      const assignmentId = typeof assignment?.id === 'string' ? assignment.id : null
       const effectiveState = assignmentStatus(assignment, member.state)
       const label = member.bot_id === leadBotId ? `${t('group.statusbar.lead')} · ${statusText(memberStatusKey(effectiveState))}` : statusText(memberStatusKey(effectiveState))
       return <button type="button" aria-label={`${bot?.name ?? t('common.bot')} · ${statusText(memberStatusKey(effectiveState))}`} title={`${bot?.name ?? t('common.bot')} · ${statusText(memberStatusKey(effectiveState))}`} className={`group-status-chip status-${effectiveState}`} key={member.bot_id} onClick={() => assignmentId && onSelectAssignment(assignmentId)} disabled={!assignmentId}>
@@ -3593,14 +3594,6 @@ function memberStatusKey(status: string): CopyKey {
   if (status === 'failed') return 'status.failed'
   if (status === 'cancelled') return 'status.cancelled'
   return 'status.working'
-}
-
-function projectAssignmentForMember(projectId: string, botId: string, preferredId: string | null, assignments: BridgeState['assignments']) {
-  const preferred = preferredId ? assignments[preferredId] : undefined
-  if (preferred) return preferred
-  return Object.values(assignments)
-    .filter((assignment) => assignment.project_id === projectId && assignment.bot_id === botId)
-    .sort((left, right) => String(right.created_at ?? '').localeCompare(String(left.created_at ?? '')))[0]
 }
 
 function assignmentStatus(assignment: BridgeState['assignments'][string] | undefined, fallback: string) {

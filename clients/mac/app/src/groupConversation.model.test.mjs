@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { chatDraftKey, groupProductMessage, mergeChatMessages, orderedGroupMemberIds, setChatDraft } from './groupConversation.model.mjs'
+import { chatDraftKey, groupProductMessage, mergeChatMessages, orderedGroupMemberIds, projectAssignmentForMember, setChatDraft } from './groupConversation.model.mjs'
 
 test('composer drafts are isolated by both host and chat', () => {
   const first = setChatDraft({}, 'host-a', 'group-1', 'draft one')
@@ -36,6 +36,45 @@ test('group avatar member order puts the main Bot first and otherwise follows jo
     memberBotIds: ['extra', 'late'],
     bots: { main: { is_main: true } },
   }), ['main', 'early', 'late', 'extra'])
+})
+
+test('group member assignment ignores a preferred assignment from another project', () => {
+  const assignments = {
+    old: { id: 'old', project_id: 'project-old', origin_chat_id: 'chat-old', bot_id: 'coder', status: 'done' },
+    current: { id: 'current', project_id: 'project-current', origin_chat_id: 'chat-current', bot_id: 'coder', status: 'working' },
+  }
+  assert.equal(projectAssignmentForMember('project-current', 'chat-current', 'coder', 'old', assignments), assignments.current)
+})
+
+test('group member assignment ignores a preferred assignment for another Bot in the same project', () => {
+  const assignments = {
+    otherBot: { id: 'otherBot', project_id: 'project-current', origin_chat_id: 'chat-current', bot_id: 'reviewer', status: 'blocked' },
+    currentBot: { id: 'currentBot', project_id: 'project-current', origin_chat_id: 'chat-current', bot_id: 'coder', status: 'working' },
+  }
+  assert.equal(projectAssignmentForMember('project-current', 'chat-current', 'coder', 'otherBot', assignments), assignments.currentBot)
+})
+
+test('group member assignment does not leak a stale preferred ID when there is no scoped assignment', () => {
+  const assignments = { old: { id: 'old', project_id: 'project-old', origin_chat_id: 'chat-old', bot_id: 'coder', status: 'working' } }
+  assert.equal(projectAssignmentForMember('project-current', 'chat-current', 'coder', 'old', assignments), undefined)
+  assert.equal(projectAssignmentForMember('', 'chat-current', 'coder', 'old', assignments), undefined)
+  assert.equal(projectAssignmentForMember('project-current', '', 'coder', 'old', assignments), undefined)
+})
+
+test('group member assignment trusts the preferred ID only when group, project, and Bot all match', () => {
+  const assignments = {
+    preferred: { id: 'preferred', project_id: 'project-current', origin_chat_id: 'chat-current', bot_id: 'coder', status: 'done' },
+    newer: { id: 'newer', project_id: 'project-current', origin_chat_id: 'chat-current', bot_id: 'coder', status: 'working' },
+  }
+  assert.equal(projectAssignmentForMember('project-current', 'chat-current', 'coder', 'preferred', assignments), assignments.preferred)
+})
+
+test('group member assignment does not select an assignment from another group chat in the same project', () => {
+  const assignments = {
+    sibling: { id: 'sibling', project_id: 'project-current', origin_chat_id: 'chat-sibling', bot_id: 'coder', status: 'blocked' },
+    current: { id: 'current', project_id: 'project-current', origin_chat_id: 'chat-current', bot_id: 'coder', status: 'working' },
+  }
+  assert.equal(projectAssignmentForMember('project-current', 'chat-current', 'coder', 'sibling', assignments), assignments.current)
 })
 
 test('group chat keeps product nodes, suppresses progress, and uses fallback text for unknown blocks', () => {

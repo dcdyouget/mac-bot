@@ -709,6 +709,8 @@ button.protocol-status-block:hover { border-color: var(--accent); background: va
   border-bottom-left-radius: 10px;
   background: var(--bg-chat);
 }
+.group-conversation .message-group.outgoing .bubble { background: var(--bubble-out); }
+.group-conversation .message-group.group-end.outgoing .bubble:not(:has(.message-blocks, .chat-message-quote))::before { background: var(--bubble-out); }
 .message-group.outgoing .bubble .mb-at,
 .message-group.outgoing .bubble a { color: #fff; text-decoration: underline; text-decoration-color: rgb(255 255 255 / 45%); text-underline-offset: 2px; }
 .message-group.outgoing .bubble code { color: #fff; background: rgb(255 255 255 / 18%); }

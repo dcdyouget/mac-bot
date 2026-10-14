@@ -19,4 +19,11 @@ export function orderedGroupMemberIds(args?: {
   announcedMemberBotIds?: string[]
   bots?: Record<string, { is_main?: boolean }>
 }): string[]
+export function projectAssignmentForMember<T extends Record<string, unknown>>(
+  projectId: string,
+  chatId: string,
+  botId: string,
+  preferredId: string | null | undefined,
+  assignments: Record<string, T>,
+): T | undefined
 export function groupProductMessage(message: GroupConversationMessage): GroupConversationMessage | null
