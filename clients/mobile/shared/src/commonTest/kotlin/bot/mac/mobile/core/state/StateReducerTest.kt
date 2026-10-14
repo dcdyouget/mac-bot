@@ -54,6 +54,20 @@ class StateReducerTest {
         assertEquals("Hello",final.messages.getValue("c").single().objects("blocks").single().str("markdown"))
         assertFalse(final.messages.getValue("c").single().boolean("streaming"))
     }
+    @Test fun typingStateIsRemovedOnStopTerminalBotMessageAndBootstrap() {
+        val initial = MobileState(chats = listOf(objectOf("""{"id":"c","kind":"direct"}""")))
+        val typing = StateReducer.event(initial, "typing", objectOf("""{"chat_id":"c","on":true}"""))
+        assertEquals(true, typing.typing["c"])
+
+        val stopped = StateReducer.event(typing, "typing", objectOf("""{"chat_id":"c","on":false}"""))
+        assertFalse("c" in stopped.typing)
+
+        val typingAgain = StateReducer.event(typing, "message.created", objectOf("""{"message":{"id":"m","chat_id":"c","seq":1,"sender":{"kind":"bot"},"streaming":false}}"""), 1)
+        assertFalse("c" in typingAgain.typing)
+
+        val reset = StateReducer.bootstrap(typing, objectOf("""{"seq":2,"bots":[],"chats":[],"projects":[],"pending":{}}"""))
+        assertTrue(reset.typing.isEmpty())
+    }
     @Test fun traceCursorMergesOutOfOrderAndReplayedItems() {
         var current=MobileState()
         listOf(3,1,3,2).forEach { seq -> current=StateReducer.event(current,"trace.item",objectOf("""{"item":{"chat_id":"c","aseq":$seq,"type":"tool.start","data":{}}}""")) }

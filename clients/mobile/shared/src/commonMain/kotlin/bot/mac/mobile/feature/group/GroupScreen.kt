@@ -76,6 +76,7 @@ fun GroupScreen(
     onOpenHistory: (String) -> Unit = {},
     onOpenScreen: (String, String?) -> Unit = { _, _ -> },
     onOpenChat: (String) -> Unit = {},
+    onOpenProjectMessage: (projectId: String, messageId: String?) -> Unit = { projectId, _ -> onOpenProject(projectId) },
     onLoopAction: (String, String) -> Unit = { _, _ -> },
     onTakeover: (String) -> Unit = {},
     onOpenGroupInfo: (String) -> Unit = {},
@@ -324,9 +325,8 @@ fun GroupScreen(
                 val botId = member?.str("bot_id").orEmpty()
                 val bot = state.bots.firstOrNull { it.str("id") == botId }
                 val botName = bot?.str("name").orEmpty().ifBlank { botId }
-                val status = member?.str("state")?.ifBlank { "idle" } ?: "idle"
-                val assignmentId = member?.str("current_assignment_id").orEmpty()
-                GroupMemberChip(repository, bot, botName, status, assignmentId.takeIf(String::isNotBlank)?.let { id -> { onOpenTrace(id) } })
+                val taskState = groupMemberTaskState(projectId, member ?: buildJsonObject {}, state.assignments, state.bots)
+                GroupMemberChip(repository, bot, botName, taskState.status, taskState.assignmentId?.let { id -> { onOpenTrace(id) } })
             }
         }
         HorizontalDivider()
@@ -343,6 +343,7 @@ fun GroupScreen(
                     onInitialMessageConsumed = onInitialMessageConsumed,
                     onOpenTrace = { assignment, _ -> assignment?.let(onOpenTrace) },
                     onOpenProject = onOpenProject,
+                    onOpenProjectMessage = onOpenProjectMessage,
                     onOpenArtifact = onOpenArtifact,
                     onOpenHistory = onOpenHistory,
                     artifactProjectId = projectId,
@@ -386,24 +387,39 @@ fun GroupScreen(
 }
 @Composable
 internal fun GroupAvatar(repository: MobileRepository, members: List<kotlinx.serialization.json.JsonElement>, bots: List<JsonObject>, size: androidx.compose.ui.unit.Dp = 40.dp) {
-    val botIds = members.mapNotNull { (it as? JsonObject)?.str("bot_id")?.takeIf(String::isNotBlank) }.distinct().take(4)
+    val layout = groupAvatarLayout(members.mapNotNull { it as? JsonObject }, bots)
+    val botIds = layout.botIds
     Box(Modifier.size(size)) {
-        if (botIds.size == 1) {
+        if (layout.totalCount == 1) {
             val bot = bots.firstOrNull { it.str("id") == botIds.single() }
             BotAvatar(repository, bot, main = bot?.boolean("is_main") == true, size = size)
-        } else {
-            botIds.forEachIndexed { index, botId ->
+        } else if (botIds.isNotEmpty()) {
+            repeat(4) { index ->
                 val quadrant = size / 2f
                 val inset = size * 0.03f
                 val x = if (index % 2 == 0) 0.dp else quadrant - inset
                 val y = if (index / 2 == 0) 0.dp else quadrant - inset
                 val avatarSize = quadrant - 2.dp
-                Box(
-                    Modifier.offset(x, y).size(quadrant).clip(CircleShape).background(MaterialTheme.colorScheme.surface)
-                        .padding(1.dp),
-                ) {
-                    val bot = bots.firstOrNull { it.str("id") == botId }
-                    BotAvatar(repository, bot, main = bot?.boolean("is_main") == true, size = avatarSize)
+                if (index == 3 && layout.overflowCount > 0) {
+                    Surface(
+                        Modifier.offset(x, y).size(quadrant).clip(CircleShape),
+                        shape = CircleShape,
+                        color = MaterialTheme.colorScheme.surfaceVariant,
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Text("+${layout.overflowCount}", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                } else {
+                    botIds.getOrNull(index)?.let { botId ->
+                        Box(
+                            Modifier.offset(x, y).size(quadrant).clip(CircleShape).background(MaterialTheme.colorScheme.surface)
+                                .padding(1.dp),
+                        ) {
+                            val bot = bots.firstOrNull { it.str("id") == botId }
+                            BotAvatar(repository, bot, main = bot?.boolean("is_main") == true, size = avatarSize)
+                        }
+                    }
                 }
             }
         }
@@ -421,6 +437,7 @@ private fun GroupMemberChip(repository: MobileRepository, bot: JsonObject?, name
         "working" -> stringResource(Res.string.status_working)
         "queued" -> stringResource(Res.string.status_queued)
         "waiting_user" -> stringResource(Res.string.status_waiting_user)
+        "waiting_bot" -> stringResource(Res.string.status_standby)
         "blocked" -> stringResource(Res.string.status_blocked)
         "review" -> stringResource(Res.string.status_review)
         "done" -> stringResource(Res.string.status_done)

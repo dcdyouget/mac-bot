@@ -77,6 +77,7 @@ object StateReducer {
         projects = data.objects("projects"), settings = data.obj("settings"), approvals = data.obj("pending").objects("approvals"),
         questions = data.obj("pending").objects("questions"), messages = emptyMap(), assignments = emptyList(),
         traces = emptyMap(), traceFragments = emptyMap(), announcements = emptyMap(),
+        typing = emptyMap(),
         memoryEntries = emptyList(), memoryQuota = buildJsonObject {}, userProfile = buildJsonObject {},
         skills = emptyList(), routines = emptyList(), providers = emptyList(), models = emptyList(), workbench = buildJsonObject {},
     )
@@ -94,7 +95,11 @@ object StateReducer {
             "message.created", "message.updated" -> {
                 val message = data.obj("message"); val chatId = message.str("chat_id")
                 val messages = mergeMessages(current.messages[chatId].orEmpty(), listOf(message))
-                result = current.copy(messages = current.messages + (chatId to messages), chats = current.chats.map { chat ->
+                val completedBotReply = message.obj("sender").str("kind") == "bot" && !message.boolean("streaming")
+                result = current.copy(
+                    messages = current.messages + (chatId to messages),
+                    typing = if (completedBotReply) current.typing - chatId else current.typing,
+                    chats = current.chats.map { chat ->
                     if (chat.str("id") != chatId || message.long("seq") < chat.long("last_seq")) chat else JsonObject(chat + mapOf(
                         "last_seq" to JsonPrimitive(message.long("seq")),
                         "last_message" to buildJsonObject { put("message_id", message.str("id")); put("text", message.str("fallback_text")); put("sender", message.obj("sender")); put("created_at", message.str("created_at")) }
@@ -122,7 +127,12 @@ object StateReducer {
                     result = current.copy(messages = current.messages + (chatId to messages))
                 }
             }
-            "typing" -> result = current.copy(typing = current.typing + (data.str("chat_id") to data.boolean("on")))
+            "typing" -> {
+                val chatId = data.str("chat_id")
+                result = current.copy(
+                    typing = if (data.boolean("on")) current.typing + (chatId to true) else current.typing - chatId,
+                )
+            }
             "bot.created", "bot.updated" -> result = current.copy(bots = mergeById(current.bots, listOf(data.obj("bot"))))
             "bot.deleted" -> result = current.copy(bots = remove(current.bots, data.str("bot_id")))
             "bot.status" -> result = current.copy(bots = current.bots.map { if (it.str("id") == data.str("bot_id")) JsonObject(it + ("status" to data.obj("status"))) else it })

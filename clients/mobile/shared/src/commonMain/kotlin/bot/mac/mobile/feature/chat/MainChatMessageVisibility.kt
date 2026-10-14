@@ -12,6 +12,7 @@ internal fun visibleMessagesForChat(
     bots: List<JsonObject>,
 ): List<JsonObject> {
     val chatBotId = chat?.str("bot_id").orEmpty()
+    val groupChat = chat?.str("kind") == "project"
     val mainBotId = if (
         chat?.str("kind") == "main" ||
         (chat?.str("project_id").isNullOrBlank() && bots.any { it.str("id") == chatBotId && it.boolean("is_main") })
@@ -22,6 +23,7 @@ internal fun visibleMessagesForChat(
     return messages.filter { message ->
         val messageChatId = message.str("chat_id")
         if (!messageChatId.isBlank() && messageChatId != chat?.str("id")) return@filter false
+        if (shouldHideGroupNonProductMessage(message, groupChat)) return@filter false
         val sender = message.obj("sender")
         mainBotId == null || sender.str("kind") != "bot" || sender.str("bot_id") == mainBotId
     }

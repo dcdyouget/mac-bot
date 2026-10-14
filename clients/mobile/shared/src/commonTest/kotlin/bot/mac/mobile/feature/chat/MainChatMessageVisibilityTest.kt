@@ -3,6 +3,7 @@ package bot.mac.mobile.feature.chat
 import bot.mac.mobile.core.protocol.str
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonObject
@@ -59,5 +60,28 @@ class MainChatMessageVisibilityTest {
         )
 
         assertEquals(listOf("main"), visibleMessagesForChat(messages, mainChat, emptyList()).map { it.str("id") })
+    }
+
+    @Test
+    fun groupTimelineHidesProgressButKeepsUnknownBlocksForFallbackRendering() {
+        val group = buildJsonObject { put("id", "group-chat"); put("kind", "project") }
+        val progress = buildJsonObject {
+            put("id", "progress")
+            put("chat_id", "group-chat")
+            put("intent", "progress")
+            putJsonObject("sender") { put("kind", "bot"); put("bot_id", "worker-1") }
+            put("blocks", kotlinx.serialization.json.buildJsonArray { add(buildJsonObject { put("type", "progress"); put("text", "internal update") }) })
+        }
+        val futureBlock = buildJsonObject {
+            put("id", "future")
+            put("chat_id", "group-chat")
+            put("intent", "progress")
+            put("fallback_text", "A future product node")
+            putJsonObject("sender") { put("kind", "bot"); put("bot_id", "worker-1") }
+            put("blocks", kotlinx.serialization.json.buildJsonArray { add(buildJsonObject { put("type", "future_node") }) })
+        }
+
+        assertEquals(listOf("future"), visibleMessagesForChat(listOf(progress, futureBlock), group, bots).map { it.str("id") })
+        assertTrue(hasUnknownMessageBlock(futureBlock))
     }
 }

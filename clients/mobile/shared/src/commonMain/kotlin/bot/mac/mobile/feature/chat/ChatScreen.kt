@@ -25,6 +25,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -49,6 +50,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.luminance
@@ -143,6 +145,7 @@ fun ChatScreen(
     onInitialMessageConsumed: (chatId: String, messageId: String) -> Unit = { _, _ -> },
     onOpenTrace: (assignmentId: String?, chatId: String?) -> Unit = { _, _ -> },
     onOpenProject: (String) -> Unit = {},
+    onOpenProjectMessage: (projectId: String, messageId: String?) -> Unit = { projectId, _ -> onOpenProject(projectId) },
     onBack: () -> Unit = {},
     onProjectAction: (projectId: String, action: String) -> Unit = { _, _ -> },
     onOpenScreen: (botId: String, tabId: String?) -> Unit = { _, _ -> },
@@ -216,6 +219,7 @@ fun ChatScreen(
     var initialJumpHandled by remember(hostId, chatId, initialMessageId, initialScrollAnchorMessageId) {
         mutableStateOf(initialChatPosition?.kind != InitialChatPositionKind.MESSAGE_LINK)
     }
+    var pendingQuoteJump by remember(hostId, chatId) { mutableStateOf<String?>(null) }
     val readOnly = chat?.str("kind") == "bot_dm"
     val memberIds = chat?.arr("member_bot_ids").orEmpty().map { it.toString().trim('"') }
     val mentionCandidates = state.bots.filter { it.str("id") in memberIds || memberIds.isEmpty() }
@@ -479,6 +483,49 @@ fun ChatScreen(
         initialJumpHandled = true
         onInitialMessageConsumed(chatId, targetId)
     }
+    LaunchedEffect(hostId, chatId, pendingQuoteJump, historyLoaded) {
+        val targetId = pendingQuoteJump?.takeIf(String::isNotBlank) ?: return@LaunchedEffect
+        if (!historyLoaded) return@LaunchedEffect
+        var hasMore = historyHasMore
+        var beforeSeq = historyBeforeSeq
+        var pages = 0
+        fun currentVisibleMessages(): List<JsonObject> {
+            val currentState = repository.state.value
+            val currentChat = currentState.chats.firstOrNull { it.str("id") == chatId }
+            return visibleMessagesForChat(currentState.messages[chatId].orEmpty(), currentChat, currentState.bots)
+        }
+        while (currentVisibleMessages().none { it.str("id") == targetId } && hasMore && beforeSeq != null && pages < 100) {
+            val result = runCatching {
+                repository.callOnHost(hostId, "chat.history", buildJsonObject {
+                    put("chat_id", chatId)
+                    put("before_seq", beforeSeq!!)
+                    put("limit", 100)
+                })
+            }.getOrElse { failure ->
+                error = failure.message ?: loadingError
+                break
+            }
+            hasMore = result.boolean("has_more")
+            beforeSeq = result.objects("messages").minOfOrNull { it.longValue("seq") ?: Long.MAX_VALUE }
+                ?.takeIf { it != Long.MAX_VALUE }
+            historyHasMore = hasMore
+            historyBeforeSeq = beforeSeq
+            pages++
+        }
+        val currentMessages = currentVisibleMessages()
+        val index = currentMessages.indexOfFirst { it.str("id") == targetId }
+        if (index >= 0) {
+            withFrameNanos { }
+            listState.animateScrollToItem(chatMessageLazyIndex(currentMessages, index, historyHasMore))
+            scrollState = scrollState.afterInitialPosition(followLatest = false)
+            highlightedMessageId = targetId
+            kotlinx.coroutines.delay(900)
+            if (highlightedMessageId == targetId) highlightedMessageId = null
+        } else {
+            error = quoteOriginalUnloaded
+        }
+        pendingQuoteJump = null
+    }
     LaunchedEffect(hostId, chatId, initialScrollAnchorMessageId, initialScrollAnchorOffsetPx, historyLoaded, initialJumpHandled) {
         val anchorId = initialScrollAnchorMessageId?.takeIf(String::isNotBlank) ?: return@LaunchedEffect
         if (!historyLoaded || !initialJumpHandled || traceAnchorHandled) return@LaunchedEffect
@@ -726,13 +773,14 @@ fun ChatScreen(
                                     listState.scrollToItem(targetIndex)
                                 }
                             }
-                        } else error = quoteOriginalUnloaded
+                        } else pendingQuoteJump = quotedId
                     },
                     highlighted = highlightedMessageId == message.str("id"),
                     onReply = { quoteMode = "reply"; replyTo = it },
                     onQuote = { id, mode -> quoteMode = mode; replyTo = id },
                     onReact = { id, emoji, enabled -> scope.launch { runCatching { repository.call("chat.react", buildJsonObject { put("message_id", id); put("emoji", emoji); put("on", enabled) }) }.onFailure { error = it.message ?: sendError } } },
                     onOpenTrace = openTraceFromChat,
+                    onOpenProjectMessage = onOpenProjectMessage,
                     onApproval = { id, decision -> scope.launch { runCatching { repository.call("approval.decide", buildJsonObject { put("approval_id", id); put("decision", decision) }) }.onFailure { error = it.message ?: sendError } } },
                     onQuestion = { id, index, indexes, text -> scope.launch { runCatching { repository.call("question.answer", buildJsonObject {
                         put("question_id", id)
@@ -1214,6 +1262,7 @@ internal fun ChatMessageRow(
     onQuote: (String, String) -> Unit,
     onReact: (String, String, Boolean) -> Unit,
     onOpenTrace: (String?, String?) -> Unit,
+    onOpenProjectMessage: (String, String?) -> Unit,
     onApproval: (String, String) -> Unit,
     onQuestion: (String, Int?, List<Int>?, String?) -> Unit,
     onPreviewFile: (JsonObject) -> Unit,
@@ -1262,14 +1311,21 @@ internal fun ChatMessageRow(
     )
     val sender = message.obj("sender")
     val isUser = sender.str("kind") == "user"
+    val isGroupChat = state.chats.firstOrNull { it.str("id") == chatId }?.str("kind") == "project"
+    val isGroupBotMessage = isGroupChat && sender.str("kind") == "bot"
     val id = message.str("id")
     val blocks = message.arr("blocks")
+    val visibleBlocks = renderedMessageBlocks(message, isGroupChat)
+    val openProjectFromMessage: (String) -> Unit = { projectId ->
+        val quotedRequestId = message.obj("quote").str("message_id")
+        onOpenProjectMessage(projectId, projectTargetMessageId(projectId, quotedRequestId, state.assignments))
+    }
     val reactionPills = message.arr("reactions").mapNotNull { it as? JsonObject }.mapNotNull { reaction ->
         val emoji = reaction.str("emoji").takeIf(String::isNotBlank) ?: return@mapNotNull null
         val senders = reaction.arr("by").mapNotNull { it as? JsonObject }
         TapbackPill(emoji, senders.size, senders.any { it.str("kind") == "user" })
     }
-    val hasWideCard = blocks.any { element ->
+    val hasWideCard = hasUnknownMessageBlock(message) || visibleBlocks.any { element ->
         (element as? JsonObject)?.str("type") in setOf(
             "task_card", "completion", "review_card", "project_card", "question", "delegation",
             "approval", "approval_ref", "takeover_request", "bot_dm_ref", "link_preview", "image", "file",
@@ -1307,7 +1363,7 @@ internal fun ChatMessageRow(
         padChatTimePart(messageLocalTime.minute),
         padChatTimePart(messageLocalTime.second),
     )
-    val blockText = blocks.mapNotNull { entry ->
+    val blockText = visibleBlocks.mapNotNull { entry ->
         (entry as? JsonObject)?.takeIf { it.str("type") == "text" }?.str("markdown")?.takeIf(String::isNotBlank)
     }.joinToString(" ")
     val messageBody = blockText.ifBlank { message.str("fallback_text") }
@@ -1319,10 +1375,10 @@ internal fun ChatMessageRow(
         .toSet()
     val messageSkillPrefix = if (isUser) resolveChatMessageSkillPrefix(messageBody, enabledSkillNames, loadedNames.toSet()) else null
     val visibleSkillNames = (listOfNotNull(messageSkillPrefix?.skillName) + loadedNames).distinct()
-    val firstTextBlockIndex = if (messageSkillPrefix == null) -1 else blocks.indexOfFirst { entry ->
+    val firstTextBlockIndex = if (messageSkillPrefix == null) -1 else visibleBlocks.indexOfFirst { entry ->
         (entry as? JsonObject)?.let { it.str("type") == "text" && it.str("markdown").isNotBlank() } == true
     }
-    val displayBlocks = if (firstTextBlockIndex < 0) blocks else blocks.mapIndexed { index, entry ->
+    val displayBlocks = if (firstTextBlockIndex < 0) visibleBlocks else visibleBlocks.mapIndexed { index, entry ->
         if (index != firstTextBlockIndex) entry else {
             val block = entry as? JsonObject ?: return@mapIndexed entry
             JsonObject(block + ("markdown" to JsonPrimitive(messageSkillPrefix?.body.orEmpty())))
@@ -1330,7 +1386,7 @@ internal fun ChatMessageRow(
     }
     val spokenBody = messageBody.ifBlank { if (blocks.isNotEmpty()) stringResource(Res.string.chat_message_accessibility_card) else "" }
     val messageDescription = stringResource(Res.string.chat_message_accessibility, if (isUser) stringResource(Res.string.common_you) else senderLabel, spokenTime, spokenBody)
-    val standaloneTask = blocks.singleOrNull()?.let { it as? JsonObject }?.takeIf { it.str("type") == "task_card" }
+    val standaloneTask = visibleBlocks.singleOrNull()?.takeIf { it.str("type") == "task_card" }
     Column(
         Modifier.fillMaxWidth().padding(top = topSpacing).graphicsLayer {
             val progress = entranceProgress.value
@@ -1477,7 +1533,7 @@ internal fun ChatMessageRow(
                         }
                     }
                 }
-                if (message.boolean("streaming")) ChatTypingWave(LocalSystemAnimationsEnabled.current)
+                if (message.boolean("streaming") && !isGroupChat) ChatTypingWave(LocalSystemAnimationsEnabled.current)
                 if (visibleSkillNames.isNotEmpty()) Row(
                     Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -1496,11 +1552,10 @@ internal fun ChatMessageRow(
                     }
                 }
                 val fallback = message.str("fallback_text")
-                val unknown = blocks.any { element ->
-                    val block = element as? JsonObject ?: return@any true
-                    block.str("type") !in KnownBlockTypes
+                val unknown = hasUnknownMessageBlock(message)
+                if ((blocks.isEmpty() || (!isGroupBotMessage && displayBlocks.isEmpty()) || shouldShowGroupFallback(message, isGroupChat)) && fallback.isNotBlank() && !(isGroupBotMessage && unknown)) {
+                    Text(fallback, style = MaterialTheme.typography.bodyLarge)
                 }
-                if (blocks.isEmpty() && fallback.isNotBlank()) Text(fallback, style = MaterialTheme.typography.bodyLarge)
                 if (unknown) Surface(Modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.surface, shape = RoundedCornerShape(8.dp), border = androidx.compose.foundation.BorderStroke(1.dp, palette.borderDefault)) {
                     Text("⚠ ${fallback.ifBlank { stringResource(Res.string.feature_unknown_block) }} · ${stringResource(Res.string.feature_update_client)}", Modifier.padding(10.dp), style = MaterialTheme.typography.bodySmall)
                 }
@@ -1518,7 +1573,7 @@ internal fun ChatMessageRow(
                                 filePreviews = filePreviews,
                                 imagePreviews = imagePreviews,
                                 onOpenTrace = onOpenTrace,
-                                onOpenProject = onOpenProject,
+                                onOpenProject = openProjectFromMessage,
                                 onProjectAction = onProjectAction,
                                 onOpenScreen = onOpenScreen,
                                 onOpenChat = onOpenChat,
@@ -1531,10 +1586,10 @@ internal fun ChatMessageRow(
                             )
                     } else {
                         BlockView(block, state, onApproval, onQuestion, onPreviewFile, onExportFile, filePreviews, imagePreviews,
-                            onOpenTrace, onOpenProject, onProjectAction, onOpenScreen, onOpenChat, onLoopAction, onTakeover, onReleaseTakeover, onOpenArtifact, artifactProjectId, repository)
+                            onOpenTrace, openProjectFromMessage, onProjectAction, onOpenScreen, onOpenChat, onLoopAction, onTakeover, onReleaseTakeover, onOpenArtifact, artifactProjectId, repository)
                     }
                 }
-                if (assignmentId.isNotBlank()) {
+                if (assignmentId.isNotBlank() && !isGroupChat) {
                     Text(stringResource(Res.string.feature_trace_running), Modifier.padding(top = 8.dp), color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelLarge)
                     Button(onClick = { onOpenTrace(assignmentId, null) }) { Text(stringResource(Res.string.feature_detail)) }
                 }
@@ -1811,11 +1866,6 @@ private fun StandaloneTaskCard(
     }
 }
 
-private val KnownBlockTypes = setOf(
-    "text", "image", "file", "task_card", "completion", "progress", "blocked", "question", "project_card", "review_card",
-    "delegation", "approval", "approval_ref", "takeover_request", "bot_dm_ref", "system", "loop_paused", "link_preview",
-)
-
 @Composable
 private fun SlashSkillOption(skill: JsonObject, onSelect: (String) -> Unit) {
     val name = skill.str("name")
@@ -1982,13 +2032,15 @@ private fun BlockView(
             Surface(
                 modifier = Modifier.fillMaxWidth(),
                 color = LocalMobilePalette.current.panel,
-                shape = RoundedCornerShape(10.dp),
+                shape = RoundedCornerShape(12.dp),
                 border = androidx.compose.foundation.BorderStroke(1.dp, LocalMobilePalette.current.borderDefault),
             ) {
-                Column(Modifier.padding(horizontal = 10.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Text("✓", color = LocalMobilePalette.current.success, style = MaterialTheme.typography.titleSmall)
-                        Text(stringResource(Res.string.block_completion_done), style = MaterialTheme.typography.labelMedium, color = LocalMobilePalette.current.success)
+                Column(Modifier.padding(horizontal = 12.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Surface(Modifier.size(24.dp), color = LocalMobilePalette.current.successSoft, shape = CircleShape) {
+                            Box(contentAlignment = Alignment.Center) { Text("✓", color = LocalMobilePalette.current.success, style = MaterialTheme.typography.labelMedium) }
+                        }
+                        Text(stringResource(Res.string.block_completion_done), style = MaterialTheme.typography.titleSmall, color = LocalMobilePalette.current.success)
                     }
                     MarkdownText(block.str("summary"), Modifier.fillMaxWidth())
                     block.arr("artifacts").forEach { element ->
@@ -1998,11 +2050,11 @@ private fun BlockView(
                         Surface(
                             modifier = Modifier.fillMaxWidth(),
                             color = LocalMobilePalette.current.bubbleIn,
-                            shape = RoundedCornerShape(8.dp),
+                            shape = RoundedCornerShape(10.dp),
                             onClick = { onOpenArtifact(artifact.str("artifact_id"), url, artifactProjectId) },
                         ) {
-                            Row(Modifier.padding(8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                                Surface(Modifier.size(30.dp), color = MaterialTheme.colorScheme.primaryContainer, shape = RoundedCornerShape(6.dp)) {
+                            Row(Modifier.padding(10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Surface(Modifier.size(32.dp), color = MaterialTheme.colorScheme.primaryContainer, shape = RoundedCornerShape(6.dp)) {
                                     Box(contentAlignment = Alignment.Center) { LucideIcon(LucideIconKind.FileText, Modifier.size(18.dp)) }
                                 }
                                 Column(Modifier.weight(1f)) {
@@ -2054,21 +2106,23 @@ private fun BlockView(
             val questionText = question?.str("text").orEmpty().ifBlank { questionId }
             val questionBot = state.bots.firstOrNull { it.str("id") == question?.str("bot_id") }
                 ?.str("name")?.takeIf(String::isNotBlank) ?: stringResource(Res.string.feature_bot)
+            val options = question?.arr("options").orEmpty().map { it.toString().trim('"') }
+            val multi = question?.boolean("multi") == true
             var freeText by remember(questionId) { mutableStateOf("") }
             var showFreeText by remember(questionId) { mutableStateOf(false) }
             var selectedOptions by remember(questionId) { mutableStateOf(emptySet<Int>()) }
             val freeTextFocus = remember(questionId) { FocusRequester() }
             LaunchedEffect(showFreeText) { if (showFreeText) runCatching { freeTextFocus.requestFocus() } }
             Text(
-                stringResource(if (question?.boolean("multi") == true) Res.string.block_question_multi else Res.string.block_question_single),
+                stringResource(if (multi) Res.string.feature_question_kind_multi else Res.string.feature_question_kind_single, questionBot),
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.primary,
             )
             Text(questionText, style = MaterialTheme.typography.titleSmall)
             when {
                 question?.str("state") == "expired" -> {
-                    question.arr("options").forEach { option ->
-                        Text(option.toString().trim('"'), color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = .4f))
+                    options.forEachIndexed { index, option ->
+                        Text("${optionLetter(index)}  $option", color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = .4f))
                     }
                     Text(stringResource(Res.string.feature_decision_expired), Modifier.semantics { liveRegion = LiveRegionMode.Polite }, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
@@ -2077,45 +2131,87 @@ private fun BlockView(
                     val indexes = answer.arr("option_indexes").mapNotNull { it.toString().trim('"').toIntOrNull() }
                     val single = answer["option_index"]?.toString()?.trim('"')?.toIntOrNull()?.let(::listOf).orEmpty()
                     val selected = if (indexes.isNotEmpty()) indexes else single
-                    val selectedLabels = selected.mapNotNull { question.arr("options").getOrNull(it)?.toString()?.trim('"') }.joinToString("、")
+                    val selectedSummary = questionSelectionSummary(options, selected)
                     Text(
-                        if (selected.isNotEmpty()) stringResource(Res.string.feature_question_answered_option, selectedLabels)
-                        else stringResource(Res.string.feature_question_answered_text),
+                        if (selected.isNotEmpty()) stringResource(Res.string.block_question_answered, selectedSummary.letters, selectedSummary.labels)
+                        else stringResource(Res.string.block_question_you_replied),
                         modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
                         color = MaterialTheme.colorScheme.primary,
                         style = MaterialTheme.typography.labelMedium,
                     )
-                    question.arr("options").forEachIndexed { index, option ->
-                        Text("${if (index in selected) "✓ " else ""}${option.toString().trim('"')}", color = if (index in selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
+                    options.forEachIndexed { index, option ->
+                        val isSelected = index in selected
+                        Surface(
+                            modifier = Modifier.fillMaxWidth(),
+                            color = if (isSelected) LocalMobilePalette.current.accentSoft else Color.Transparent,
+                            shape = RoundedCornerShape(10.dp),
+                        ) {
+                            Row(Modifier.padding(horizontal = 10.dp, vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                                if (isSelected) {
+                                    Surface(
+                                        Modifier.size(if (multi) 18.dp else 22.dp),
+                                        shape = if (multi) RoundedCornerShape(4.dp) else CircleShape,
+                                        color = MaterialTheme.colorScheme.primary,
+                                    ) {
+                                        Box(contentAlignment = Alignment.Center) { Text("✓", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onPrimary) }
+                                    }
+                                } else Text(optionLetter(index), style = MaterialTheme.typography.labelSmall, color = LocalMobilePalette.current.textTertiary)
+                                Text(option, Modifier.weight(1f), color = if (isSelected) MaterialTheme.colorScheme.primary else LocalMobilePalette.current.textTertiary)
+                            }
+                        }
                     }
                     answer.str("text").takeIf { it.isNotBlank() }?.let { text ->
-                        Surface(color = MaterialTheme.colorScheme.surfaceContainerHigh, shape = RoundedCornerShape(8.dp)) {
+                        Surface(color = LocalMobilePalette.current.accentSoft, shape = RoundedCornerShape(8.dp)) {
                             Row(Modifier.fillMaxWidth().padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
                                 Spacer(Modifier.width(2.dp).heightIn(min = 24.dp).background(MaterialTheme.colorScheme.primary))
                                 Column(Modifier.padding(start = 8.dp)) {
-                                Text(stringResource(Res.string.block_question_your_reply), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                                    Text(stringResource(Res.string.block_question_your_reply), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
                                     Text(text, style = MaterialTheme.typography.bodyMedium)
                                 }
                             }
                         }
                     }
+                    answer.str("at").takeIf(String::isNotBlank)?.let { ChatClockText(it) }
                 }
                 question?.str("state") == "pending" -> {
-                    question.arr("options").forEachIndexed { index, option ->
-                        FilterChip(
-                            selected = index in selectedOptions,
-                            modifier = Modifier.heightIn(min = 44.dp),
+                    options.forEachIndexed { index, option ->
+                        val selected = index in selectedOptions
+                        Surface(
+                            modifier = Modifier.fillMaxWidth().heightIn(min = 44.dp),
+                            color = if (selected) LocalMobilePalette.current.accentSoft else LocalMobilePalette.current.panel,
+                            shape = RoundedCornerShape(10.dp),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, if (selected) MaterialTheme.colorScheme.primary.copy(alpha = .48f) else LocalMobilePalette.current.borderSubtle),
                             onClick = {
-                                if (question.boolean("multi")) selectedOptions = if (index in selectedOptions) selectedOptions - index else selectedOptions + index
+                                if (multi) selectedOptions = if (selected) selectedOptions - index else selectedOptions + index
                                 else onQuestion(questionId, index, null, null)
                             },
-                            label = { Text(option.toString().trim('"')) },
-                        )
+                        ) {
+                            Row(Modifier.padding(horizontal = 10.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Surface(
+                                    Modifier.size(if (multi) 18.dp else 22.dp),
+                                    shape = if (multi) RoundedCornerShape(4.dp) else CircleShape,
+                                    color = if (selected) MaterialTheme.colorScheme.primary else Color.Transparent,
+                                    border = androidx.compose.foundation.BorderStroke(1.dp, if (selected) MaterialTheme.colorScheme.primary else LocalMobilePalette.current.borderDefault),
+                                ) {
+                                    Box(contentAlignment = Alignment.Center) {
+                                        Text(
+                                            when { selected -> "✓"; multi -> ""; else -> optionLetter(index) },
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = if (selected) MaterialTheme.colorScheme.onPrimary else LocalMobilePalette.current.textSecondary,
+                                        )
+                                    }
+                                }
+                                Text(option, Modifier.weight(1f), color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface)
+                            }
+                        }
                     }
-                    if (question.boolean("multi")) Button(
+                    if (multi) {
+                        if (selectedOptions.isNotEmpty()) Text(stringResource(Res.string.block_question_selected_n, selectedOptions.size), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Button(
                         onClick = { onQuestion(questionId, null, selectedOptions.sorted(), null) },
                         enabled = selectedOptions.isNotEmpty(),
-                    ) { Text(stringResource(Res.string.feature_submit)) }
+                        ) { Text(stringResource(Res.string.feature_submit)) }
+                    }
                     if (question.boolean("allow_free_text")) {
                         if (!showFreeText) {
                             TextButton(onClick = { showFreeText = true }, modifier = Modifier.heightIn(min = 44.dp)) {
@@ -2127,6 +2223,7 @@ private fun BlockView(
                                 { freeText = it },
                                 Modifier.fillMaxWidth().focusRequester(freeTextFocus),
                                 label = { Text(stringResource(Res.string.feature_answer)) },
+                                supportingText = { Text(stringResource(Res.string.block_question_free_text_hint)) },
                             )
                             Button(onClick = { onQuestion(questionId, null, null, freeText) }, enabled = freeText.isNotBlank()) { Text(stringResource(Res.string.feature_submit)) }
                         }
