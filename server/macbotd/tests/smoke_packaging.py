@@ -36,15 +36,22 @@ def inspect_launchagent_rendering(directory):
         return plistlib.loads(output.read_bytes())
 
     default = render("default.plist", default_home)
+    assert default["ProgramArguments"] == [str(app_binary)], default["ProgramArguments"]
     assert "MACBOT_HOME" not in default["EnvironmentVariables"]
     assert default["StandardOutPath"] == str(default_home / "data/macbot.log")
     assert default["StandardErrorPath"] == str(default_home / "data/macbot.log")
 
     custom_home = directory / "custom home"
     custom = render("custom.plist", custom_home, custom_home)
+    assert custom["ProgramArguments"] == [str(app_binary)], custom["ProgramArguments"]
     assert custom["EnvironmentVariables"]["MACBOT_HOME"] == str(custom_home)
     assert custom["StandardOutPath"] == str(custom_home / "data/macbot.log")
     assert custom["StandardErrorPath"] == str(custom_home / "data/macbot.log")
+
+    for name in ("default.plist", "custom.plist"):
+        rendered = (directory / name).read_text()
+        assert "__MACBOT_BIN__" not in rendered
+        assert "__MACBOT_HOME__" not in rendered
 
 
 def inspect_pkg(pkg, destination):

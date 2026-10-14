@@ -12,8 +12,17 @@ APP_BINARY="$3"
 DEFAULT_HOME="$4"
 MACBOT_HOME_OVERRIDE="${5:-}"
 
+case "$APP_BINARY" in
+  /*) ;;
+  *) echo "daemon path must be absolute: $APP_BINARY" >&2; exit 1 ;;
+esac
+
 cp "$TEMPLATE" "$DESTINATION"
-/usr/bin/plutil -replace ProgramArguments.0 -string "$APP_BINARY" "$DESTINATION"
+# Rebuild the array instead of replacing index 0: plutil treats a terminal
+# numeric path component as an insertion point, leaving the template value in
+# place as a second argument.
+/usr/bin/plutil -replace ProgramArguments -array "$DESTINATION"
+/usr/bin/plutil -insert ProgramArguments.0 -string "$APP_BINARY" "$DESTINATION"
 /usr/bin/plutil -replace StandardOutPath -string "$DEFAULT_HOME/data/macbot.log" "$DESTINATION"
 /usr/bin/plutil -replace StandardErrorPath -string "$DEFAULT_HOME/data/macbot.log" "$DESTINATION"
 
