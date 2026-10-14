@@ -5,6 +5,7 @@
 //! used by memory/session/project tools.
 
 use chrono::{DateTime, Datelike, Duration, Utc};
+use language_tags::LanguageTag;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::fs::{self, OpenOptions};
@@ -41,6 +42,33 @@ pub const DEFAULT_L0_PLATFORM_RULES: &str = r#"Platform rules:
 
 pub fn default_l0_platform_rules() -> &'static str {
     DEFAULT_L0_PLATFORM_RULES
+}
+
+/// Normalize only newly supplied profile languages. Existing snapshots are
+/// deliberately left untouched, including when onboarding is skipped.
+pub fn normalize_profile_language(value: &str) -> Result<Option<String>, MemoryError> {
+    let value = value.trim();
+    if value.is_empty() {
+        return Ok(None);
+    }
+    let alias = match value.to_ascii_lowercase().as_str() {
+        "简体中文" | "简体汉语" | "简体" | "simplified chinese" => "zh-CN",
+        "繁体中文" | "繁體中文" | "繁体" | "繁體" | "traditional chinese" => "zh-TW",
+        "中文" | "汉语" | "漢語" | "chinese" => "zh",
+        "英语" | "英語" | "英文" | "english" => "en",
+        _ => value,
+    };
+    let invalid = || {
+        MemoryError::Invalid(
+            "language must be a valid BCP 47 language tag of at most 35 characters (for example zh-CN); use null or an empty string to follow the client system language".into(),
+        )
+    };
+    if alias.len() > 35 {
+        return Err(invalid());
+    }
+    let tag = LanguageTag::parse(alias).map_err(|_| invalid())?;
+    tag.validate().map_err(|_| invalid())?;
+    Ok(Some(tag.into_string()))
 }
 
 #[derive(Debug, Error)]
@@ -1259,57 +1287,7 @@ impl SharedMemoryStore {
         let before = store.clone_for_transaction();
         let actor = actor_for_sender(&update.updated_by, None);
         let mut candidate = store.clone_for_transaction();
-        if candidate.user_profile.is_none() {
-            candidate.user_profile = Some(UserProfile {
-                name: None,
-                language: None,
-                identity: None,
-                timezone: if update.timezone.trim().is_empty() {
-                    "UTC"
-                } else {
-                    &update.timezone
-                }
-                .to_owned(),
-                onboarded: false,
-                version: 1,
-                updated_by: MemorySender::System,
-                updated_at: Utc::now(),
-            });
-        }
-        let current = candidate.user_profile.as_mut().expect("initialized above");
-        if current.version != update.expected_version {
-            return Err(MemoryError::ProfileConflict(Box::new(current.clone())));
-        }
-        if let Some(value) = update.name {
-            current.name = value;
-        }
-        if let Some(value) = update.language {
-            current.language = value;
-        }
-        if let Some(value) = update.identity {
-            current.identity = value;
-        }
-        if current
-            .name
-            .as_ref()
-            .is_some_and(|value| value.chars().count() > 20)
-            || current
-                .identity
-                .as_ref()
-                .is_some_and(|value| value.chars().count() > 100)
-            || current
-                .language
-                .as_ref()
-                .is_some_and(|value| value.chars().count() > 35)
-        {
-            return Err(MemoryError::Invalid(
-                "profile field exceeds its maximum length".into(),
-            ));
-        }
-        current.version = current.version.saturating_add(1);
-        current.updated_by = update.updated_by;
-        current.updated_at = Utc::now();
-        let profile = current.clone();
+        let profile = candidate.apply_user_profile_update(update)?;
         append_state_diff(
             path.as_ref(),
             &before,
@@ -1520,24 +1498,23 @@ impl MemoryStore {
         &mut self,
         update: UserProfileUpdate,
     ) -> Result<UserProfile, MemoryError> {
-        if self.user_profile.is_none() {
-            self.user_profile = Some(UserProfile {
-                name: None,
-                language: None,
-                identity: None,
-                timezone: if update.timezone.trim().is_empty() {
-                    "UTC"
-                } else {
-                    &update.timezone
-                }
-                .to_owned(),
-                onboarded: false,
-                version: 1,
-                updated_by: MemorySender::System,
-                updated_at: Utc::now(),
-            });
-        }
-        let current = self.user_profile.as_mut().expect("initialized above");
+        // Validate on a copy so a rejected patch cannot change an earlier
+        // field, create a profile, or increment its version.
+        let mut current = self.user_profile.clone().unwrap_or_else(|| UserProfile {
+            name: None,
+            language: None,
+            identity: None,
+            timezone: if update.timezone.trim().is_empty() {
+                "UTC"
+            } else {
+                &update.timezone
+            }
+            .to_owned(),
+            onboarded: false,
+            version: 1,
+            updated_by: MemorySender::System,
+            updated_at: Utc::now(),
+        });
         if current.version != update.expected_version {
             return Err(MemoryError::ProfileConflict(Box::new(current.clone())));
         }
@@ -1545,7 +1522,11 @@ impl MemoryStore {
             current.name = value;
         }
         if let Some(value) = update.language {
-            current.language = value;
+            current.language = value
+                .as_deref()
+                .map(normalize_profile_language)
+                .transpose()?
+                .flatten();
         }
         if let Some(value) = update.identity {
             current.identity = value;
@@ -1558,10 +1539,6 @@ impl MemoryStore {
                 .identity
                 .as_ref()
                 .is_some_and(|value| value.chars().count() > 100)
-            || current
-                .language
-                .as_ref()
-                .is_some_and(|value| value.chars().count() > 35)
         {
             return Err(MemoryError::Invalid(
                 "profile field exceeds its maximum length".into(),
@@ -1570,7 +1547,8 @@ impl MemoryStore {
         current.version = current.version.saturating_add(1);
         current.updated_by = update.updated_by;
         current.updated_at = Utc::now();
-        Ok(current.clone())
+        self.user_profile = Some(current.clone());
+        Ok(current)
     }
 
     pub fn apply_user_profile_onboarding(
@@ -3253,6 +3231,95 @@ mod tests {
     use super::*;
 
     #[test]
+    fn profile_language_normalizes_names_and_validates_bcp47() {
+        for (input, expected) in [
+            ("简体中文", "zh-CN"),
+            ("繁體中文", "zh-TW"),
+            ("中文", "zh"),
+            ("英语", "en"),
+            ("English", "en"),
+            ("zh-CN", "zh-CN"),
+            (" zh-cn ", "zh-CN"),
+            ("zh-Hans", "zh-Hans"),
+            ("zh-cmn-Hans-CN", "zh-cmn-Hans-CN"),
+            ("de-DE-u-co-phonebk", "de-DE-u-co-phonebk"),
+            ("x-private", "x-private"),
+        ] {
+            assert_eq!(
+                normalize_profile_language(input).unwrap().as_deref(),
+                Some(expected),
+                "{input}"
+            );
+        }
+        for input in ["", " \t\n "] {
+            assert_eq!(normalize_profile_language(input).unwrap(), None);
+        }
+        for input in [
+            "不确定",
+            "invalid",
+            "zh_CN",
+            "zh--CN",
+            "en-foo",
+            "en-u",
+            "en-u-ca-gregory-u-nu-latn",
+            "sl-rozaj-rozaj",
+            "en-x-abcdefgh-abcdefgh-abcdefgh-abcdefgh",
+        ] {
+            assert!(
+                matches!(normalize_profile_language(input), Err(MemoryError::Invalid(message)) if message.contains("BCP 47")),
+                "{input}"
+            );
+        }
+    }
+
+    #[test]
+    fn rejected_profile_language_is_atomic_and_does_not_migrate_legacy_data() {
+        let mut store = MemoryStore::new();
+        let update = |language| UserProfileUpdate {
+            timezone: "Asia/Shanghai".into(),
+            expected_version: 1,
+            name: Some(Some("Original".into())),
+            language,
+            identity: None,
+            updated_by: MemorySender::User,
+        };
+        assert!(store
+            .apply_user_profile_update(update(Some(Some("invalid".into()))))
+            .is_err());
+        assert_eq!(store.user_profile(), None);
+
+        store
+            .apply_user_profile_update(update(Some(Some("zh-CN".into()))))
+            .unwrap();
+        // Legacy snapshots may contain display names. A patch to another
+        // field must preserve that language until explicitly replaced.
+        store.user_profile.as_mut().unwrap().language = Some("简体中文".into());
+        let before = store.user_profile().unwrap();
+        let mut invalid = update(Some(Some("zh_CN".into())));
+        invalid.expected_version = 2;
+        invalid.name = Some(Some("Changed".into()));
+        assert!(store.apply_user_profile_update(invalid).is_err());
+        assert_eq!(store.user_profile().unwrap(), before);
+
+        let mut untouched = update(None);
+        untouched.expected_version = 2;
+        assert_eq!(
+            store
+                .apply_user_profile_update(untouched)
+                .unwrap()
+                .language
+                .as_deref(),
+            Some("简体中文")
+        );
+        let mut clear = update(Some(Some("  ".into())));
+        clear.expected_version = 3;
+        assert_eq!(
+            store.apply_user_profile_update(clear).unwrap().language,
+            None
+        );
+    }
+
+    #[test]
     fn user_memory_versions_conflicts_quota_and_profile_survive_restart() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("memory/state.json");
@@ -3354,13 +3421,14 @@ mod tests {
                     timezone: "UTC".into(),
                     expected_version: 1,
                     name: Some(Some("Ari".into())),
-                    language: None,
+                    language: Some(Some("简体中文".into())),
                     identity: None,
                     updated_by: MemorySender::User,
                 },
             )
             .unwrap();
         assert_eq!(profile.name.as_deref(), Some("Ari"));
+        assert_eq!(profile.language.as_deref(), Some("zh-CN"));
         assert_eq!(profile.timezone, "Asia/Tokyo");
         assert!(matches!(
             restored.user_profile_update_persisted(

@@ -121,6 +121,8 @@ python3 server/macbotd/tests/smoke_packaging.py --pkg target/MacBot-Server.pkg
 
 `smoke_conversation.py` 验证连续多轮 provider 请求、known text Markdown 与重启后的事件正文、共享消息序号及 `after_seq`、混合 write/read/bash 审批、私聊待处理工作台和已读状态。`smoke_recovery.py` 验证安全私聊 kill9 后以同一 run 自动恢复，并确认不安全工具暂停等待审批、不会自动重放。
 
+`python3 server/macbotd/tests/smoke_profile_language.py` 自动创建独立 home 和本机 fake provider，验证首次初始化工具传入“简体中文”后保存 `zh-CN`、非法语言更新没有副作用、空语言保存为 `null`，以及重启后的档案一致。需要先构建 `server/target/debug/macbotd`，也可用 `--binary` 指定产物；只批准该场景的 `set_user_profile`。明确授权真实 MiniMax 回归时才传 `--minimax-key-file /path/to/credential.key`，可用 `--minimax-url` 和 `--minimax-model` 选择服务与模型；脚本不打印密钥，结束时停止自身进程并删除隔离目录里的凭据副本。
+
 以下场景自行启动和关闭隔离服务；每次使用新的 `--home`。Python 依赖为 `websockets` 和 `jsonschema`，可安装在仓库外的 venv。`smoke_loop.py` 验证防循环暂停、继续、结束及 canonical message ID；`smoke_question.py` 验证私聊提问、工作台和同 run 回答恢复。`smoke_trace.py` 验证进行中的文本与游标补发，`smoke_routines.py` 验证调度、通知和禁用；定时场景使用隔离日志中的到期时间，不改变正式服务的最短周期。
 
 ```sh

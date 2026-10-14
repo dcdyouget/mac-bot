@@ -5184,6 +5184,79 @@ mod tests {
     }
 
     #[test]
+    fn profile_language_rpc_and_curator_share_validation_and_persistence() {
+        let home = tempdir().unwrap();
+        let service = FeatureService::open(home.path().to_owned(), Vec::<PathBuf>::new()).unwrap();
+        let initial = service
+            .user_memory_rpc("memory.profile.get", json!({}), "Asia/Shanghai")
+            .unwrap();
+        assert!(initial.result["profile"]["language"].is_null());
+        let updated = service
+            .user_memory_rpc(
+                "memory.profile.update",
+                json!({"language":"简体中文","expected_version":1}),
+                "UTC",
+            )
+            .unwrap();
+        assert_eq!(updated.result["profile"]["language"], "zh-CN");
+        let events_before = service.shared_store.events_since(0).unwrap().len();
+        let invalid = service
+            .user_memory_rpc(
+                "memory.profile.update",
+                json!({"name":"Changed","language":"zh_CN","expected_version":2}),
+                "UTC",
+            )
+            .unwrap_err();
+        assert_eq!(invalid.code(), "invalid_params");
+        assert!(invalid.to_string().contains("BCP 47"));
+        assert_eq!(
+            service.shared_store.events_since(0).unwrap().len(),
+            events_before
+        );
+        let unchanged = service
+            .user_memory_rpc("memory.profile.get", json!({}), "UTC")
+            .unwrap();
+        assert_eq!(unchanged.result, updated.result);
+        let curated = service
+            .curate_user_profile_update("UTC", 2, None, Some(Some("繁体中文".into())), None)
+            .unwrap();
+        assert_eq!(curated.result["profile"]["language"], "zh-TW");
+        let normalized = service
+            .user_memory_rpc(
+                "memory.profile.update",
+                json!({"language":"zh-cn","expected_version":3}),
+                "UTC",
+            )
+            .unwrap();
+        assert_eq!(normalized.result["profile"]["language"], "zh-CN");
+        let cleared = service
+            .user_memory_rpc(
+                "memory.profile.update",
+                json!({"language":"  ","expected_version":4}),
+                "UTC",
+            )
+            .unwrap();
+        assert!(cleared.result["profile"]["language"].is_null());
+        let cleared_null = service
+            .user_memory_rpc(
+                "memory.profile.update",
+                json!({"language":null,"expected_version":5}),
+                "UTC",
+            )
+            .unwrap();
+        assert!(cleared_null.result["profile"]["language"].is_null());
+        drop(service);
+        let restored = FeatureService::open(home.path().to_owned(), Vec::<PathBuf>::new()).unwrap();
+        assert_eq!(
+            restored
+                .user_memory_rpc("memory.profile.get", json!({}), "UTC")
+                .unwrap()
+                .result,
+            cleared_null.result
+        );
+    }
+
+    #[test]
     fn profile_onboarding_completes_or_skips_with_host_timezone_bot_actor_and_cas() {
         let home = tempdir().unwrap().keep();
         let service = FeatureService::open(home.clone(), Vec::<PathBuf>::new()).unwrap();
@@ -5256,7 +5329,7 @@ mod tests {
                 bot_id: "main-bot".into(),
                 expected_version: 1,
                 name: None,
-                language: None,
+                language: Some("ignored-invalid-language".into()),
                 identity: None,
                 complete: false,
                 skip: true,

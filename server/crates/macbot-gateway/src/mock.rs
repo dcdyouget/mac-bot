@@ -1873,7 +1873,14 @@ fn user_profile_update(state: &mut MockState, params: &Value) -> RpcResult {
         match value {
             macbot_protocol::Patch::Unset => {}
             macbot_protocol::Patch::Null => profile[key] = Value::Null,
-            macbot_protocol::Patch::Value(value) => profile[key] = json!(value),
+            macbot_protocol::Patch::Value(value) => {
+                profile[key] = if key == "language" {
+                    json!(macbot_memory::normalize_profile_language(&value)
+                        .map_err(|error| rpc_error("invalid_params", &error.to_string(), None))?)
+                } else {
+                    json!(value)
+                };
+            }
         }
     }
     if profile["name"]
@@ -1882,9 +1889,6 @@ fn user_profile_update(state: &mut MockState, params: &Value) -> RpcResult {
         || profile["identity"]
             .as_str()
             .is_some_and(|value| value.chars().count() > 100)
-        || profile["language"]
-            .as_str()
-            .is_some_and(|value| value.chars().count() > 35)
     {
         return Err(rpc_error(
             "invalid_params",
@@ -6320,6 +6324,38 @@ mod contract_tests {
         assert_eq!(announcement.text, "");
         assert_eq!(announcement.members.len(), 0);
         assert_eq!(announcement.artifacts.len(), 0);
+    }
+
+    #[tokio::test]
+    async fn mock_profile_language_matches_production_validation() {
+        let gateway = gateway().await;
+        let normalized = call(
+            &gateway,
+            "memory.profile.update",
+            json!({"language":"简体中文","expected_version":1}),
+        )
+        .await;
+        assert_eq!(normalized["profile"]["language"], "zh-CN");
+        let invalid = gateway
+            .rpc(
+                "memory.profile.update",
+                json!({"name":"Changed","language":"zh_CN","expected_version":2}),
+            )
+            .await
+            .unwrap_err();
+        assert_eq!(invalid.code, "invalid_params");
+        assert!(invalid.message.contains("BCP 47"));
+        assert_eq!(
+            call(&gateway, "memory.profile.get", json!({})).await,
+            normalized
+        );
+        let cleared = call(
+            &gateway,
+            "memory.profile.update",
+            json!({"language":" ","expected_version":2}),
+        )
+        .await;
+        assert!(cleared["profile"]["language"].is_null());
     }
 
     #[tokio::test]

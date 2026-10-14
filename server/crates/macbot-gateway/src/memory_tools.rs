@@ -1059,7 +1059,7 @@ impl Tool for SetUserProfileTool {
             "properties":{
                 "expected_version":{"type":"integer","minimum":1},
                 "name":{"type":"string","maxLength":20},
-                "language":{"type":"string","maxLength":35},
+                "language":{"type":"string","maxLength":35,"description":"Preferred reply language as a BCP 47 tag, for example zh-CN for Simplified Chinese, zh-TW for Traditional Chinese, or en for English. Use an empty string to follow the client system language. Never send a display name such as 简体中文."},
                 "identity":{"type":"string","maxLength":100},
                 "complete":{"type":"boolean","description":"Set true once the user has finished providing profile fields."},
                 "skip":{"type":"boolean","description":"Set true when the user explicitly skips onboarding; this marks the profile onboarded without changing its fields."}
@@ -2078,6 +2078,50 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn profile_tool_normalizes_language_and_rejects_invalid_without_changes() {
+        for (input, expected) in [
+            ("简体中文", Some("zh-CN")),
+            ("zh-CN", Some("zh-CN")),
+            ("", None),
+        ] {
+            let home = tempdir().unwrap();
+            let service = FeatureService::open_shared(home.path().to_owned(), Vec::new()).unwrap();
+            service
+                .user_memory_rpc("memory.profile.get", json!({}), "Asia/Shanghai")
+                .unwrap();
+            let request = serde_json::from_value::<crate::execution::ExecutionRequest>(json!({
+                "run_id":"run-onboarding", "chat_id":"chat-main", "bot_id":"main", "model":"mock/model", "instruction":"hello", "private":true, "tools":["set_user_profile"]
+            })).unwrap();
+            let runtime = FeatureToolRuntime::for_execution(
+                Arc::clone(&service),
+                &request,
+                MemoryAccess::user("local-user"),
+                true,
+            );
+            let tool = runtime
+                .tools()
+                .into_iter()
+                .find(|tool| tool.name() == "set_user_profile")
+                .unwrap();
+            let context = ToolContext::new(home.path(), "run-onboarding", home.path().join("runs"));
+            let invalid = tool.call(&context, json!({"expected_version":1,"name":"Changed","language":"不确定","complete":true})).await;
+            assert!(invalid.is_error);
+            assert!(serde_json::to_string(&invalid.content)
+                .unwrap()
+                .contains("BCP 47"));
+            let profile = service
+                .user_memory_rpc("memory.profile.get", json!({}), "UTC")
+                .unwrap();
+            assert_eq!(profile.result["profile"]["version"], 1);
+            assert!(profile.result["profile"]["name"].is_null());
+            let result = tool.call(&context, json!({"expected_version":1,"name":"Ari","language":input,"identity":"designer","complete":true})).await;
+            assert!(!result.is_error, "{result:?}");
+            assert_eq!(result.details["profile"]["language"], json!(expected));
+            assert_eq!(result.details["profile"]["onboarded"], true);
+        }
+    }
+
+    #[tokio::test]
     async fn memory_tool_commits_immediately_and_uses_compare_and_swap() {
         let runtime = runtime();
         let memory = runtime
@@ -2459,7 +2503,7 @@ mod tests {
             .unwrap();
         let system = context["system_blocks"][0]["content"].as_str().unwrap();
         assert!(system.contains("称呼：Ari"));
-        assert!(system.contains("语言：中文"));
+        assert!(system.contains("语言：zh"));
         assert!(system.contains("偏好简洁、直接的答复"));
         assert!(!system.contains("MAIN_BOT_EXPERIENCE_MUST_STAY_PRIVATE"));
         assert!(!system.contains("MAIN_BOT_WORKLOG_MUST_STAY_PRIVATE"));

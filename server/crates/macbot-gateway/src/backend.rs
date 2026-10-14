@@ -1696,7 +1696,7 @@ impl ComposedBackend {
         if let Some(prompt) = onboarding.and_then(|status| status.prompt) {
             let content = match prompt {
                 ProfileOnboardingPrompt::Initialize => {
-                    "首次私聊初始化：自然地询问用户希望使用的称呼、语言和身份；用户可以随时跳过。只在用户回答或明确跳过后调用 set_user_profile，并传入档案当前 expected_version。Host 时区只读，不询问也不修改。完成后简短确认。"
+                    "首次私聊初始化：自然地询问用户希望使用的称呼、语言和身份；用户可以随时跳过。只在用户回答或明确跳过后调用 set_user_profile，并传入档案当前 expected_version。language 必须传 BCP 47 标签，例如简体中文用 zh-CN、繁体中文用 zh-TW、英语用 en；跟随系统语言用空字符串。Host 时区只读，不询问也不修改。完成后简短确认。"
                 }
                 ProfileOnboardingPrompt::Reminder => {
                     "用户档案仍未完成。这是唯一一次主动提醒：自然询问用户是否愿意补充称呼、语言和身份，也可以跳过；Host 时区只读。用户若明确补充，可用 set_user_profile 完成初始化。"
