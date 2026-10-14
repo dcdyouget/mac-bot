@@ -25,3 +25,4 @@ DerivedData/
 
 # Local release artifacts
 /server/dist/
+/release/
