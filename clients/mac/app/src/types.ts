@@ -49,6 +49,7 @@ export type HostRecord = {
   node_id: string | null
   addresses: string[]
   last_seq: number
+  last_connected_at_ms?: number | null
   device_id: string
 }
 

@@ -2905,7 +2905,7 @@ function App() {
         {hostMenuOpen && <div className="host-popover">
           <div className="host-popover-title">{t('host.switch.title')}</div>
           {savedHosts.map((host) => <div className="host-popover-row" key={host.id}>
-            <button type="button" className="host-choice" onClick={() => void connectSavedHost(host.id)}><span className={`status-dot ${state.active_host?.id === host.id ? state.connection : 'disconnected'}`} /><span className="host-choice-copy"><strong>{host.name}</strong><small>{host.addresses[0] ?? ''}</small></span>{state.active_host?.id === host.id && <Check size={14} />}</button>
+            <button type="button" className="host-choice" onClick={() => void connectSavedHost(host.id)}><span className={`status-dot ${state.active_host?.id === host.id ? state.connection : 'disconnected'}`} /><span className="host-choice-copy"><strong>{host.name}</strong><small>{host.addresses[0] ?? ''}</small>{state.active_host?.id !== host.id && <small className="host-last-connected-time">{t('host.last_connected').replace('{time}', hostLastConnectedElapsed(host.last_connected_at_ms))}</small>}</span>{state.active_host?.id === host.id && <Check size={14} />}</button>
             {hostManageMode && <button type="button" className="host-remove" aria-label={t('common.delete')} disabled={state.active_host?.id === host.id} onClick={() => void removeSavedHost(host)}><Trash2 size={13} /></button>}
           </div>)}
           {hostError && <div className="host-menu-error" role="alert">{hostError}</div>}
@@ -3421,6 +3421,16 @@ function memberStatusKey(status: string): CopyKey {
 }
 
 function statusText(key: CopyKey) { return t(key) }
+
+function hostLastConnectedElapsed(lastConnectedAtMs: number | null | undefined) {
+  if (typeof lastConnectedAtMs !== 'number' || !Number.isFinite(lastConnectedAtMs) || !lastConnectedAtMs) return t('host.last_connected.unknown')
+  const minutes = Math.max(0, Math.floor((Date.now() - lastConnectedAtMs) / 60_000))
+  if (minutes < 1) return t('host.last_connected.just_now')
+  if (minutes < 60) return t('host.last_connected.minutes').replace('{count}', String(minutes))
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) return t('host.last_connected.hours').replace('{count}', String(hours))
+  return t('host.last_connected.days').replace('{count}', String(Math.floor(hours / 24)))
+}
 
 function elapsedLabel(value: Json | undefined) {
   if (typeof value !== 'string') return ''

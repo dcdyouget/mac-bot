@@ -4410,6 +4410,7 @@ mod tests {
                 node_id: None,
                 addresses: vec!["127.0.0.1:7789".into()],
                 last_seq: 0,
+                last_connected_at_ms: None,
                 device_id: "device".into(),
             }),
             ..BridgeData::default()
@@ -4469,6 +4470,7 @@ mod tests {
                 node_id: None,
                 addresses: vec!["127.0.0.1:7789".into()],
                 last_seq: 0,
+                last_connected_at_ms: None,
                 device_id: "device".into(),
             }),
             ..BridgeData::default()

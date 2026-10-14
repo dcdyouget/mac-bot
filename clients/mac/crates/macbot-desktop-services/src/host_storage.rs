@@ -12,6 +12,7 @@ use std::{
     io::{self, Write},
     os::unix::fs::{OpenOptionsExt, PermissionsExt},
     path::{Path, PathBuf},
+    time::{SystemTime, UNIX_EPOCH},
 };
 
 use anyhow::{Context, Result, anyhow};
@@ -43,6 +44,10 @@ pub struct HostRecord {
     pub node_id: Option<String>,
     pub addresses: Vec<String>,
     pub last_seq: u64,
+    /// Unix timestamp in milliseconds of the last successful connection.
+    /// Older host stores do not have this field, so it is optional.
+    #[serde(default)]
+    pub last_connected_at_ms: Option<u64>,
     pub device_id: String,
 }
 
@@ -269,6 +274,7 @@ impl HostStore {
             node_id,
             addresses,
             last_seq,
+            last_connected_at_ms: Some(unix_timestamp_millis()),
             device_id: self.device_id.clone(),
         };
         let previous_hosts = self.hosts.clone();
@@ -313,6 +319,15 @@ impl HostStore {
         }
         Ok(())
     }
+}
+
+fn unix_timestamp_millis() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis()
+        .try_into()
+        .unwrap_or(u64::MAX)
 }
 
 fn lock_host_store(path: &Path) -> Result<File> {
@@ -680,6 +695,7 @@ mod tests {
                 "localhost:28789".into(),
             ],
             last_seq: 92,
+            last_connected_at_ms: None,
             device_id: store.device_id.clone(),
         };
         store.hosts.push(host.clone());
@@ -734,6 +750,7 @@ mod tests {
             node_id: Some("node-1".into()),
             addresses: vec!["localhost:28789".into()],
             last_seq: 10,
+            last_connected_at_ms: None,
             device_id: store.device_id.clone(),
         };
         store.hosts.push(existing);
@@ -780,11 +797,22 @@ mod tests {
             node_id: Some("node-1".into()),
             addresses: vec!["127.0.0.1:7789".into()],
             last_seq: 4,
+            last_connected_at_ms: Some(1_782_001_234_567),
             device_id: "device-1".into(),
         };
         let json = serde_json::to_string(&record).unwrap();
         assert!(!json.contains("password"));
         assert!(json.contains("node_id"));
+        assert!(json.contains("last_connected_at_ms"));
+    }
+
+    #[test]
+    fn old_host_records_load_without_connection_timestamp() {
+        let record: HostRecord = serde_json::from_str(
+            r#"{"id":"host-id","name":"Mac mini","node_id":null,"addresses":["127.0.0.1:7789"],"last_seq":4,"device_id":"device-1"}"#,
+        )
+        .unwrap();
+        assert_eq!(record.last_connected_at_ms, None);
     }
 
     #[test]
@@ -795,6 +823,7 @@ mod tests {
             node_id: Some(format!("node-{id}")),
             addresses: vec![format!("{id}:7788")],
             last_seq: 0,
+            last_connected_at_ms: None,
             device_id: "device-1".into(),
         };
         let mut hosts = vec![host("one"), host("two"), host("three")];
@@ -822,6 +851,7 @@ mod tests {
             node_id: None,
             addresses: vec!["127.0.0.1:7789".into()],
             last_seq: 9,
+            last_connected_at_ms: None,
             device_id: store.device_id.clone(),
         };
         let store = HostStore {
@@ -859,6 +889,7 @@ mod tests {
                     node_id: Some("node-a".into()),
                     addresses: vec!["127.0.0.1:7788".into()],
                     last_seq: 1,
+                    last_connected_at_ms: None,
                     device_id,
                 });
                 Ok(())
@@ -874,6 +905,7 @@ mod tests {
                     node_id: Some("node-b".into()),
                     addresses: vec!["127.0.0.1:7789".into()],
                     last_seq: 2,
+                    last_connected_at_ms: None,
                     device_id,
                 });
                 Ok(())
