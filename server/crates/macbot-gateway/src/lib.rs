@@ -840,12 +840,18 @@ impl Gateway {
             .route("/api/v1/usage/export.csv", get(usage_csv_handler))
             .route("/admin", get(admin_handler))
             .route("/admin/assets/tokens.css", get(admin_tokens_handler))
+            .route(
+                "/admin/assets/model-onboarding.js",
+                get(admin_model_js_handler),
+            )
             .route("/admin/setup", post(admin_setup_handler))
             .route("/admin/login", post(admin_login_handler))
             .route("/admin/logout", post(admin_logout_handler))
             .route("/admin/settings", post(admin_settings_handler))
             .route("/admin/password", post(admin_password_handler))
             .route("/admin/status", get(admin_status_handler))
+            .route("/admin/models/status", get(admin_models_status_handler))
+            .route("/admin/models/setup", post(admin_models_setup_handler))
             .route("/admin/logs", get(admin_logs_handler))
             .route("/admin/restart", post(admin_restart_handler))
             .with_state(self.clone())
@@ -3336,6 +3342,24 @@ async fn admin_tokens_handler() -> Response {
         .into_response()
 }
 
+async fn admin_model_js_handler() -> Response {
+    let Some(script) = AdminAssets::get("model-onboarding.js") else {
+        return error_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "asset",
+            "admin model setup script missing",
+        );
+    };
+    (
+        [
+            (header::CONTENT_TYPE, "text/javascript; charset=utf-8"),
+            (header::CACHE_CONTROL, "no-cache"),
+        ],
+        script.data.into_owned(),
+    )
+        .into_response()
+}
+
 fn admin_session_token(headers: &HeaderMap) -> Option<&str> {
     headers
         .get(header::COOKIE)?
@@ -3541,6 +3565,244 @@ async fn admin_status_handler(
         "memory_curator": curator_status
     }))
     .into_response()
+}
+
+#[derive(Debug, Deserialize)]
+struct AdminModelSetupRequest {
+    preset_id: String,
+    api_key: String,
+    model_id: String,
+}
+
+fn model_provider_presets() -> Vec<Value> {
+    vec![
+        json!({
+            "id":"deepseek",
+            "name":"DeepSeek",
+            "api_kind":"openai-responses",
+            "base_url":"https://api.deepseek.com",
+            "model_id":"deepseek-v4-pro",
+            "description":"DeepSeek 官方 Responses API。"
+        }),
+        json!({
+            "id":"openai",
+            "name":"OpenAI API",
+            "api_kind":"openai-responses",
+            "base_url":"https://api.openai.com/v1",
+            "model_id":"gpt-5.1",
+            "description":"OpenAI Codex 是客户端；此处需要 OpenAI API key，ChatGPT 订阅登录不能代替 API key。"
+        }),
+        json!({
+            "id":"zhipu",
+            "name":"智谱 GLM",
+            "api_kind":"openai-completions",
+            "base_url":"https://open.bigmodel.cn/api/paas/v4",
+            "model_id":"glm-5",
+            "description":"智谱 OpenAI 兼容接口。"
+        }),
+        json!({
+            "id":"stepfun",
+            "name":"阶跃星辰 StepFun",
+            "api_kind":"openai-completions",
+            "base_url":"https://api.stepfun.com/v1",
+            "model_id":"step-5-preview",
+            "description":"StepFun OpenAI 兼容接口。"
+        }),
+        json!({
+            "id":"anthropic",
+            "name":"Anthropic Claude",
+            "api_kind":"anthropic-messages",
+            "base_url":"https://api.anthropic.com",
+            "model_id":"claude-sonnet-4-6",
+            "description":"Anthropic Messages API。"
+        }),
+        json!({
+            "id":"minimax",
+            "name":"MiniMax",
+            "api_kind":"anthropic-messages",
+            "base_url":"https://api.minimax.io/anthropic",
+            "model_id":"MiniMax-M3",
+            "description":"MiniMax Anthropic 兼容接口。"
+        }),
+        json!({
+            "id":"gemini",
+            "name":"Google Gemini",
+            "api_kind":"google-generative",
+            "base_url":"https://generativelanguage.googleapis.com/v1beta",
+            "model_id":"gemini-3.8-flash",
+            "description":"Google Gemini 原生 API。"
+        }),
+    ]
+}
+
+async fn admin_models_status_handler(State(gw): State<Gateway>, headers: HeaderMap) -> Response {
+    if !has_admin_session(&headers, &gw).await {
+        return error_response(
+            StatusCode::UNAUTHORIZED,
+            "unauthorized",
+            "admin authentication required",
+        );
+    }
+    let providers = match gw.rpc("provider.list", json!({})).await {
+        Ok(value) => value,
+        Err(error) => return admin_rpc_error_response(error),
+    };
+    let settings = match gw.rpc("settings.get", json!({})).await {
+        Ok(value) => value,
+        Err(error) => return admin_rpc_error_response(error),
+    };
+    let models = providers
+        .get("models")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let enabled_refs = models
+        .iter()
+        .filter(|model| model.get("enabled").and_then(Value::as_bool) != Some(false))
+        .filter_map(|model| model.get("ref").and_then(Value::as_str))
+        .collect::<std::collections::HashSet<_>>();
+    let defaults = settings.pointer("/settings/models");
+    let has_default = |key: &str| {
+        defaults
+            .and_then(|value| value.get(key))
+            .and_then(Value::as_str)
+            .is_some_and(|reference| enabled_refs.contains(reference))
+    };
+    let model_setup_required = !has_default("main") || !has_default("bot_default");
+    Json(json!({
+        "providers":providers.get("providers").cloned().unwrap_or_else(|| json!([])),
+        "models":models,
+        "model_setup_required":model_setup_required,
+        "presets":model_provider_presets()
+    }))
+    .into_response()
+}
+
+async fn admin_models_setup_handler(
+    State(gw): State<Gateway>,
+    headers: HeaderMap,
+    Json(payload): Json<AdminModelSetupRequest>,
+) -> Response {
+    if !has_admin_session(&headers, &gw).await {
+        return error_response(
+            StatusCode::UNAUTHORIZED,
+            "unauthorized",
+            "admin authentication required",
+        );
+    }
+    let Some(preset) = model_provider_presets()
+        .into_iter()
+        .find(|preset| preset["id"].as_str() == Some(payload.preset_id.as_str()))
+    else {
+        return error_response(
+            StatusCode::BAD_REQUEST,
+            "invalid_params",
+            "unknown provider preset",
+        );
+    };
+    let api_key = payload.api_key.trim();
+    let model_id = payload.model_id.trim();
+    if api_key.is_empty() || api_key.len() > 16_384 || model_id.is_empty() || model_id.len() > 256 {
+        return error_response(
+            StatusCode::BAD_REQUEST,
+            "invalid_params",
+            "API key and model ID are required",
+        );
+    }
+
+    let provider = match gw
+        .rpc(
+            "provider.create",
+            json!({
+                "name":preset["name"],
+                "api_kind":preset["api_kind"],
+                "base_url":preset["base_url"],
+                "api_key":api_key,
+                "client_request_id":format!("admin-provider:{}", Uuid::now_v7())
+            }),
+        )
+        .await
+    {
+        Ok(value) => value.get("provider").cloned().unwrap_or(Value::Null),
+        Err(error) => return admin_rpc_error_response(error),
+    };
+    let Some(provider_id) = provider.get("id").and_then(Value::as_str) else {
+        return error_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "internal",
+            "provider setup failed",
+        );
+    };
+    let provider_id = provider_id.to_owned();
+    let model = match gw
+        .rpc(
+            "model.upsert",
+            json!({
+                "provider_id":provider_id,
+                "model_id":model_id,
+                "display_name":model_id,
+                "client_request_id":format!("admin-model:{}", Uuid::now_v7())
+            }),
+        )
+        .await
+    {
+        Ok(value) => value.get("model").cloned().unwrap_or(Value::Null),
+        Err(error) => {
+            let _ = gw
+                .rpc(
+                    "provider.delete",
+                    json!({"provider_id":provider_id,"client_request_id":format!("admin-provider-cleanup:{}",Uuid::now_v7())}),
+                )
+                .await;
+            return admin_rpc_error_response(error);
+        }
+    };
+    let Some(model_ref) = model.get("ref").and_then(Value::as_str) else {
+        return error_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "internal",
+            "model setup failed",
+        );
+    };
+    let settings = match gw
+        .rpc(
+            "settings.update",
+            json!({
+                "patch":{"models":{"bot_default":model_ref,"main":model_ref}},
+                "client_request_id":format!("admin-model-default:{}",Uuid::now_v7())
+            }),
+        )
+        .await
+    {
+        Ok(value) => value,
+        Err(error) => {
+            let _ = gw
+                .rpc(
+                    "model.delete",
+                    json!({"ref":model_ref,"client_request_id":format!("admin-model-cleanup:{}",Uuid::now_v7())}),
+                )
+                .await;
+            let _ = gw
+                .rpc(
+                    "provider.delete",
+                    json!({"provider_id":provider_id,"client_request_id":format!("admin-provider-cleanup:{}",Uuid::now_v7())}),
+                )
+                .await;
+            return admin_rpc_error_response(error);
+        }
+    };
+    Json(json!({"provider":provider,"model":model,"settings":settings.get("settings").cloned().unwrap_or(Value::Null)})).into_response()
+}
+
+fn admin_rpc_error_response(error: RpcError) -> Response {
+    let status = match error.code.as_str() {
+        "invalid_params" => StatusCode::BAD_REQUEST,
+        "unauthorized" | "setup_required" => StatusCode::UNAUTHORIZED,
+        "not_found" => StatusCode::NOT_FOUND,
+        "conflict" => StatusCode::CONFLICT,
+        _ => StatusCode::BAD_GATEWAY,
+    };
+    error_response(status, &error.code, &error.message)
 }
 
 #[derive(Debug, Deserialize)]
@@ -4071,6 +4333,138 @@ mod tests {
             admin_request(&gw, "GET", "/admin/status", "10.0.0.1:1234", None, None, "").await;
         assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
         assert!(!response.headers().contains_key(header::WWW_AUTHENTICATE));
+    }
+
+    #[tokio::test]
+    async fn admin_model_onboarding_reports_empty_state_and_stores_only_encrypted_credentials() {
+        let dir = tempfile::tempdir().unwrap();
+        let backend = Arc::new(crate::adapter::ProductionBackend::open(dir.path()).unwrap());
+        let gw = Gateway::new(GatewayConfig {
+            home: dir.path().into(),
+            password: Some("dev".into()),
+            ..Default::default()
+        })
+        .with_backend(backend.clone());
+        let headers = session_headers(&gw).await;
+
+        let before = admin_models_status_handler(State(gw.clone()), headers.clone()).await;
+        assert_eq!(before.status(), StatusCode::OK);
+        let before: Value = serde_json::from_slice(
+            &axum::body::to_bytes(before.into_body(), usize::MAX)
+                .await
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(before["model_setup_required"], true);
+        let preset_ids = before["presets"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|preset| preset["id"].as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            preset_ids,
+            [
+                "deepseek",
+                "openai",
+                "zhipu",
+                "stepfun",
+                "anthropic",
+                "minimax",
+                "gemini"
+            ]
+        );
+        assert!(!preset_ids.contains(&"codex"));
+        assert!(!preset_ids.contains(&"opencode"));
+
+        let secret = "admin-model-onboarding-secret-never-persist-plaintext";
+        let configured = admin_models_setup_handler(
+            State(gw.clone()),
+            headers.clone(),
+            Json(AdminModelSetupRequest {
+                preset_id: "deepseek".into(),
+                api_key: secret.into(),
+                model_id: "deepseek-v4-pro".into(),
+            }),
+        )
+        .await;
+        assert_eq!(configured.status(), StatusCode::OK);
+        let bytes = axum::body::to_bytes(configured.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let body_text = String::from_utf8_lossy(&bytes);
+        assert!(!body_text.contains(secret));
+        let configured: Value = serde_json::from_slice(&bytes).unwrap();
+        let provider_id = configured["provider"]["id"].as_str().unwrap();
+        let model_ref = configured["model"]["ref"].as_str().unwrap();
+        assert_eq!(configured["provider"]["has_key"], true);
+        assert_eq!(configured["model"]["model_id"], "deepseek-v4-pro");
+
+        let after = admin_models_status_handler(State(gw.clone()), headers).await;
+        let after: Value = serde_json::from_slice(
+            &axum::body::to_bytes(after.into_body(), usize::MAX)
+                .await
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(after["model_setup_required"], false);
+        assert_eq!(after["providers"][0]["has_key"], true);
+        let settings = gw.rpc("settings.get", json!({})).await.unwrap();
+        assert_eq!(settings["settings"]["models"]["main"], model_ref);
+        assert_eq!(settings["settings"]["models"]["bot_default"], model_ref);
+
+        let stored_secret = backend
+            .providers
+            .lock()
+            .await
+            .secret_store()
+            .get(provider_id)
+            .unwrap();
+        assert_eq!(stored_secret.as_deref(), Some(secret));
+        let credential_dir = dir.path().join("data/provider-secrets");
+        for entry in std::fs::read_dir(&credential_dir).unwrap() {
+            let bytes = std::fs::read(entry.unwrap().path()).unwrap();
+            assert!(!bytes
+                .windows(secret.len())
+                .any(|window| window == secret.as_bytes()));
+        }
+        let saved_data = std::fs::read_dir(dir.path().join("data"))
+            .unwrap()
+            .filter_map(Result::ok)
+            .filter(|entry| {
+                entry
+                    .file_type()
+                    .map(|kind| kind.is_file())
+                    .unwrap_or(false)
+            })
+            .filter_map(|entry| std::fs::read(entry.path()).ok())
+            .collect::<Vec<_>>();
+        assert!(saved_data.iter().all(|bytes| !bytes
+            .windows(secret.len())
+            .any(|window| window == secret.as_bytes())));
+    }
+
+    #[tokio::test]
+    async fn admin_model_onboarding_requires_a_browser_session() {
+        let dir = tempfile::tempdir().unwrap();
+        let gw = Gateway::new(GatewayConfig {
+            home: dir.path().into(),
+            password: Some("dev".into()),
+            ..Default::default()
+        });
+        let status = admin_models_status_handler(State(gw.clone()), HeaderMap::new()).await;
+        assert_eq!(status.status(), StatusCode::UNAUTHORIZED);
+        let setup = admin_models_setup_handler(
+            State(gw),
+            HeaderMap::new(),
+            Json(AdminModelSetupRequest {
+                preset_id: "deepseek".into(),
+                api_key: "secret".into(),
+                model_id: "model".into(),
+            }),
+        )
+        .await;
+        assert_eq!(setup.status(), StatusCode::UNAUTHORIZED);
     }
 
     #[tokio::test]

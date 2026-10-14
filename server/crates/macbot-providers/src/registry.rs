@@ -306,8 +306,8 @@ impl ProviderRegistry {
             .get(&typed.provider_id)
             .cloned()
             .ok_or_else(|| RegistryError::ProviderNotFound(typed.provider_id.clone()))?;
-        // Remove the credential first. An unavailable keychain must leave the
-        // provider visible so a later retry can complete the deletion.
+        // Remove the credential first. An unavailable secret store must leave
+        // the provider visible so a later retry can complete the deletion.
         self.secrets.delete(&provider.id)?;
         self.providers.remove(&typed.provider_id);
         self.models

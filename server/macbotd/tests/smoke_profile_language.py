@@ -89,7 +89,7 @@ def main() -> None:
             "base_url": provider_url,
             "api_key": key,
         })["provider"]
-        credential_copy = home / "secrets" / f"{provider['id'].encode().hex()}.key"
+        credential_copy = home / "secrets" / f"{provider['id'].encode().hex()}.enc"
         assert key not in json.dumps(provider)
         model = rpc(base, password, "model.upsert", {
             "provider_id": provider["id"],

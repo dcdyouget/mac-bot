@@ -1232,7 +1232,7 @@ dependencies = [
  "macbot-protocol",
  "macbot-store",
  "reqwest",
- "security-framework",
+ "ring",
  "serde",
  "serde_json",
  "tempfile",

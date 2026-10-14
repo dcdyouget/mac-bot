@@ -353,6 +353,7 @@ impl ProductionBackend {
     }
 
     pub fn open(home: impl AsRef<Path>) -> Result<Self, AdapterError> {
+        let secrets_home = home.as_ref().to_path_buf();
         let durable = DurableRuntime::open(home)?;
         let store = durable.store().clone();
         let usage = UsageLedger::from_store(store.clone())?;
@@ -415,7 +416,7 @@ impl ProductionBackend {
                 _ => {}
             }
         }
-        let secrets = macbot_providers::configured_secret_store()
+        let secrets = macbot_providers::configured_secret_store(&secrets_home)
             .map_err(RegistryError::from)
             .map_err(AdapterError::Registry)?;
         let registry = ProviderRegistry::from_store(store.clone(), secrets)?;

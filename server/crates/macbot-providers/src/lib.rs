@@ -66,43 +66,6 @@ impl SecretStore for MemorySecrets {
         Ok(())
     }
 }
-pub struct KeychainSecrets;
-#[cfg(target_os = "macos")]
-impl SecretStore for KeychainSecrets {
-    fn get(&self, id: &str) -> Result<Option<String>> {
-        match security_framework::passwords::get_generic_password("bot.mac.providers", id) {
-            Ok(key) => String::from_utf8(key)
-                .map(Some)
-                .map_err(|_| Error::Secret("invalid credential encoding".into())),
-            Err(e) if e.code() == -25300 => Ok(None),
-            Err(e) => Err(Error::Secret(e.to_string())),
-        }
-    }
-    fn set(&self, id: &str, key: &str) -> Result<()> {
-        security_framework::passwords::set_generic_password("bot.mac.providers", id, key.as_bytes())
-            .map_err(|e| Error::Secret(e.to_string()))
-    }
-    fn delete(&self, id: &str) -> Result<()> {
-        match security_framework::passwords::delete_generic_password("bot.mac.providers", id) {
-            Ok(()) => Ok(()),
-            Err(e) if e.code() == -25300 => Ok(()),
-            Err(e) => Err(Error::Secret(e.to_string())),
-        }
-    }
-}
-#[cfg(not(target_os = "macos"))]
-impl SecretStore for KeychainSecrets {
-    fn get(&self, _: &str) -> Result<Option<String>> {
-        Err(Error::Secret("macOS keychain required".into()))
-    }
-    fn set(&self, _: &str, _: &str) -> Result<()> {
-        Err(Error::Secret("macOS keychain required".into()))
-    }
-    fn delete(&self, _: &str) -> Result<()> {
-        Err(Error::Secret("macOS keychain required".into()))
-    }
-}
-
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ModelRequest {
     pub model: String,

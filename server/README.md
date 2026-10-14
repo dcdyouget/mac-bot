@@ -43,14 +43,16 @@ host_name = "Mac Bot"
 
 管理页可修改主机名称和监听端口；端口变更写入 `data/settings.json`，重启 LaunchAgent 后生效。配置文件若明确设置同一字段，会覆盖管理页写入的旧版 setting。客户端继续使用既有 `/ws`、`/ws/screen` 和 `/api/v1/*` 路径；服务端只监听一个端口，不额外拆分管理端口或添加 `/client` 前缀。
 
-正式模式的 provider 配置通过 `provider.create` 写入，API key 默认进入 macOS Keychain。开发期可显式设置 `MACBOT_SECRET_BACKEND=file`，密钥以明文保存到仓库外的 `~/MacBot-dev-secrets`，也可用 `MACBOT_SECRET_DIR` 覆盖。目录权限为 0700、文件为 0600，写入采用原子替换；后端拒绝 Git checkout 内的目录。provider 响应、事件、运行日志和配置快照均不包含密钥值。
+正式模式的 provider 配置通过 `provider.create` 写入，API key 由 Mac Bot 自行使用 AES-256-GCM 加密，保存到 `data/provider-secrets/`；同目录的 `.provider-secrets-key` 为随机 256 位密钥。目录权限为 0700、文件权限为 0600，凭据文件采用原子替换；存储后端拒绝 Git checkout 内的目录，不使用 macOS Keychain。`MACBOT_SECRET_BACKEND=file` 保留为测试/开发配置，仍使用同一加密格式；可用 `MACBOT_SECRET_DIR` 指定隔离目录。provider 响应、事件、运行日志和配置快照均不包含密钥值。
+
+首次打开 `/admin` 设置访问密码后，登录页会显示「模型接入」。选择 DeepSeek、OpenAI API、智谱 GLM、阶跃星辰 StepFun、Anthropic Claude、MiniMax 或 Google Gemini，输入该服务商的 API key 与模型 ID，即可添加 provider/model 并设为 Main Bot 与普通 Bot 的默认模型。OpenAI Codex 与 OpenCode 是客户端/编排器，不是独立模型 API provider；OpenAI preset 使用 API key，不接受 ChatGPT 订阅登录。
 
 ```sh
 MACBOT_SECRET_BACKEND=file MACBOT_SECRET_DIR="$HOME/MacBot-dev-secrets" \
   cargo run --manifest-path server/Cargo.toml -p macbotd -- --port 28789
 ```
 
-LaunchAgent 不继承当前 shell 的环境变量。开发期通过 LaunchAgent 使用 file 后端时，需要在安装后的 plist 的 `EnvironmentVariables` 中显式设置 `MACBOT_SECRET_BACKEND=file` 和仓库外的 `MACBOT_SECRET_DIR`，再重载该 LaunchAgent；默认安装仍使用 Keychain。
+LaunchAgent 不继承当前 shell 的环境变量。开发期通过 LaunchAgent 使用独立目录时，需要在安装后的 plist 的 `EnvironmentVariables` 中显式设置 `MACBOT_SECRET_BACKEND=file` 和仓库外的 `MACBOT_SECRET_DIR`，再重载该 LaunchAgent。没有环境变量时，正式服务使用 `MACBOT_HOME/data/provider-secrets/`。
 
 ## CLI
 

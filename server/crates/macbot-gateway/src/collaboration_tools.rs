@@ -470,7 +470,7 @@ pub struct WebSearchConfig {
 }
 
 /// Secret lookup is deliberately separate from JSON settings.  Production
-/// wires this to the provider Keychain-backed SecretStore; the API key is
+/// wires this to the provider encrypted-file SecretStore; the API key is
 /// fetched immediately before a request and is never placed in persisted
 /// settings or request headers stored in a snapshot.
 pub trait WebCredentialStore: Send + Sync {

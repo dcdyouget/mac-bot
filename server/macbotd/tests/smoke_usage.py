@@ -2,7 +2,7 @@
 """Production usage/CSV and settings-secret acceptance test.
 
 The test owns an isolated daemon on port 7796 and a local fake OpenAI
-provider. It never contacts a real model or writes credentials to Keychain.
+provider. It never contacts a real model or an external credential service.
 Python 3.9+ and only the standard library are required.
 """
 
