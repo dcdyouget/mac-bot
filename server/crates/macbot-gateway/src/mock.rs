@@ -662,7 +662,11 @@ fn login_project_members(
         .collect()
 }
 
-fn login_announcement_members(state: &MockState, member_ids: &[String]) -> Vec<Value> {
+fn login_announcement_members(
+    state: &MockState,
+    project_id: &str,
+    member_ids: &[String],
+) -> Vec<Value> {
     member_ids
         .iter()
         .map(|bot_id| {
@@ -671,6 +675,7 @@ fn login_announcement_members(state: &MockState, member_ids: &[String]) -> Vec<V
                 .iter()
                 .filter(|assignment| {
                     assignment.get("bot_id").and_then(Value::as_str) == Some(bot_id.as_str())
+                        && assignment.get("project_id").and_then(Value::as_str) == Some(project_id)
                 })
                 .find(|assignment| {
                     matches!(
@@ -750,7 +755,8 @@ fn repair_login_members(state: &mut MockState) {
     let mut announcements = extra_get(state, "announcements");
     for announcement in &mut announcements {
         if announcement.get("project_id").and_then(Value::as_str) == Some("prj_login") {
-            announcement["members"] = json!(login_announcement_members(state, &member_ids));
+            announcement["members"] =
+                json!(login_announcement_members(state, "prj_login", &member_ids));
         }
     }
     if !announcements.is_empty() {
@@ -5929,7 +5935,7 @@ impl<T> Pipe for T {}
 
 #[cfg(test)]
 mod contract_tests {
-    use super::super::{Gateway, GatewayConfig};
+    use super::super::{Gateway, GatewayConfig, MockState};
     use chrono::{Duration, Utc};
     use macbot_protocol::{
         Announcement, Assignment, Bot, Chat, Device, Message, Model, Project, Provider, Routine,
@@ -5956,6 +5962,27 @@ mod contract_tests {
 
     async fn call(gateway: &Gateway, method: &str, params: Value) -> Value {
         gateway.rpc(method, params).await.unwrap()
+    }
+
+    #[test]
+    fn login_announcement_members_ignores_assignments_from_other_projects() {
+        let mut state = MockState::new("test", false, "node");
+        state.assignments = vec![
+            json!({
+                "id":"asg_other_project","bot_id":"bot_code","project_id":"prj_other",
+                "status":"working","started_at":"2026-10-14T00:00:00Z"
+            }),
+            json!({
+                "id":"asg_login_project","bot_id":"bot_code","project_id":"prj_login",
+                "status":"waiting_user","started_at":"2026-10-14T01:00:00Z"
+            }),
+        ];
+
+        let members =
+            super::login_announcement_members(&state, "prj_login", &["bot_code".to_owned()]);
+
+        assert_eq!(members[0]["state"], "waiting_user");
+        assert_eq!(members[0]["current_assignment_id"], "asg_login_project");
     }
 
     #[tokio::test]
