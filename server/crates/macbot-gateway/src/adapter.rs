@@ -447,6 +447,7 @@ impl ProductionBackend {
                 .map_err(|error| AdapterError::OrchestratorSnapshot(error.to_string()))?;
         }
         backend.reconcile_durable_decision_waits()?;
+        backend.repair_pending_execution_question_messages()?;
         backend.repair_decision_question_messages()?;
         backend
             .repair_pending_proposal_question_messages()
@@ -678,6 +679,348 @@ impl ProductionBackend {
                     "question.asked",
                     json!({"question":question}),
                 )?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Migrate executor `ask_user` cards written by older gateways. Those
+    /// versions stored the model tool call id in the message block and under
+    /// the waiting marker's `question_id`, even though `question.ask` had
+    /// already created a public Question UUID. The completed `question.ask`
+    /// idempotency receipt binds a canonical Question to an exact waiting
+    /// job/call and persisted run request. Existing cards and markers must not
+    /// conflict; if a crash happened before either append, that unique durable
+    /// mapping is sufficient to reconstruct both. Ambiguous mappings are left
+    /// alone.
+    fn repair_pending_execution_question_messages(&self) -> Result<(), AdapterError> {
+        let snapshot = self
+            .orchestrator
+            .snapshot()
+            .map_err(|error| AdapterError::OrchestratorSnapshot(error.to_string()))?;
+        let Some(questions) = snapshot.get("questions").and_then(Value::as_object) else {
+            return Ok(());
+        };
+        let question_operations = self
+            .store
+            .read_jsonl::<Value>("data/orchestrator/operations.jsonl")?;
+        let jobs_dir = self.store.root().join("data/jobs");
+        let jobs = match fs::read_dir(&jobs_dir) {
+            Ok(entries) => entries
+                .filter_map(Result::ok)
+                .filter(|entry| {
+                    entry.path().extension().and_then(|ext| ext.to_str()) == Some("json")
+                })
+                .filter_map(|entry| {
+                    fs::read(entry.path()).ok().and_then(|bytes| {
+                        serde_json::from_slice::<macbot_durable::Job>(&bytes).ok()
+                    })
+                })
+                .collect::<Vec<_>>(),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Vec::new(),
+            Err(error) => return Err(macbot_store::StoreError::Io(error).into()),
+        };
+
+        for question in questions.values().filter(|question| {
+            question.get("state").and_then(Value::as_str) == Some("pending")
+                && question
+                    .get("options")
+                    .and_then(Value::as_array)
+                    .is_some_and(Vec::is_empty)
+                && question.get("allow_free_text").and_then(Value::as_bool) == Some(true)
+        }) {
+            let (
+                Some(question_id),
+                Some(question_bot_id),
+                Some(chat_id),
+                Some(question_text),
+                Some(question_assignment_id),
+            ) = (
+                question.get("id").and_then(Value::as_str),
+                question.get("bot_id").and_then(Value::as_str),
+                question.get("chat_id").and_then(Value::as_str),
+                question.get("text").and_then(Value::as_str),
+                question.get("assignment_id").and_then(Value::as_str),
+            )
+            else {
+                continue;
+            };
+            let chat_path = format!("data/chats/{}/messages.jsonl", takeover_component(chat_id));
+            let rows = self.store.read_jsonl::<Value>(&chat_path)?;
+            let mut latest_by_id = HashMap::new();
+            for row in rows {
+                if let Some(id) = row.get("id").and_then(Value::as_str) {
+                    latest_by_id.insert(id.to_owned(), row);
+                }
+            }
+
+            let mut matches = Vec::new();
+            for job in &jobs {
+                if !matches!(
+                    job.status,
+                    macbot_durable::JobStatus::Waiting | macbot_durable::JobStatus::Suspended
+                ) {
+                    continue;
+                }
+                let Some(run_id) = job.checkpoint.get("run_id").and_then(Value::as_str) else {
+                    continue;
+                };
+                let Some(pending_tool) = job.checkpoint.get("pending_tool") else {
+                    continue;
+                };
+                if !matches!(
+                    pending_tool.get("name").and_then(Value::as_str),
+                    Some("ask_user" | "question")
+                ) {
+                    continue;
+                }
+                let Some(call_id) = pending_tool.get("call_id").and_then(Value::as_str) else {
+                    continue;
+                };
+                let Some(tool_text) = pending_tool
+                    .pointer("/args/question")
+                    .or_else(|| pending_tool.pointer("/args/prompt"))
+                    .and_then(Value::as_str)
+                else {
+                    continue;
+                };
+                if tool_text != question_text {
+                    continue;
+                }
+                let Ok(Some(request)) = self
+                    .store
+                    .read_snapshot::<crate::execution::ExecutionRequest>(format!(
+                        "data/run_requests/{run_id}.json"
+                    ))
+                else {
+                    continue;
+                };
+                let expected_question_assignment = request
+                    .assignment_id
+                    .clone()
+                    .unwrap_or_else(|| format!("dm_{}", takeover_component(&request.chat_id)));
+                if request.run_id != run_id
+                    || request.bot_id != question_bot_id
+                    || request.chat_id != chat_id
+                    || expected_question_assignment != question_assignment_id
+                {
+                    continue;
+                }
+                // Text/scope alone cannot associate a Question to an executor
+                // call: users may create another identical pending question.
+                // The ask operation records the idempotency key and its
+                // canonical Question result, which binds that ID to this exact
+                // run/call pair (including the legacy call-only key).
+                let request_ids = [
+                    format!("execution:question:{run_id}:{call_id}"),
+                    format!("execution:question:{call_id}"),
+                ];
+                let matching_question_operations = question_operations
+                    .iter()
+                    .filter(|operation| {
+                        operation.get("method").and_then(Value::as_str) == Some("question.ask")
+                            && operation.get("status").and_then(Value::as_str) == Some("done")
+                            && operation
+                                .get("client_request_id")
+                                .or_else(|| operation.pointer("/params/client_request_id"))
+                                .and_then(Value::as_str)
+                                .is_some_and(|id| request_ids.iter().any(|expected| expected == id))
+                    })
+                    .collect::<Vec<_>>();
+                if matching_question_operations.is_empty()
+                    || matching_question_operations.iter().any(|operation| {
+                        operation
+                            .pointer("/result/question/id")
+                            .and_then(Value::as_str)
+                            != Some(question_id)
+                    })
+                {
+                    continue;
+                }
+                let message_id = format!("msg_question_{}", takeover_component(run_id));
+                let existing_message = latest_by_id.get(&message_id).cloned();
+                let existing_block_question_id = if let Some(message) = existing_message.as_ref() {
+                    if message.get("chat_id").and_then(Value::as_str) != Some(chat_id)
+                        || message.pointer("/sender/bot_id").and_then(Value::as_str)
+                            != Some(question_bot_id)
+                        || message.get("assignment_id").and_then(Value::as_str)
+                            != request.assignment_id.as_deref()
+                        || message.get("fallback_text").and_then(Value::as_str)
+                            != Some(question_text)
+                    {
+                        continue;
+                    }
+                    let Some(blocks) = message.get("blocks").and_then(Value::as_array) else {
+                        continue;
+                    };
+                    let question_blocks = blocks
+                        .iter()
+                        .filter(|block| {
+                            block.get("type").and_then(Value::as_str) == Some("question")
+                        })
+                        .collect::<Vec<_>>();
+                    if question_blocks.len() != 1 {
+                        continue;
+                    }
+                    let Some(block_question_id) = question_blocks[0]
+                        .get("question_id")
+                        .and_then(Value::as_str)
+                    else {
+                        continue;
+                    };
+                    if block_question_id != call_id && block_question_id != question_id {
+                        continue;
+                    }
+                    Some(block_question_id.to_owned())
+                } else {
+                    None
+                };
+
+                // Validate either the current marker or a legacy marker before
+                // touching durable state. The old writer used the public
+                // Question UUID for the file path but stored the executor call
+                // id in `question_id`, without a `call_id` field.
+                let canonical_marker_path =
+                    format!("data/waiting/{}.json", takeover_component(question_id));
+                let mut marker_paths = vec![canonical_marker_path.clone()];
+                let legacy_marker_path =
+                    format!("data/waiting/{}.json", takeover_component(call_id));
+                if !marker_paths.contains(&legacy_marker_path) {
+                    marker_paths.push(legacy_marker_path.clone());
+                }
+                let mut marker_conflict = false;
+                for marker_path in &marker_paths {
+                    let marker = self
+                        .store
+                        .read_snapshot::<Value>(marker_path)
+                        .map_err(AdapterError::from)?;
+                    let Some(marker) = marker else {
+                        continue;
+                    };
+                    let marker_question_id = marker.get("question_id").and_then(Value::as_str);
+                    let marker_call_id = marker.get("call_id").and_then(Value::as_str);
+                    let marker_path_is_canonical = marker_path == &canonical_marker_path;
+                    let marker_identity_matches = if marker_path_is_canonical {
+                        (marker_question_id == Some(question_id) && marker_call_id == Some(call_id))
+                            || (marker_question_id == Some(call_id)
+                                && marker_call_id.is_none_or(|id| id == call_id))
+                    } else {
+                        marker_question_id == Some(call_id)
+                            && marker_call_id.is_none_or(|id| id == call_id)
+                    };
+                    if marker.get("kind").and_then(Value::as_str) != Some("question")
+                        || marker.get("run_id").and_then(Value::as_str) != Some(run_id)
+                        || marker.get("chat_id").and_then(Value::as_str) != Some(chat_id)
+                        || marker.get("assignment_id") != Some(&json!(request.assignment_id))
+                        || marker.get("text").and_then(Value::as_str) != Some(question_text)
+                        || !marker_identity_matches
+                    {
+                        marker_conflict = true;
+                        break;
+                    }
+                }
+                if marker_conflict {
+                    continue;
+                }
+
+                let needs_append = existing_message.is_none()
+                    || existing_block_question_id.as_deref() != Some(question_id);
+                let message = existing_message.unwrap_or_else(|| {
+                    json!({
+                        "id":message_id,
+                        "chat_id":chat_id,
+                        "seq":0,
+                        "sender":{"kind":"bot","bot_id":question_bot_id},
+                        "created_at":now(),
+                        "edited_at":null,
+                        "deleted":false,
+                        "reply_to":null,
+                        "quote":null,
+                        "thread_count":0,
+                        "mentions":if request.project_id.is_some() && request.assignment_id.is_some() { json!([{"kind":"user"}]) } else { json!([]) },
+                        "blocks":[{"type":"question","question_id":question_id}],
+                        "fallback_text":question_text,
+                        "intent":null,
+                        "assignment_id":request.assignment_id,
+                        "streaming":false,
+                        "delivery":[],
+                        "reactions":[]
+                    })
+                });
+                matches.push((
+                    run_id.to_owned(),
+                    call_id.to_owned(),
+                    request.assignment_id.clone(),
+                    message,
+                    needs_append,
+                    legacy_marker_path,
+                ));
+            }
+
+            if matches.len() != 1 {
+                if matches.len() > 1 {
+                    tracing::warn!(%question_id, count = matches.len(), "ambiguous executor question repair mapping");
+                }
+                continue;
+            }
+            let (run_id, call_id, assignment_id, mut message, needs_append, legacy_marker_path) =
+                matches.pop().expect("match count checked");
+            let Some(block) = message
+                .get_mut("blocks")
+                .and_then(Value::as_array_mut)
+                .and_then(|blocks| {
+                    blocks
+                        .iter_mut()
+                        .find(|block| block.get("type").and_then(Value::as_str) == Some("question"))
+                })
+            else {
+                continue;
+            };
+            if needs_append {
+                block["question_id"] = json!(question_id);
+                let canonical = self
+                    .store
+                    .sequence_chat_messages(chat_id, &[message])?
+                    .into_iter()
+                    .next()
+                    .ok_or_else(|| {
+                        AdapterError::OrchestratorSnapshot(
+                            "chat message sequencing returned no message".into(),
+                        )
+                    })?;
+                self.store.append_jsonl(&chat_path, &canonical)?;
+            }
+
+            let canonical_marker = json!({
+                "kind":"question",
+                "run_id":run_id,
+                "assignment_id":assignment_id,
+                "chat_id":chat_id,
+                "question_id":question_id,
+                "call_id":call_id,
+                "text":question_text
+            });
+            let marker_path = format!("data/waiting/{}.json", takeover_component(question_id));
+            if self.store.read_snapshot::<Value>(&marker_path)?.as_ref() != Some(&canonical_marker)
+            {
+                self.store.write_snapshot(&marker_path, &canonical_marker)?;
+            }
+            if legacy_marker_path != marker_path {
+                let legacy = self.store.read_snapshot::<Value>(&legacy_marker_path)?;
+                if legacy.as_ref().is_some_and(|marker| {
+                    marker.get("kind").and_then(Value::as_str) == Some("question")
+                        && marker.get("run_id").and_then(Value::as_str) == Some(run_id.as_str())
+                        && marker.get("chat_id").and_then(Value::as_str) == Some(chat_id)
+                        && marker.get("question_id").and_then(Value::as_str)
+                            == Some(call_id.as_str())
+                }) {
+                    let path = self.store.root().join(&legacy_marker_path);
+                    match fs::remove_file(path) {
+                        Ok(()) => {}
+                        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                        Err(error) => return Err(macbot_store::StoreError::Io(error).into()),
+                    }
+                }
             }
         }
         Ok(())
@@ -2327,6 +2670,23 @@ impl ProductionBackend {
                 }
             }
             "send_msg" | "chat.send" | "chat.react" | "execution.steer.delivery" => {
+                if method == "send_msg" {
+                    if let Some(placeholder) =
+                        self.terminal_private_placeholder_for_params(params)?
+                    {
+                        let message = self.complete_terminal_placeholder_from_result(
+                            params,
+                            &placeholder,
+                            result,
+                        )?;
+                        if result.get("message").is_some() {
+                            canonical["message"] = message;
+                        } else {
+                            canonical = message;
+                        }
+                        return Ok(canonical);
+                    }
+                }
                 let id = result
                     .get("message")
                     .and_then(|value| value.get("id"))
@@ -2440,7 +2800,20 @@ impl ProductionBackend {
             .unwrap_or_else(|| legacy_event_key(method, &params, &canonical));
         let mut events = Vec::new();
         if operation_event_entity_present(method, &canonical) {
-            if let Some(event_name) = Self::event_name(method) {
+            let event_name = if method == "send_msg"
+                && (params
+                    .get("_replace_streaming_placeholder")
+                    .and_then(Value::as_bool)
+                    == Some(true)
+                    || self
+                        .terminal_private_placeholder_for_params(&params)?
+                        .is_some())
+            {
+                Some("message.updated")
+            } else {
+                Self::event_name(method)
+            };
+            if let Some(event_name) = event_name {
                 let data = event_data(method, &params, &canonical);
                 if let Some(event) = self.append_repaired_event(&base_key, event_name, data)? {
                     events.push(event);
@@ -3529,10 +3902,47 @@ impl ProductionBackend {
                 );
             }
         }
-        if let Some(request_id) = params.get("client_request_id").and_then(Value::as_str) {
-            if let Some(value) = self.idempotency.lock().await.get(request_id).cloned() {
-                return Ok(value);
+        let terminal_placeholder = self.terminal_private_placeholder_for_params(&params)?;
+        let replace_streaming_placeholder = terminal_placeholder.is_some();
+        if let Some(object) = params.as_object_mut() {
+            if replace_streaming_placeholder {
+                let placeholder = terminal_placeholder.as_ref().expect("checked above");
+                object.insert("message_id".into(), placeholder["id"].clone());
+                object.insert("_replace_streaming_placeholder".into(), json!(true));
+            } else {
+                object.remove("_replace_streaming_placeholder");
             }
+        }
+        let cached_result =
+            if let Some(request_id) = params.get("client_request_id").and_then(Value::as_str) {
+                self.idempotency.lock().await.get(request_id).cloned()
+            } else {
+                None
+            };
+        if let Some(value) = cached_result {
+            if let Some(placeholder) = terminal_placeholder.as_ref() {
+                let cached_id = value
+                    .get("message")
+                    .and_then(|message| message.get("id"))
+                    .or_else(|| value.get("id"))
+                    .and_then(Value::as_str);
+                let placeholder_id = placeholder.get("id").and_then(Value::as_str);
+                if cached_id != placeholder_id
+                    || placeholder.get("streaming").and_then(Value::as_bool) == Some(true)
+                    || !matches!(
+                        placeholder.get("intent").and_then(Value::as_str),
+                        Some("done" | "blocked")
+                    )
+                {
+                    return self
+                        .persist_terminal_placeholder_replay(state, &params, placeholder, &value)
+                        .await;
+                }
+                self.repair_terminal_placeholder_update_event(state, &params, placeholder)
+                    .await?;
+                return Ok(placeholder.clone());
+            }
+            return Ok(value);
         }
         if params.get("intent").and_then(Value::as_str) == Some("done") {
             if let Some(review) = self
@@ -3543,6 +3953,171 @@ impl ProductionBackend {
             }
         }
         self.call("send_msg", params, state).await
+    }
+
+    fn terminal_private_placeholder_for_params(
+        &self,
+        params: &Value,
+    ) -> Result<Option<Value>, RpcError> {
+        if !matches!(
+            params.get("intent").and_then(Value::as_str),
+            Some("done" | "blocked")
+        ) || params
+            .get("assignment_id")
+            .is_some_and(|assignment_id| !assignment_id.is_null())
+        {
+            return Ok(None);
+        }
+        let (Some(run_id), Some(call_id), Some(chat_id), Some(bot_id), Some(request_id)) = (
+            params.get("run_id").and_then(Value::as_str),
+            params.get("call_id").and_then(Value::as_str),
+            params.get("chat_id").and_then(Value::as_str),
+            params.get("bot_id").and_then(Value::as_str),
+            params.get("client_request_id").and_then(Value::as_str),
+        ) else {
+            return Ok(None);
+        };
+        if request_id != format!("execution:{run_id}:{call_id}") {
+            return Ok(None);
+        }
+        let message_id = format!("msg_{}", takeover_component(run_id));
+        let messages = self
+            .store
+            .read_jsonl::<Value>(format!(
+                "data/chats/{}/messages.jsonl",
+                takeover_component(chat_id)
+            ))
+            .map_err(store_error)?;
+        let Some(message) = messages
+            .into_iter()
+            .rev()
+            .find(|message| message.get("id").and_then(Value::as_str) == Some(message_id.as_str()))
+        else {
+            return Ok(None);
+        };
+        if message.get("chat_id").and_then(Value::as_str) == Some(chat_id)
+            && message.pointer("/sender/kind").and_then(Value::as_str) == Some("bot")
+            && message.pointer("/sender/bot_id").and_then(Value::as_str) == Some(bot_id)
+            && message.get("assignment_id").is_some_and(Value::is_null)
+        {
+            Ok(Some(message))
+        } else {
+            Ok(None)
+        }
+    }
+
+    fn complete_terminal_placeholder_from_result(
+        &self,
+        params: &Value,
+        placeholder: &Value,
+        result: &Value,
+    ) -> Result<Value, RpcError> {
+        let terminal_intent = params.get("intent").and_then(Value::as_str);
+        if placeholder.get("streaming").and_then(Value::as_bool) == Some(false)
+            && placeholder.get("intent").and_then(Value::as_str) == terminal_intent
+        {
+            return Ok(placeholder.clone());
+        }
+        let mut message = result
+            .get("message")
+            .cloned()
+            .unwrap_or_else(|| result.clone());
+        message["id"] = placeholder["id"].clone();
+        message["chat_id"] = placeholder["chat_id"].clone();
+        message["sender"] = placeholder["sender"].clone();
+        message["assignment_id"] = Value::Null;
+        message["created_at"] = placeholder["created_at"].clone();
+        message["seq"] = placeholder["seq"].clone();
+        message["intent"] = json!(terminal_intent);
+        message["streaming"] = json!(false);
+        message["edited_at"] = json!(now());
+        normalize_message(&mut message);
+        self.persist_client_message(&message)
+    }
+
+    async fn persist_terminal_placeholder_replay(
+        &self,
+        state: &GatewayState,
+        params: &Value,
+        placeholder: &Value,
+        cached_result: &Value,
+    ) -> RpcResult {
+        let _guard = self.write_lock.lock().await;
+        let current_placeholder = self
+            .terminal_private_placeholder_for_params(params)?
+            .unwrap_or_else(|| placeholder.clone());
+        if current_placeholder
+            .get("streaming")
+            .and_then(Value::as_bool)
+            == Some(false)
+            && matches!(
+                current_placeholder.get("intent").and_then(Value::as_str),
+                Some("done" | "blocked")
+            )
+        {
+            self.repair_terminal_placeholder_update_event(state, params, &current_placeholder)
+                .await?;
+            return Ok(current_placeholder);
+        }
+        let message = self.complete_terminal_placeholder_from_result(
+            params,
+            &current_placeholder,
+            cached_result,
+        )?;
+        let mut replay_params = params.clone();
+        replay_params["message_id"] = message["id"].clone();
+        replay_params["_replace_streaming_placeholder"] = json!(true);
+        let run_id = replay_params
+            .get("run_id")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        let call_id = replay_params
+            .get("call_id")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        let operation = json!({
+            "method":"send_msg",
+            "params":replay_params,
+            "client_request_id":params.get("client_request_id"),
+            "result":message,
+            "event_key":format!("execution-terminal-placeholder:{run_id}:{call_id}"),
+            "status":"done",
+            "at":now()
+        });
+        self.persist_orchestrator(operation.clone()).await?;
+        let snapshot = self.orchestrator.snapshot().map_err(Self::error)?;
+        for event in self.repair_operation_events_with_snapshot(&operation, &snapshot)? {
+            state
+                .publish_event(event.seq, &event.event, event.data)
+                .await;
+        }
+        Ok(message)
+    }
+
+    async fn repair_terminal_placeholder_update_event(
+        &self,
+        state: &GatewayState,
+        params: &Value,
+        placeholder: &Value,
+    ) -> Result<(), RpcError> {
+        let run_id = params
+            .get("run_id")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        let call_id = params
+            .get("call_id")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        if let Some(event) = self.append_repaired_event(
+            &format!("execution-terminal-placeholder:{run_id}:{call_id}"),
+            "message.updated",
+            json!({"message":placeholder}),
+        )? {
+            state
+                .publish_event(event.seq, &event.event, event.data)
+                .await;
+        }
+        Ok(())
     }
 
     async fn review_pending_messages_before_done(
@@ -3696,6 +4271,25 @@ impl RpcBackend for ProductionBackend {
         }
         let _guard = self.write_lock.lock().await;
         let mut params = params;
+        if method == "send_msg"
+            && params
+                .get("_replace_streaming_placeholder")
+                .and_then(Value::as_bool)
+                == Some(true)
+        {
+            if let Some(placeholder) = self.terminal_private_placeholder_for_params(&params)? {
+                if placeholder.get("streaming").and_then(Value::as_bool) == Some(false)
+                    && matches!(
+                        placeholder.get("intent").and_then(Value::as_str),
+                        Some("done" | "blocked")
+                    )
+                {
+                    self.repair_terminal_placeholder_update_event(state, &params, &placeholder)
+                        .await?;
+                    return Ok(placeholder);
+                }
+            }
+        }
         if matches!(method, "bot.create" | "bot.update") {
             let avatar = if method == "bot.create" {
                 params.get("avatar")
@@ -4084,6 +4678,31 @@ impl RpcBackend for ProductionBackend {
             enrich_completion_message_artifacts(&mut result, &snapshot);
             append_link_preview_blocks(&mut result, &params)?;
             append_project_card_blocks(self, &mut result, &params).await?;
+            let replaces_streaming_placeholder = params
+                .get("_replace_streaming_placeholder")
+                .and_then(Value::as_bool)
+                == Some(true);
+            if replaces_streaming_placeholder {
+                let placeholder = self.terminal_private_placeholder_for_params(&params)?;
+                let expected_id = params.get("message_id").and_then(Value::as_str);
+                if result.get("id").and_then(Value::as_str) != expected_id {
+                    return Err(crate::rpc_error(
+                        "internal",
+                        "terminal private send_msg did not reuse its streaming message id",
+                        None,
+                    ));
+                }
+                if let Some(placeholder) = placeholder {
+                    for field in ["id", "chat_id", "sender", "created_at", "seq"] {
+                        if let Some(value) = placeholder.get(field) {
+                            result[field] = value.clone();
+                        }
+                    }
+                    result["assignment_id"] = Value::Null;
+                }
+                result["streaming"] = json!(false);
+                result["edited_at"] = json!(now());
+            }
             result = self.persist_client_message(&result)?;
         } else if method == "chat.send" {
             let canonical = self.persist_client_message(&result["message"])?;
@@ -17711,6 +18330,364 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    async fn legacy_terminal_receipt_replay_closes_placeholder_without_created_event() {
+        let home = tempdir().unwrap();
+        let gateway = Gateway::new(GatewayConfig {
+            home: home.path().to_path_buf(),
+            ..Default::default()
+        });
+        let backend = ProductionBackend::open(home.path()).unwrap();
+        let bot = backend
+            .call(
+                "bot.create",
+                json!({"name":"Legacy terminal worker"}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        let bot_id = bot["bot"]["id"].as_str().unwrap();
+        let chat_id = bot["bot"]["dm_chat_id"].as_str().unwrap();
+        let run_id = "legacy-terminal-run";
+        let call_id = "legacy-terminal-call";
+        let placeholder_id = format!("msg_{run_id}");
+        backend
+            .persist_client_message(&json!({
+                "id":placeholder_id,
+                "chat_id":chat_id,
+                "sender":{"kind":"bot","bot_id":bot_id},
+                "created_at":now(),
+                "edited_at":null,
+                "deleted":false,
+                "reply_to":null,
+                "thread_count":0,
+                "mentions":[],
+                "blocks":[],
+                "fallback_text":"",
+                "intent":null,
+                "assignment_id":null,
+                "streaming":true,
+                "delivery":[],
+                "reactions":[]
+            }))
+            .unwrap();
+
+        let params = json!({
+            "run_id":run_id,
+            "call_id":call_id,
+            "client_request_id":format!("execution:{run_id}:{call_id}"),
+            "message_id":"msg_model_selected_a_different_id",
+            "chat_id":chat_id,
+            "bot_id":bot_id,
+            "assignment_id":null,
+            "intent":"done",
+            "text":"旧 receipt 的完成报告"
+        });
+        let old_result = json!({
+            "id":"msg_model_selected_a_different_id",
+            "chat_id":chat_id,
+            "sender":{"kind":"bot","bot_id":bot_id},
+            "created_at":now(),
+            "edited_at":null,
+            "deleted":false,
+            "reply_to":null,
+            "thread_count":0,
+            "mentions":[],
+            "blocks":[{"type":"text","markdown":"旧 receipt 的完成报告"}],
+            "fallback_text":"旧 receipt 的完成报告",
+            "intent":"done",
+            "assignment_id":null,
+            "streaming":false,
+            "delivery":[],
+            "reactions":[]
+        });
+        let operation = json!({
+            "method":"send_msg",
+            "params":params,
+            "client_request_id":format!("execution:{run_id}:{call_id}"),
+            "result":old_result,
+            "event_key":"legacy-terminal-receipt",
+            "status":"done"
+        });
+        let snapshot = backend.orchestrator.snapshot().unwrap();
+        backend
+            .repair_operation_events_with_snapshot(&operation, &snapshot)
+            .unwrap();
+        let after_first_replay = backend.store.events_since(0).unwrap();
+        backend
+            .repair_operation_events_with_snapshot(&operation, &snapshot)
+            .unwrap();
+        let events = backend.store.events_since(0).unwrap();
+        assert_eq!(events.len(), after_first_replay.len());
+        assert_eq!(
+            events
+                .iter()
+                .filter(|event| event.event == "message.created"
+                    && event.data["message"]["id"] == placeholder_id)
+                .count(),
+            0
+        );
+        let updates = events
+            .iter()
+            .filter(|event| {
+                event.event == "message.updated" && event.data["message"]["id"] == placeholder_id
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(updates.len(), 1);
+        assert_eq!(updates[0].data["message"]["streaming"], false);
+
+        let messages = backend
+            .store
+            .read_jsonl::<Value>(format!("data/chats/{chat_id}/messages.jsonl"))
+            .unwrap();
+        let placeholder_versions = messages
+            .iter()
+            .filter(|message| message["id"] == placeholder_id)
+            .collect::<Vec<_>>();
+        assert_eq!(placeholder_versions.len(), 2);
+        assert_eq!(placeholder_versions.last().unwrap()["streaming"], false);
+        assert_eq!(
+            placeholder_versions.last().unwrap()["fallback_text"],
+            "旧 receipt 的完成报告"
+        );
+    }
+
+    #[tokio::test]
+    async fn execution_terminal_receipt_replay_repairs_cached_legacy_message_once() {
+        let home = tempdir().unwrap();
+        let gateway = Gateway::new(GatewayConfig {
+            home: home.path().to_path_buf(),
+            ..Default::default()
+        });
+        let backend = ProductionBackend::open(home.path()).unwrap();
+        let bot = backend
+            .call(
+                "bot.create",
+                json!({"name":"Cached legacy terminal worker"}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        let bot_id = bot["bot"]["id"].as_str().unwrap();
+        let chat_id = bot["bot"]["dm_chat_id"].as_str().unwrap();
+        let run_id = "cached-legacy-terminal-run";
+        let call_id = "cached-legacy-terminal-call";
+        let placeholder_id = format!("msg_{run_id}");
+        backend
+            .persist_client_message(&json!({
+                "id":placeholder_id,
+                "chat_id":chat_id,
+                "sender":{"kind":"bot","bot_id":bot_id},
+                "created_at":now(),
+                "edited_at":null,
+                "deleted":false,
+                "reply_to":null,
+                "thread_count":0,
+                "mentions":[],
+                "blocks":[],
+                "fallback_text":"",
+                "intent":null,
+                "assignment_id":null,
+                "streaming":true,
+                "delivery":[],
+                "reactions":[]
+            }))
+            .unwrap();
+        let request_id = format!("execution:{run_id}:{call_id}");
+        let legacy_result = json!({
+            "id":"msg_model_selected_a_different_id",
+            "chat_id":chat_id,
+            "sender":{"kind":"bot","bot_id":bot_id},
+            "created_at":now(),
+            "edited_at":null,
+            "deleted":false,
+            "reply_to":null,
+            "thread_count":0,
+            "mentions":[],
+            "blocks":[{"type":"text","markdown":"旧缓存完成报告"}],
+            "fallback_text":"旧缓存完成报告",
+            "intent":"done",
+            "assignment_id":null,
+            "streaming":false,
+            "delivery":[],
+            "reactions":[]
+        });
+        backend
+            .idempotency
+            .lock()
+            .await
+            .insert(request_id, legacy_result);
+        let envelope = json!({
+            "receipt":{"run_id":run_id,"call_id":call_id},
+            "message":{
+                "message_id":"msg_model_selected_a_different_id",
+                "chat_id":chat_id,
+                "bot_id":bot_id,
+                "assignment_id":null,
+                "intent":"done",
+                "text":"旧缓存完成报告"
+            }
+        });
+
+        let first = backend
+            .execution_send_msg(&gateway.state, envelope.clone())
+            .await
+            .unwrap();
+        assert_eq!(first["id"], placeholder_id);
+        assert_eq!(first["streaming"], false);
+        let events_after_first = backend.store.events_since(0).unwrap();
+        let second = backend
+            .execution_send_msg(&gateway.state, envelope)
+            .await
+            .unwrap();
+        assert_eq!(second["id"], placeholder_id);
+        assert_eq!(
+            backend.store.events_since(0).unwrap().len(),
+            events_after_first.len()
+        );
+
+        let events = backend.store.events_since(0).unwrap();
+        assert_eq!(
+            events
+                .iter()
+                .filter(|event| event.event == "message.created"
+                    && event.data["message"]["id"] == placeholder_id)
+                .count(),
+            0
+        );
+        assert_eq!(
+            events
+                .iter()
+                .filter(|event| event.event == "message.updated"
+                    && event.data["message"]["id"] == placeholder_id)
+                .count(),
+            1
+        );
+        let messages = backend
+            .store
+            .read_jsonl::<Value>(format!("data/chats/{chat_id}/messages.jsonl"))
+            .unwrap();
+        let placeholder_versions = messages
+            .iter()
+            .filter(|message| message["id"] == placeholder_id)
+            .collect::<Vec<_>>();
+        assert_eq!(placeholder_versions.len(), 2);
+        assert_eq!(placeholder_versions.last().unwrap()["streaming"], false);
+        assert_eq!(
+            placeholder_versions.last().unwrap()["fallback_text"],
+            "旧缓存完成报告"
+        );
+    }
+
+    #[tokio::test]
+    async fn execution_terminal_receipt_without_cache_does_not_append_duplicate_terminal() {
+        let home = tempdir().unwrap();
+        let gateway = Gateway::new(GatewayConfig {
+            home: home.path().to_path_buf(),
+            ..Default::default()
+        });
+        let backend = ProductionBackend::open(home.path()).unwrap();
+        let bot = backend
+            .call(
+                "bot.create",
+                json!({"name":"No-cache terminal worker"}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        let bot_id = bot["bot"]["id"].as_str().unwrap();
+        let chat_id = bot["bot"]["dm_chat_id"].as_str().unwrap();
+        let run_id = "no-cache-terminal-run";
+        let call_id = "no-cache-terminal-call";
+        let placeholder_id = format!("msg_{run_id}");
+        let placeholder = backend
+            .persist_client_message(&json!({
+                "id":placeholder_id,
+                "chat_id":chat_id,
+                "sender":{"kind":"bot","bot_id":bot_id},
+                "created_at":now(),
+                "edited_at":null,
+                "deleted":false,
+                "reply_to":null,
+                "thread_count":0,
+                "mentions":[],
+                "blocks":[],
+                "fallback_text":"",
+                "intent":null,
+                "assignment_id":null,
+                "streaming":true,
+                "delivery":[],
+                "reactions":[]
+            }))
+            .unwrap();
+        let mut terminal = placeholder.clone();
+        terminal["edited_at"] = json!(now());
+        terminal["blocks"] = json!([{"type":"text","markdown":"已落盘的报告"}]);
+        terminal["fallback_text"] = json!("已落盘的报告");
+        terminal["intent"] = json!("done");
+        terminal["streaming"] = json!(false);
+        let terminal = backend.persist_client_message(&terminal).unwrap();
+        let envelope = json!({
+            "receipt":{"run_id":run_id,"call_id":call_id},
+            "message":{
+                "message_id":"msg_model_selected_a_different_id",
+                "chat_id":chat_id,
+                "bot_id":bot_id,
+                "assignment_id":null,
+                "intent":"done",
+                "text":"已落盘的报告"
+            }
+        });
+
+        let first = backend
+            .execution_send_msg(&gateway.state, envelope.clone())
+            .await
+            .unwrap();
+        assert_eq!(first["id"], placeholder_id);
+        let events_after_first = backend.store.events_since(0).unwrap();
+        let second = backend
+            .execution_send_msg(&gateway.state, envelope)
+            .await
+            .unwrap();
+        assert_eq!(second["id"], placeholder_id);
+        assert_eq!(
+            backend.store.events_since(0).unwrap().len(),
+            events_after_first.len()
+        );
+
+        let messages = backend
+            .store
+            .read_jsonl::<Value>(format!("data/chats/{chat_id}/messages.jsonl"))
+            .unwrap();
+        let versions = messages
+            .iter()
+            .filter(|message| message["id"] == placeholder_id)
+            .collect::<Vec<_>>();
+        assert_eq!(versions.len(), 2);
+        assert_eq!(versions.last().unwrap()["streaming"], false);
+        for field in ["created_at", "seq", "sender", "chat_id"] {
+            assert_eq!(versions.last().unwrap()[field], placeholder[field]);
+            assert_eq!(versions.last().unwrap()[field], terminal[field]);
+        }
+        let events = backend.store.events_since(0).unwrap();
+        assert_eq!(
+            events
+                .iter()
+                .filter(|event| event.event == "message.created"
+                    && event.data["message"]["id"] == placeholder_id)
+                .count(),
+            0
+        );
+        assert_eq!(
+            events
+                .iter()
+                .filter(|event| event.event == "message.updated"
+                    && event.data["message"]["id"] == placeholder_id)
+                .count(),
+            1
+        );
+    }
+
     #[test]
     fn repaired_events_deduplicate_new_keys_and_legacy_payloads() {
         let home = tempdir().unwrap();
@@ -17749,6 +18726,521 @@ mod tests {
             .unwrap()
             .is_none());
         assert_eq!(backend.store.events_since(0).unwrap().len(), before);
+    }
+
+    #[tokio::test]
+    async fn legacy_executor_question_repair_requires_exact_provenance_and_is_idempotent() {
+        let home = tempdir().unwrap();
+        let gateway = Gateway::new(GatewayConfig {
+            home: home.path().to_path_buf(),
+            ..Default::default()
+        });
+        let backend = ProductionBackend::open(home.path()).unwrap();
+        let text = "恢复访问权限";
+        let run_id = "legacy_executor_question_run";
+        let call_id = "legacy_executor_question_call";
+        let question = backend
+            .call(
+                "question.ask",
+                json!({
+                    "bot_id":"main",
+                    "assignment_id":null,
+                    "chat_id":"chat_main",
+                    "text":text,
+                    "options":[],
+                    "allow_free_text":true,
+                    "client_request_id":format!("execution:question:{call_id}")
+                }),
+                &gateway.state,
+            )
+            .await
+            .unwrap()["question"]
+            .clone();
+        let decoy = backend
+            .call(
+                "question.ask",
+                json!({
+                    "bot_id":"main",
+                    "assignment_id":null,
+                    "chat_id":"chat_main",
+                    "text":text,
+                    "options":[],
+                    "allow_free_text":true,
+                    "client_request_id":"same-scope-same-text-decoy"
+                }),
+                &gateway.state,
+            )
+            .await
+            .unwrap()["question"]
+            .clone();
+        let question_id = question["id"].as_str().unwrap();
+        let decoy_id = decoy["id"].as_str().unwrap();
+        assert_ne!(question_id, decoy_id);
+        let question_operation = backend
+            .store
+            .read_jsonl::<Value>("data/orchestrator/operations.jsonl")
+            .unwrap()
+            .into_iter()
+            .find(|operation| {
+                operation.get("method").and_then(Value::as_str) == Some("question.ask")
+                    && operation
+                        .pointer("/result/question/id")
+                        .and_then(Value::as_str)
+                        == Some(question_id)
+            })
+            .expect("question.ask operation should retain canonical Question provenance");
+        assert_eq!(
+            question_operation["client_request_id"],
+            format!("execution:question:{call_id}")
+        );
+        let message_id = format!("msg_question_{run_id}");
+        let request = crate::execution::ExecutionRequest {
+            run_id: run_id.into(),
+            assignment_id: None,
+            source_message_id: None,
+            chat_id: "chat_main".into(),
+            bot_id: "main".into(),
+            model: "mock/model".into(),
+            provider_id: "mock".into(),
+            project_id: None,
+            instruction: "恢复一个 executor question".into(),
+            messages: Vec::new(),
+            max_turns: 8,
+            private: true,
+            allow_unsafe: false,
+            cwd: None,
+            routine: false,
+            price: None,
+            resume_approved: false,
+            subagent: false,
+            tools: None,
+            phase: None,
+            parent_run_id: None,
+            subagent_task: None,
+            save_full_requests: false,
+            resume_message: None,
+            client_locale: None,
+        };
+        backend
+            .store
+            .write_snapshot(format!("data/run_requests/{run_id}.json"), &request)
+            .unwrap();
+        let checkpoint = json!({
+            "run_id":run_id,
+            "round":0,
+            "messages":[],
+            "pending_tool":{
+                "call_id":call_id,
+                "name":"ask_user",
+                "args":{"question":text}
+            },
+            "pending_tools":[{
+                "call_id":call_id,
+                "name":"ask_user",
+                "args":{"question":text}
+            }]
+        });
+        {
+            let mut durable = backend.durable.lock().await;
+            let job = durable
+                .create_job("main", "model_run", json!({"run_id":run_id}))
+                .unwrap();
+            durable
+                .commit(
+                    &job.id,
+                    macbot_durable::JobStatus::Waiting,
+                    checkpoint,
+                    false,
+                )
+                .unwrap();
+        }
+        let raw = backend
+            .store
+            .sequence_chat_messages(
+                "chat_main",
+                &[json!({
+                    "id":message_id,
+                    "chat_id":"chat_main",
+                    "sender":{"kind":"bot","bot_id":"main"},
+                    "created_at":now(),
+                    "edited_at":null,
+                    "deleted":false,
+                    "reply_to":null,
+                    "quote":null,
+                    "thread_count":0,
+                    "mentions":[],
+                    "blocks":[{"type":"question","question_id":call_id}],
+                    "fallback_text":text,
+                    "intent":null,
+                    "assignment_id":null,
+                    "streaming":false,
+                    "delivery":[],
+                    "reactions":[]
+                })],
+            )
+            .unwrap()
+            .pop()
+            .unwrap();
+        backend
+            .store
+            .append_jsonl("data/chats/chat_main/messages.jsonl", &raw)
+            .unwrap();
+        let question_asked_count_before_repair = backend
+            .store
+            .events_since(0)
+            .unwrap()
+            .iter()
+            .filter(|event| event.event == "question.asked")
+            .count();
+        // A conflicting record at the canonical path must prevent migration,
+        // even though the completed ask receipt and stale card otherwise fit.
+        let marker_path = format!("data/waiting/{question_id}.json");
+        backend
+            .store
+            .write_snapshot(
+                &marker_path,
+                &json!({
+                    "kind":"question",
+                    "run_id":"unrelated_run",
+                    "assignment_id":null,
+                    "chat_id":"chat_main",
+                    "question_id":call_id,
+                    "text":text
+                }),
+            )
+            .unwrap();
+        backend
+            .repair_pending_execution_question_messages()
+            .unwrap();
+        let conflicted_rows = backend
+            .store
+            .read_jsonl::<Value>("data/chats/chat_main/messages.jsonl")
+            .unwrap();
+        let conflicted_card = conflicted_rows
+            .iter()
+            .rev()
+            .find(|message| message["id"] == message_id)
+            .unwrap();
+        assert_eq!(conflicted_card["blocks"][0]["question_id"], call_id);
+        assert_eq!(
+            backend
+                .store
+                .events_since(0)
+                .unwrap()
+                .iter()
+                .filter(|event| event.event == "question.asked")
+                .count(),
+            question_asked_count_before_repair
+        );
+        backend
+            .store
+            .write_snapshot(
+                &marker_path,
+                &json!({
+                    "kind":"question",
+                    "run_id":run_id,
+                    "assignment_id":null,
+                    "chat_id":"chat_main",
+                    "question_id":call_id,
+                    "text":text
+                }),
+            )
+            .unwrap();
+        backend
+            .store
+            .append_event("message.created", json!({"message":raw}))
+            .unwrap();
+        assert_eq!(question_asked_count_before_repair, 2);
+        drop(backend);
+        drop(gateway);
+
+        // Opening a new backend is the normal restart/bootstrap repair path.
+        let backend = ProductionBackend::open(home.path()).unwrap();
+        let rows = backend
+            .store
+            .read_jsonl::<Value>("data/chats/chat_main/messages.jsonl")
+            .unwrap();
+        let latest = rows
+            .iter()
+            .rev()
+            .find(|message| message["id"] == message_id)
+            .unwrap();
+        assert_eq!(latest["blocks"][0]["question_id"], question_id);
+        assert_ne!(latest["blocks"][0]["question_id"], decoy_id);
+        assert_eq!(latest["seq"], raw["seq"]);
+        let snapshot = backend.orchestrator.snapshot().unwrap();
+        assert_eq!(snapshot["questions"][decoy_id]["state"], "pending");
+        let marker = backend
+            .store
+            .read_snapshot::<Value>(format!("data/waiting/{question_id}.json"))
+            .unwrap()
+            .unwrap();
+        assert_eq!(marker["question_id"], question_id);
+        assert_eq!(marker["call_id"], call_id);
+        assert!(backend
+            .store
+            .read_snapshot::<Value>(format!("data/waiting/{call_id}.json"))
+            .unwrap()
+            .is_none());
+        let events = backend.store.events_since(0).unwrap();
+        assert_eq!(
+            events
+                .iter()
+                .filter(|event| event.event == "question.asked")
+                .count(),
+            question_asked_count_before_repair
+        );
+        let message_events = events
+            .iter()
+            .filter(|event| {
+                matches!(event.event.as_str(), "message.created" | "message.updated")
+                    && event.data.pointer("/message/id").and_then(Value::as_str)
+                        == Some(message_id.as_str())
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(message_events.len(), 2);
+        assert_eq!(message_events[0].event, "message.created");
+        assert_eq!(
+            message_events[0].data["message"]["blocks"][0]["question_id"],
+            call_id
+        );
+        assert_eq!(message_events[1].event, "message.updated");
+        assert_eq!(
+            message_events[1].data["message"]["blocks"][0]["question_id"],
+            question_id
+        );
+
+        let rows_before_repeat = rows.len();
+        let event_count_before_repeat = events.len();
+        backend
+            .repair_pending_execution_question_messages()
+            .unwrap();
+        backend.repair_persisted_message_events().unwrap();
+        assert_eq!(
+            backend
+                .store
+                .read_jsonl::<Value>("data/chats/chat_main/messages.jsonl")
+                .unwrap()
+                .len(),
+            rows_before_repeat
+        );
+        assert_eq!(
+            backend.store.events_since(0).unwrap().len(),
+            event_count_before_repeat
+        );
+        assert_eq!(
+            backend
+                .store
+                .events_since(0)
+                .unwrap()
+                .iter()
+                .filter(|event| event.event == "question.asked")
+                .count(),
+            question_asked_count_before_repair
+        );
+
+        let gateway = Gateway::new(GatewayConfig {
+            home: home.path().to_path_buf(),
+            ..Default::default()
+        });
+        let answered = backend
+            .call(
+                "question.answer",
+                json!({"question_id":question_id,"text":"重新认证"}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        assert_eq!(answered["question"]["id"], question_id);
+        assert_eq!(answered["question"]["state"], "answered");
+    }
+
+    #[tokio::test]
+    async fn execution_question_crash_after_ask_rebuilds_marker_and_card() {
+        let home = tempdir().unwrap();
+        let gateway = Gateway::new(GatewayConfig {
+            home: home.path().to_path_buf(),
+            ..Default::default()
+        });
+        let backend = ProductionBackend::open(home.path()).unwrap();
+        let run_id = "run_question_crash_before_marker";
+        let call_id = "call_question_crash_before_marker";
+        let text = "确认登录方式";
+        let question = backend
+            .call(
+                "question.ask",
+                json!({
+                    "bot_id":"main",
+                    "assignment_id":null,
+                    "chat_id":"chat_main",
+                    "text":text,
+                    "options":[],
+                    "allow_free_text":true,
+                    "client_request_id":format!("execution:question:{run_id}:{call_id}")
+                }),
+                &gateway.state,
+            )
+            .await
+            .unwrap()["question"]
+            .clone();
+        let question_id = question["id"].as_str().unwrap().to_owned();
+        let request = crate::execution::ExecutionRequest {
+            run_id: run_id.into(),
+            assignment_id: None,
+            source_message_id: None,
+            chat_id: "chat_main".into(),
+            bot_id: "main".into(),
+            model: "mock/model".into(),
+            provider_id: "mock".into(),
+            project_id: None,
+            instruction: "等待用户确认登录方式".into(),
+            messages: Vec::new(),
+            max_turns: 8,
+            private: true,
+            allow_unsafe: false,
+            cwd: None,
+            routine: false,
+            price: None,
+            resume_approved: false,
+            subagent: false,
+            tools: None,
+            phase: None,
+            parent_run_id: None,
+            subagent_task: None,
+            save_full_requests: false,
+            resume_message: None,
+            client_locale: None,
+        };
+        backend
+            .store
+            .write_snapshot(format!("data/run_requests/{run_id}.json"), &request)
+            .unwrap();
+        let checkpoint = json!({
+            "run_id":run_id,
+            "round":0,
+            "messages":[],
+            "pending_tool":{
+                "call_id":call_id,
+                "name":"ask_user",
+                "args":{"question":text}
+            },
+            "pending_tools":[{
+                "call_id":call_id,
+                "name":"ask_user",
+                "args":{"question":text}
+            }]
+        });
+        let job_id = {
+            let mut durable = backend.durable.lock().await;
+            let job = durable
+                .create_job("main", "model_run", json!({"run_id":run_id}))
+                .unwrap();
+            durable
+                .commit(
+                    &job.id,
+                    macbot_durable::JobStatus::Waiting,
+                    checkpoint,
+                    false,
+                )
+                .unwrap();
+            job.id
+        };
+        let question_asked_before_restart = backend
+            .store
+            .events_since(0)
+            .unwrap()
+            .iter()
+            .filter(|event| event.event == "question.asked")
+            .count();
+        assert_eq!(question_asked_before_restart, 1);
+        assert!(backend
+            .store
+            .read_snapshot::<Value>(format!("data/waiting/{question_id}.json"))
+            .unwrap()
+            .is_none());
+        assert!(backend
+            .store
+            .read_jsonl::<Value>("data/chats/chat_main/messages.jsonl")
+            .unwrap()
+            .iter()
+            .all(|message| message["id"] != format!("msg_question_{run_id}")));
+        drop(backend);
+        drop(gateway);
+
+        let backend = ProductionBackend::open(home.path()).unwrap();
+        let message_id = format!("msg_question_{run_id}");
+        let messages = backend
+            .store
+            .read_jsonl::<Value>("data/chats/chat_main/messages.jsonl")
+            .unwrap();
+        let card = messages
+            .iter()
+            .rev()
+            .find(|message| message["id"] == message_id)
+            .expect("startup repair should rebuild the canonical question card");
+        assert_eq!(card["blocks"][0]["question_id"], question_id);
+        let marker = backend
+            .store
+            .read_snapshot::<Value>(format!("data/waiting/{question_id}.json"))
+            .unwrap()
+            .unwrap();
+        assert_eq!(marker["question_id"], question_id);
+        assert_eq!(marker["call_id"], call_id);
+        assert_eq!(marker["run_id"], run_id);
+        let events = backend.store.events_since(0).unwrap();
+        assert_eq!(
+            events
+                .iter()
+                .filter(|event| event.event == "question.asked")
+                .count(),
+            question_asked_before_restart
+        );
+        let message_events = events
+            .iter()
+            .filter(|event| {
+                event.event == "message.created"
+                    && event.data.pointer("/message/id").and_then(Value::as_str)
+                        == Some(message_id.as_str())
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(message_events.len(), 1);
+        assert_eq!(
+            message_events[0].data["message"]["blocks"][0]["question_id"],
+            question_id
+        );
+
+        let message_count_before_repeat = messages.len();
+        let event_count_before_repeat = events.len();
+        backend
+            .repair_pending_execution_question_messages()
+            .unwrap();
+        backend.repair_persisted_message_events().unwrap();
+        assert_eq!(
+            backend
+                .store
+                .read_jsonl::<Value>("data/chats/chat_main/messages.jsonl")
+                .unwrap()
+                .len(),
+            message_count_before_repeat
+        );
+        assert_eq!(
+            backend.store.events_since(0).unwrap().len(),
+            event_count_before_repeat
+        );
+        assert_eq!(
+            backend
+                .store
+                .events_since(0)
+                .unwrap()
+                .iter()
+                .filter(|event| event.event == "question.asked")
+                .count(),
+            question_asked_before_restart
+        );
+        assert_eq!(
+            backend.durable.lock().await.job(&job_id).unwrap().status,
+            macbot_durable::JobStatus::Waiting
+        );
     }
 
     #[tokio::test]

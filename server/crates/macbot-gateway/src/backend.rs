@@ -7211,10 +7211,10 @@ impl OrchestratorSink {
             .ok_or_else(|| "chat message sequencing returned no message".into())
     }
 
-    async fn persist_execution_question(&self, message: &Value, block: &Value) {
+    async fn persist_execution_question(&self, message: &Value, block: &Value) -> Option<Value> {
         let Some(call_id) = block.get("question_id").and_then(Value::as_str) else {
             tracing::error!("execution emitted question block without question_id");
-            return;
+            return None;
         };
         let bot_id = message
             .pointer("/sender/bot_id")
@@ -7225,6 +7225,12 @@ impl OrchestratorSink {
             .and_then(Value::as_str)
             .unwrap_or("chat_main");
         let assignment_id = message.get("assignment_id").cloned().unwrap_or(Value::Null);
+        let run_id = message
+            .get("id")
+            .and_then(Value::as_str)
+            .and_then(|id| id.strip_prefix("msg_question_"))
+            .map(str::to_owned)
+            .unwrap_or_else(|| call_id.to_owned());
         let result = self
             .backend
             .persist_execution_question(
@@ -7236,39 +7242,37 @@ impl OrchestratorSink {
                     "text": message.get("fallback_text").and_then(Value::as_str).unwrap_or("需要你的回答"),
                     "options": [],
                     "allow_free_text": true,
-                    "client_request_id": format!("execution:question:{call_id}")
+                    "client_request_id": format!("execution:question:{run_id}:{call_id}")
                 }),
             )
             .await;
         let Ok(result) = result else {
             tracing::error!(call_id, "failed to persist execution question");
-            return;
+            return None;
         };
         let Some(question) = result.get("question") else {
             tracing::error!(call_id, "execution question RPC returned no question");
-            return;
+            return None;
         };
         let Some(question_id) = question.get("id").and_then(Value::as_str) else {
             tracing::error!(call_id, "execution question has no id");
-            return;
+            return None;
         };
-        let run_id = message
-            .get("id")
-            .and_then(Value::as_str)
-            .and_then(|id| id.strip_prefix("msg_question_"))
-            .map(str::to_owned)
-            .unwrap_or_else(|| call_id.to_owned());
-        let _ = self.store.write_snapshot(
+        if let Err(error) = self.store.write_snapshot(
             format!("data/waiting/{}.json", safe_component(question_id)),
             &json!({
                 "kind": "question",
                 "run_id": run_id,
-                "assignment_id": message.get("assignment_id").cloned().unwrap_or(Value::Null),
+                "assignment_id": assignment_id,
                 "chat_id": chat_id,
-                "question_id": call_id,
+                "question_id": question_id,
+                "call_id": call_id,
                 "text": message.get("fallback_text").cloned().unwrap_or(Value::Null)
             }),
-        );
+        ) {
+            tracing::error!(%error, call_id, question_id, "failed to persist canonical execution question marker");
+            return None;
+        }
         let mut updated_message = message.clone();
         if let Some(question_block) = updated_message
             .get_mut("blocks")
@@ -7285,7 +7289,7 @@ impl OrchestratorSink {
             Ok(message) => message,
             Err(error) => {
                 tracing::error!(%error, chat_id, "failed to sequence question card update");
-                return;
+                return None;
             }
         };
         if let Err(error) = self.store.append_jsonl(
@@ -7293,14 +7297,9 @@ impl OrchestratorSink {
             &updated_message,
         ) {
             tracing::error!(%error, chat_id, "failed to persist question card update");
+            return None;
         }
-        self.inner
-            .emit(ExecutionEvent {
-                event: "message.updated".into(),
-                data: json!({"message": updated_message}),
-                persistent: true,
-            })
-            .await;
+        Some(updated_message)
     }
 
     async fn persist_execution_takeover(&self, message: &Value, block: &Value) {
@@ -7481,7 +7480,7 @@ pub(crate) fn takeover_message_scope_matches(
 
 #[async_trait]
 impl ExecutionSink for OrchestratorSink {
-    async fn emit(&self, event: ExecutionEvent) {
+    async fn emit(&self, mut event: ExecutionEvent) {
         let refresh_status = is_run_status_boundary(&event);
         if event.event == "message.updated" {
             if let Some(message) = event.data.get("message") {
@@ -7516,7 +7515,15 @@ impl ExecutionSink for OrchestratorSink {
                             })
                         })
                 {
-                    self.persist_execution_question(message, block).await;
+                    let Some(message) = self.persist_execution_question(message, block).await
+                    else {
+                        // Never expose the executor call id as a public
+                        // question_id. If persistence stops after the durable
+                        // waiting marker is written, startup repair can
+                        // reconstruct the card from its exact run/job mapping.
+                        return;
+                    };
+                    event.data = json!({"message":message});
                 } else if let Some(block) = message
                     .get("blocks")
                     .and_then(Value::as_array)
@@ -8780,11 +8787,12 @@ mod model_resolution_tests {
 #[cfg(test)]
 mod persistence_tests {
     use super::{
-        host_default_locale, idle_bot_memory_targets, ComposedBackend, ExecutionEvent,
-        ExecutionRequest, FeatureRunContext, FeatureToolRuntime, ProductionBackend,
+        host_default_locale, idle_bot_memory_targets, BashJobManager, ComposedBackend,
+        ExecutionEvent, ExecutionRequest, ExecutionState, FeatureRunContext, FeatureToolRuntime,
+        GatewayStateSink, OrchestratorGroupBridge, OrchestratorSink, ProductionBackend,
         ProjectFindToolBridge, RuntimeExecution,
     };
-    use crate::execution::ExecutionSink;
+    use crate::execution::{ExecutionEngine, ExecutionSink};
     use crate::features::FeatureService;
     use crate::{Gateway, GatewayConfig, RpcBackend};
     use async_trait::async_trait;
@@ -8792,12 +8800,13 @@ mod persistence_tests {
         AsyncMaintenanceProvider, MemoryAction, MemoryError, MemoryKind, MemoryRequest,
         MemorySource, MemoryTarget, ProjectRecord,
     };
+    use macbot_providers::{Completion, MockProvider, ToolCall};
     use macbot_tools::{Tool, ToolContext};
     use serde_json::{json, Value};
     use std::fs;
     use std::path::PathBuf;
     use std::sync::atomic::Ordering;
-    use std::sync::Arc;
+    use std::sync::{Arc, Mutex as StdMutex};
     use tempfile::tempdir;
     use tokio::sync::Notify;
 
@@ -8902,6 +8911,393 @@ mod persistence_tests {
             assignments.push(value["id"].as_str().unwrap().to_owned());
         }
         (backend, gateway.state, assignments)
+    }
+
+    #[tokio::test]
+    async fn terminal_private_send_msg_reuses_and_closes_streaming_placeholder() {
+        for is_main in [true, false] {
+            for intent in ["done", "blocked"] {
+                let home = tempdir().unwrap();
+                let gateway = Gateway::new(GatewayConfig {
+                    home: home.path().to_path_buf(),
+                    ..Default::default()
+                });
+                let backend = Arc::new(ProductionBackend::open(home.path()).unwrap());
+                let (bot_id, chat_id) = if is_main {
+                    ("main".to_owned(), "chat_main".to_owned())
+                } else {
+                    let created = backend
+                        .call(
+                            "bot.create",
+                            json!({"name":"Private worker"}),
+                            &gateway.state,
+                        )
+                        .await
+                        .unwrap();
+                    (
+                        created["bot"]["id"].as_str().unwrap().to_owned(),
+                        created["bot"]["dm_chat_id"].as_str().unwrap().to_owned(),
+                    )
+                };
+                let run_id = if is_main {
+                    if intent == "done" {
+                        "run_terminal_main_done"
+                    } else {
+                        "run_terminal_main_blocked"
+                    }
+                } else {
+                    if intent == "done" {
+                        "run_terminal_worker_done"
+                    } else {
+                        "run_terminal_worker_blocked"
+                    }
+                };
+                let message_id = format!("msg_{run_id}");
+                let bridge = Arc::new(OrchestratorGroupBridge {
+                    backend: backend.clone(),
+                    state: gateway.state.clone(),
+                    jobs: BashJobManager::default(),
+                });
+                let transport_sink = Arc::new(GatewayStateSink::new(
+                    gateway.state.clone(),
+                    backend.store.clone(),
+                    bridge,
+                ));
+                let sink: Arc<dyn ExecutionSink> = Arc::new(OrchestratorSink {
+                    inner: transport_sink,
+                    orchestrator: backend.orchestrator.clone(),
+                    store: backend.store.clone(),
+                    backend: backend.clone(),
+                    state: gateway.state.clone(),
+                });
+                let execution_state =
+                    ExecutionState::with_durable(backend.store.clone(), backend.durable.clone());
+                let engine = ExecutionEngine::new_with_usage_and_state(
+                    backend.store.clone(),
+                    Arc::new(MockProvider::new(vec![Completion {
+                        tool_calls: vec![ToolCall {
+                            call_id: "terminal_report".into(),
+                            name: "send_msg".into(),
+                            args: json!({
+                                "intent":intent,
+                                "text":"任务已完成",
+                                "message_id":"msg_model_selected_a_different_id"
+                            }),
+                        }],
+                        stop_reason: "tool_calls".into(),
+                        ..Default::default()
+                    }])),
+                    Vec::<Arc<dyn Tool>>::new(),
+                    sink,
+                    home.path(),
+                    backend.usage.clone(),
+                    execution_state,
+                )
+                .unwrap();
+                let request: ExecutionRequest = serde_json::from_value(json!({
+                    "run_id":run_id,
+                    "assignment_id":null,
+                    "chat_id":chat_id,
+                    "bot_id":bot_id,
+                    "model":"mock/model",
+                    "instruction":"finish this private conversation",
+                    "private":true
+                }))
+                .unwrap();
+
+                let outcome = engine.run(request).await.unwrap();
+                assert_eq!(
+                    outcome.status,
+                    if intent == "done" {
+                        "done"
+                    } else {
+                        "suspended"
+                    }
+                );
+
+                let messages = backend
+                    .store
+                    .read_jsonl::<Value>(format!("data/chats/{chat_id}/messages.jsonl"))
+                    .unwrap();
+                let versions = messages
+                    .iter()
+                    .filter(|message| message["id"] == message_id)
+                    .collect::<Vec<_>>();
+                assert_eq!(
+                    versions.len(),
+                    2,
+                    "placeholder and one terminal version: {versions:?}"
+                );
+                let placeholder = versions.first().unwrap();
+                let final_message = versions.last().unwrap();
+                for field in ["id", "chat_id", "sender", "created_at", "seq"] {
+                    assert_eq!(
+                        final_message[field], placeholder[field],
+                        "terminal replacement preserves placeholder {field}"
+                    );
+                }
+                assert_eq!(final_message["streaming"], false);
+                assert_eq!(final_message["fallback_text"], "任务已完成");
+
+                let events = backend.store.events_since(0).unwrap();
+                let message_events = events
+                    .iter()
+                    .filter(|event| {
+                        event.data.pointer("/message/id").and_then(Value::as_str)
+                            == Some(message_id.as_str())
+                    })
+                    .collect::<Vec<_>>();
+                assert_eq!(
+                    message_events
+                        .iter()
+                        .filter(|event| event.event == "message.created")
+                        .count(),
+                    1,
+                    "only the initial placeholder is created"
+                );
+                let updates = message_events
+                    .iter()
+                    .filter(|event| event.event == "message.updated")
+                    .collect::<Vec<_>>();
+                assert_eq!(
+                    updates.len(),
+                    1,
+                    "terminal send_msg updates the placeholder"
+                );
+                assert_eq!(updates[0].data["message"]["streaming"], false);
+
+                let updated_seq = updates[0].seq;
+                let terminal_trace_type = if intent == "done" {
+                    "run.end"
+                } else {
+                    "run.wait"
+                };
+                let terminal_seq = events
+                    .iter()
+                    .find(|event| {
+                        event.event == "trace.item"
+                            && event.data.pointer("/item/type").and_then(Value::as_str)
+                                == Some(terminal_trace_type)
+                            && event.data.pointer("/item/run_id").and_then(Value::as_str)
+                                == Some(run_id)
+                    })
+                    .expect("terminal trace")
+                    .seq;
+                assert!(
+                    updated_seq < terminal_seq,
+                    "message update precedes {terminal_trace_type}"
+                );
+
+                let history = backend
+                    .call("chat.history", json!({"chat_id":chat_id}), &gateway.state)
+                    .await
+                    .unwrap();
+                assert_eq!(history["messages"].as_array().unwrap().len(), 1);
+                assert_eq!(history["messages"][0]["id"], message_id);
+                assert_eq!(history["messages"][0]["streaming"], false);
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn executor_question_publishes_only_canonical_card_and_resumes_after_answer() {
+        let home = tempdir().unwrap();
+        let gateway = Gateway::new(GatewayConfig {
+            home: home.path().to_path_buf(),
+            ..Default::default()
+        });
+        let backend = Arc::new(ProductionBackend::open(home.path()).unwrap());
+        let requests = Arc::new(StdMutex::new(Vec::<Value>::new()));
+        let observed_requests = requests.clone();
+        let app = axum::Router::new().route(
+            "/v1/chat/completions",
+            axum::routing::post(move |axum::Json(body): axum::Json<Value>| {
+                let requests = observed_requests.clone();
+                async move {
+                    requests.lock().unwrap().push(body);
+                    (
+                        [("content-type", "text/event-stream")],
+                        "data: {\"choices\":[{\"delta\":{\"content\":\"已从 question.answer 恢复\"},\"finish_reason\":null}]}\n\ndata: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":1,\"completion_tokens\":1}}\n\ndata: [DONE]\n\n",
+                    )
+                }
+            }),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let provider_server = tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+        let provider = backend
+            .call(
+                "provider.create",
+                json!({
+                    "name":"question resume test provider",
+                    "api_kind":"openai-completions",
+                    "base_url":format!("http://{address}/v1"),
+                    "client_request_id":"question-resume-provider"
+                }),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        let provider_id = provider["provider"]["id"].as_str().unwrap().to_owned();
+        let model = backend
+            .call(
+                "model.upsert",
+                json!({
+                    "provider_id":provider_id,
+                    "model_id":"question-resume-model",
+                    "client_request_id":"question-resume-model"
+                }),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        let model_ref = model["model"]["ref"].as_str().unwrap().to_owned();
+        let run_id = "run_executor_question_canonical";
+        let call_id = "executor_call_question_1";
+        let message_id = format!("msg_question_{run_id}");
+        let chat_id = "chat_main";
+        let sink = {
+            let bridge = Arc::new(OrchestratorGroupBridge {
+                backend: backend.clone(),
+                state: gateway.state.clone(),
+                jobs: BashJobManager::default(),
+            });
+            let transport = Arc::new(GatewayStateSink::new(
+                gateway.state.clone(),
+                backend.store.clone(),
+                bridge,
+            ));
+            Arc::new(OrchestratorSink {
+                inner: transport,
+                orchestrator: backend.orchestrator.clone(),
+                store: backend.store.clone(),
+                backend: backend.clone(),
+                state: gateway.state.clone(),
+            }) as Arc<dyn ExecutionSink>
+        };
+        let execution_state =
+            ExecutionState::with_durable(backend.store.clone(), backend.durable.clone());
+        let engine = ExecutionEngine::new_with_usage_and_state(
+            backend.store.clone(),
+            Arc::new(MockProvider::new(vec![Completion {
+                tool_calls: vec![ToolCall {
+                    call_id: call_id.into(),
+                    name: "ask_user".into(),
+                    args: json!({"question":"选哪个环境？"}),
+                }],
+                stop_reason: "tool_calls".into(),
+                ..Default::default()
+            }])),
+            Vec::<Arc<dyn Tool>>::new(),
+            sink,
+            home.path(),
+            backend.usage.clone(),
+            execution_state,
+        )
+        .unwrap();
+        let request: ExecutionRequest = serde_json::from_value(json!({
+            "run_id":run_id,
+            "assignment_id":null,
+            "chat_id":chat_id,
+            "bot_id":"main",
+            "provider_id":provider_id,
+            "model":model_ref,
+            "instruction":"需要用户选择",
+            "private":true
+        }))
+        .unwrap();
+        backend
+            .store
+            .write_snapshot(format!("data/run_requests/{run_id}.json"), &request)
+            .unwrap();
+
+        let suspended = engine.run(request.clone()).await.unwrap();
+        assert_eq!(suspended.status, "suspended");
+        let events = backend.store.events_since(0).unwrap();
+        let question = events
+            .iter()
+            .find(|event| event.event == "question.asked")
+            .expect("canonical question event")
+            .data["question"]
+            .clone();
+        let question_id = question["id"].as_str().unwrap();
+        assert_ne!(question_id, call_id);
+        let message_events = events
+            .iter()
+            .filter(|event| {
+                matches!(event.event.as_str(), "message.created" | "message.updated")
+                    && event.data.pointer("/message/id").and_then(Value::as_str)
+                        == Some(message_id.as_str())
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(message_events.len(), 1, "no stale follow-up created/update");
+        assert_eq!(message_events[0].event, "message.created");
+        assert_eq!(
+            message_events[0].data["message"]["blocks"][0]["question_id"],
+            question_id
+        );
+        let asked_seq = events
+            .iter()
+            .find(|event| event.event == "question.asked")
+            .unwrap()
+            .seq;
+        assert!(asked_seq < message_events[0].seq);
+
+        let marker = backend
+            .store
+            .read_snapshot::<Value>(format!("data/waiting/{question_id}.json"))
+            .unwrap()
+            .unwrap();
+        assert_eq!(marker["question_id"], question_id);
+        assert_eq!(marker["call_id"], call_id);
+        let history = backend
+            .call("chat.history", json!({"chat_id":chat_id}), &gateway.state)
+            .await
+            .unwrap();
+        let history_card = history["messages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|message| message["id"] == message_id)
+            .unwrap();
+        assert_eq!(history_card["blocks"][0]["question_id"], question_id);
+
+        let composed = ComposedBackend::open(
+            backend.clone(),
+            gateway.state.clone(),
+            home.path().to_path_buf(),
+        )
+        .unwrap();
+        wait_for_startup_recovery(&composed).await;
+        let answered = composed
+            .call(
+                "question.answer",
+                json!({"question_id":question_id,"text":"生产环境"}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        assert_eq!(answered["question"]["id"], question_id);
+        assert_eq!(answered["question"]["state"], "answered");
+        wait_for_job_status(&backend, &suspended.job_id, macbot_durable::JobStatus::Done).await;
+        let provider_requests = requests.lock().unwrap();
+        assert_eq!(
+            provider_requests.len(),
+            1,
+            "answer should resume the model turn"
+        );
+        assert!(provider_requests[0].to_string().contains("生产环境"));
+        let resumed_job = backend
+            .durable
+            .lock()
+            .await
+            .job(&suspended.job_id)
+            .unwrap()
+            .clone();
+        assert_eq!(resumed_job.checkpoint["text"], "已从 question.answer 恢复");
+        provider_server.abort();
     }
 
     #[tokio::test]

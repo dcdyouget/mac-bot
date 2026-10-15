@@ -1723,29 +1723,13 @@ impl ExecutionEngine {
                             continue;
                         }
                         let chat_id = request.chat_id.clone();
-                        let message_id = call.args["message_id"]
-                            .as_str()
-                            .map(str::to_owned)
-                            .unwrap_or_else(|| {
-                                if matches!(intent, "done" | "blocked")
-                                    && request.private
-                                    && request.assignment_id.is_none()
-                                {
-                                    streaming_message_id.clone().unwrap_or_else(|| {
-                                        format!(
-                                            "msg_{}_{}",
-                                            safe_id(&request.run_id),
-                                            safe_id(&call.call_id)
-                                        )
-                                    })
-                                } else {
-                                    format!(
-                                        "msg_{}_{}",
-                                        safe_id(&request.run_id),
-                                        safe_id(&call.call_id)
-                                    )
-                                }
-                            });
+                        let message_id = send_msg_message_id(
+                            &request,
+                            &call.call_id,
+                            intent,
+                            call.args.get("message_id").and_then(Value::as_str),
+                            streaming_message_id.as_deref(),
+                        );
                         let mut payload = call.args.clone();
                         if let Some(object) = payload.as_object_mut() {
                             object.insert("message_id".into(), json!(message_id.clone()));
@@ -1757,6 +1741,10 @@ impl ExecutionEngine {
                                 json!(request.assignment_id.clone()),
                             );
                             object.insert("intent".into(), json!(intent));
+                            object.insert(
+                                "_replace_streaming_placeholder".into(),
+                                json!(reuses_private_streaming_placeholder(&request, intent)),
+                            );
                         }
                         ensure_group_message_recipients(&mut payload, &request, intent);
                         if let Err(error) = self.sink.validate_send_msg_target(&payload).await {
@@ -2494,29 +2482,13 @@ impl ExecutionEngine {
                     continue;
                 }
                 let chat_id = request.chat_id.clone();
-                let message_id = call.args["message_id"]
-                    .as_str()
-                    .map(str::to_owned)
-                    .unwrap_or_else(|| {
-                        if matches!(intent, "done" | "blocked")
-                            && request.private
-                            && request.assignment_id.is_none()
-                        {
-                            streaming_message_id.map(str::to_owned).unwrap_or_else(|| {
-                                format!(
-                                    "msg_{}_{}",
-                                    safe_id(&request.run_id),
-                                    safe_id(&call.call_id)
-                                )
-                            })
-                        } else {
-                            format!(
-                                "msg_{}_{}",
-                                safe_id(&request.run_id),
-                                safe_id(&call.call_id)
-                            )
-                        }
-                    });
+                let message_id = send_msg_message_id(
+                    request,
+                    &call.call_id,
+                    intent,
+                    call.args.get("message_id").and_then(Value::as_str),
+                    streaming_message_id,
+                );
                 let mut payload = call.args.clone();
                 if let Some(object) = payload.as_object_mut() {
                     object.insert("message_id".into(), json!(message_id.clone()));
@@ -2525,6 +2497,10 @@ impl ExecutionEngine {
                     object.insert("bot_id".into(), json!(request.bot_id.clone()));
                     object.insert("assignment_id".into(), json!(request.assignment_id.clone()));
                     object.insert("intent".into(), json!(intent));
+                    object.insert(
+                        "_replace_streaming_placeholder".into(),
+                        json!(reuses_private_streaming_placeholder(request, intent)),
+                    );
                 }
                 ensure_group_message_recipients(&mut payload, request, intent);
                 if let Err(error) = self.sink.validate_send_msg_target(&payload).await {
@@ -3050,36 +3026,32 @@ impl ExecutionEngine {
         question: &str,
     ) -> Result<(), ExecutionError> {
         let message_id = format!("msg_question_{}", safe_id(&request.run_id));
-        let path = format!("data/chats/{}/messages.jsonl", safe_id(&request.chat_id));
-        let message = self.canonical_chat_message(
-            &request.chat_id,
-            json!({
-                "id": message_id,
-                "chat_id": request.chat_id,
-                "sender": {"kind":"bot","bot_id":request.bot_id},
-                "created_at": now_rfc3339(),
-                "edited_at": null,
-                "deleted": false,
-                "reply_to": null,
-                "thread_count": 0,
-                "mentions": if request.project_id.is_some() && request.assignment_id.is_some() { json!([{"kind":"user"}]) } else { json!([]) },
-                "blocks": [{"type":"question","question_id":question_id}],
-                "fallback_text": question,
-                "intent": null,
-                "assignment_id": request.assignment_id,
-                "streaming": false,
-                "delivery": [],
-                "reactions": []
-            }),
-        )?;
-        self.store.append_jsonl(&path, &message)?;
-        // `ask_user` is an executor-level question, not an orchestrator
-        // question. Persist the call id so question.answer can resume it even
-        // when assignment_id is absent (private chat) or after a restart.
-        self.store.write_snapshot(
-            format!("data/waiting/{}.json", safe_id(question_id)),
-            &json!({"kind":"question","run_id":request.run_id,"assignment_id":request.assignment_id,"chat_id":request.chat_id,"question_id":question_id,"text":question}),
-        )?;
+        // Do not persist the executor call id as a client-facing Question id.
+        // The gateway sink creates the canonical Question first, then assigns
+        // the chat sequence and persists/publishes the canonical message.
+        let message = json!({
+            "id": message_id,
+            "chat_id": request.chat_id,
+            "seq": 0,
+            "sender": {"kind":"bot","bot_id":request.bot_id},
+            "created_at": now_rfc3339(),
+            "edited_at": null,
+            "deleted": false,
+            "reply_to": null,
+            "thread_count": 0,
+            "mentions": if request.project_id.is_some() && request.assignment_id.is_some() { json!([{"kind":"user"}]) } else { json!([]) },
+            "blocks": [{"type":"question","question_id":question_id}],
+            "fallback_text": question,
+            "intent": null,
+            "assignment_id": request.assignment_id,
+            "streaming": false,
+            "delivery": [],
+            "reactions": []
+        });
+        // The gateway sink creates the public Question and writes the waiting
+        // marker under that canonical Question UUID.  This layer only knows
+        // the executor call id, so persisting a marker here would make the
+        // marker's question_id ambiguous to clients and recovery code.
         self.sink
             .emit(ExecutionEvent {
                 event: "message.created".into(),
@@ -3754,6 +3726,27 @@ fn send_msg_intent(args: &Value) -> Result<&str, String> {
     } else {
         Err("send_msg.intent must be one of ack, progress, decision, done, blocked".into())
     }
+}
+
+fn reuses_private_streaming_placeholder(request: &ExecutionRequest, intent: &str) -> bool {
+    request.private && request.assignment_id.is_none() && matches!(intent, "done" | "blocked")
+}
+
+fn send_msg_message_id(
+    request: &ExecutionRequest,
+    call_id: &str,
+    intent: &str,
+    requested_message_id: Option<&str>,
+    streaming_message_id: Option<&str>,
+) -> String {
+    if reuses_private_streaming_placeholder(request, intent) {
+        if let Some(message_id) = streaming_message_id {
+            return message_id.to_owned();
+        }
+    }
+    requested_message_id
+        .map(str::to_owned)
+        .unwrap_or_else(|| format!("msg_{}_{}", safe_id(&request.run_id), safe_id(call_id)))
 }
 
 fn ensure_group_message_recipients(payload: &mut Value, request: &ExecutionRequest, intent: &str) {
@@ -5164,6 +5157,11 @@ mod tests {
             schema.pointer("/function/parameters/properties/chat_id"),
             None,
             "model calls must not select a send chat"
+        );
+        assert_eq!(
+            schema.pointer("/function/parameters/properties/message_id/type"),
+            Some(&json!("string")),
+            "explicit message ids remain supported outside private terminal sends"
         );
         assert!(schema
             .pointer("/function/parameters/properties/to/description")
