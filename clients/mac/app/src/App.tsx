@@ -28,6 +28,7 @@ import { CONTEXT_PANEL_TRANSITION_MS, contextPanelWindowAction, transitionContex
 import { CLOSED_CONTEXT_PANEL_WINDOW, planContextPanelWindow, type ContextPanelWindowState, type SavedWindowFrame } from './components/contextPanelWindow.model'
 import { isLatestLocalPreferenceSave, mergeLocalPreferences, rollbackLocalPreferencePatch } from './components/localPreferences.model'
 import { captureChatScrollPosition, restoreChatScrollTop, type ChatScrollPosition } from './components/chatScrollPosition.model'
+import { chatHistoryResponseIsComplete, messageHasResolvedQuestion, questionAnswerRequestParams, questionBlockResolutionKey, questionFallbackAllowed, questionFreeTextEntryMode, resolveQuestionBlocksForMessages, submitQuestionAnswerSafely, type QuestionBlockResolutionMap } from './components/questionBlockResolution.model'
 import { taskCardAvatarOwnerBotId } from './components/pendingChatActions.model'
 import { DEFAULT_HOST_ENDPOINT, resolveHostStartup } from './components/hostStartup.model.mjs'
 import { isMessageVisibleInChat, mainBotIdForChat, mainChatMessageOwnershipIssue } from './components/chatMessageVisibility.model'
@@ -165,6 +166,8 @@ function App() {
   const [groupSettingsError, setGroupSettingsError] = useState<string | null>(null)
   const [selectedAssignment, setSelectedAssignment] = useState<string | null>(null)
   const [historyByChat, setHistoryByChat] = useState<Record<string, Message[]>>({})
+  const [historyCompletenessByChat, setHistoryCompletenessByChat] = useState<Record<string, boolean>>({})
+  const [questionListSucceededByChat, setQuestionListSucceededByChat] = useState<Record<string, boolean>>({})
   const [historyQuestions, setHistoryQuestions] = useState<Record<string, BridgeState['questions']>>({})
   const [historyApprovals, setHistoryApprovals] = useState<Record<string, BridgeState['approvals']>>({})
   const [showConnect, setShowConnect] = useState(true)
@@ -1267,13 +1270,20 @@ function App() {
 
   useEffect(() => {
     const chatId = currentChat?.id
-    if (!chatId || state.connection !== 'connected') return
-    let active = true
+    if (!chatId) return
     const scope = hostScope
     const cacheKey = historyCacheKey(scope, chatId)
+    if (state.connection !== 'connected') {
+      setHistoryCompletenessByChat((current) => ({ ...current, [cacheKey]: false }))
+      setQuestionListSucceededByChat((current) => ({ ...current, [cacheKey]: false }))
+      return
+    }
+    let active = true
+    setHistoryCompletenessByChat((current) => current[cacheKey] === true ? current : { ...current, [cacheKey]: false })
+    setQuestionListSucceededByChat((current) => ({ ...current, [cacheKey]: false }))
     setHistoryLoadingChat(chatId)
     void Promise.allSettled([
-      invoke<{ messages?: Message[] }>('protocol_request', {
+      invoke<{ messages?: Message[]; has_more?: boolean }>('protocol_request', {
         method: 'chat.history', params: { chat_id: chatId, limit: 50 },
       }),
       invoke<{ questions?: Question[] }>('protocol_request', {
@@ -1289,6 +1299,11 @@ function App() {
       const approvalList = approvalResult.status === 'fulfilled' ? approvalResult.value.approvals ?? [] : []
       const loadError = [historyResult, questionResult, approvalResult].find((result) => result.status === 'rejected')
       if (history) setHistoryByChat((current) => ({ ...current, [cacheKey]: mergeMessages(current[cacheKey] ?? [], history.messages ?? []) }))
+      setHistoryCompletenessByChat((current) => ({
+        ...current,
+        [cacheKey]: historyResult.status === 'fulfilled' && (chatHistoryResponseIsComplete(history) || current[cacheKey] === true),
+      }))
+      setQuestionListSucceededByChat((current) => ({ ...current, [cacheKey]: questionResult.status === 'fulfilled' }))
       setHistoryQuestions((current) => ({ ...current, [scope]: { ...current[scope], ...Object.fromEntries(questionList.map((question) => [question.id, question])) } }))
       setHistoryApprovals((current) => ({ ...current, [scope]: { ...current[scope], ...Object.fromEntries(approvalList.filter((approval) => approval.id).map((approval) => [String(approval.id), approval])) } }))
       setState((current) => {
@@ -1346,6 +1361,16 @@ function App() {
     return { label: t('sidebar.approval_line').replace('{summary}', summary), count: approvals.length }
   }
   const currentQuestions = useMemo(() => ({ ...state.questions, ...historyQuestions[hostScope] }), [state.questions, historyQuestions, hostScope])
+  const currentHistoryComplete = state.connection === 'connected' && currentChat?.id
+    ? questionFallbackAllowed(
+      historyCompletenessByChat[historyCacheKey(hostScope, currentChat.id)] === true,
+      questionListSucceededByChat[historyCacheKey(hostScope, currentChat.id)] === true,
+    )
+    : false
+  const currentQuestionResolutions = useMemo(
+    () => resolveQuestionBlocksForMessages(currentDisplayMessages, currentChat?.id ?? '', currentQuestions, { historyComplete: currentHistoryComplete }),
+    [currentDisplayMessages, currentChat?.id, currentQuestions, currentHistoryComplete],
+  )
   const scopedHistoryApprovals = historyApprovals[hostScope]
   const currentApprovalRecords = useMemo(() => ({ ...state.approvals, ...scopedHistoryApprovals }), [state.approvals, scopedHistoryApprovals])
   const currentProjectId = typeof currentChat?.project_id === 'string' ? currentChat.project_id : null
@@ -1430,6 +1455,11 @@ function App() {
 
   function selectChat(chatId: string) {
     pendingChatScrollRestoreRef.current = null
+    if (chatId !== selectedChat) {
+      const cacheKey = historyCacheKey(hostScope, chatId)
+      setHistoryCompletenessByChat((current) => ({ ...current, [cacheKey]: false }))
+      setQuestionListSucceededByChat((current) => ({ ...current, [cacheKey]: false }))
+    }
     setSelectedChat(chatId)
     setSidebarOverlayOpen(false)
     setActivePage('chat')
@@ -1451,23 +1481,49 @@ function App() {
   }
 
   async function openPendingDecision(decision: PendingDecision) {
+    if (decision.kind === 'question') {
+      await openDecisionMessage(decision.chatId, () => false, decision.id)
+      return
+    }
     const matches = decision.kind === 'approval'
       ? (message: Message) => message.blocks?.some((block) => block.type === 'approval' && block.approval_id === decision.id) === true
-      : decision.kind === 'question'
-        ? (message: Message) => message.blocks?.some((block) => block.type === 'question' && block.question_id === decision.id) === true
-        : (message: Message) => message.blocks?.some((block) => block.type === 'review_card' && block.project_id === decision.projectId) === true
+      : (message: Message) => message.blocks?.some((block) => block.type === 'review_card' && block.project_id === decision.projectId) === true
     await openDecisionMessage(decision.chatId, matches)
   }
 
-  async function openDecisionMessage(chatId: string, matches: (message: Message) => boolean) {
+  async function openDecisionMessage(chatId: string, matches: (message: Message) => boolean, targetQuestionId?: string) {
     if (!chatId) return
     const scope = hostScope
     if (hostScopeRef.current !== scope) return
+    const cacheKey = historyCacheKey(scope, chatId)
+    let questionListSucceeded = false
+    let navigationQuestions = currentQuestions
+    if (targetQuestionId) {
+      setHistoryCompletenessByChat((current) => ({ ...current, [cacheKey]: false }))
+      setQuestionListSucceededByChat((current) => ({ ...current, [cacheKey]: false }))
+    }
     try {
+      if (targetQuestionId) {
+        try {
+          const result = await invoke<{ questions?: Question[] }>('protocol_request', {
+            method: 'question.list', params: { chat_id: chatId },
+          })
+          if (hostScopeRef.current !== scope) return
+          const questionRecords = Object.fromEntries((result.questions ?? []).map((question) => [question.id, question]))
+          navigationQuestions = { ...currentQuestions, ...questionRecords }
+          questionListSucceeded = true
+          setHistoryQuestions((current) => ({ ...current, [scope]: { ...current[scope], ...questionRecords } }))
+          setQuestionListSucceededByChat((current) => ({ ...current, [cacheKey]: true }))
+        } catch (error) {
+          if (hostScopeRef.current === scope) setState((current) => ({ ...current, error: String(error) }))
+        }
+      }
       const messages: Message[] = []
       let beforeSeq: number | undefined
       let target: Message | undefined
-      for (let page = 0; page < 20; page += 1) {
+      let hasMore = true
+      let questionHistoryComplete = true
+      while (hasMore) {
         const history = await invoke<{ messages?: Message[]; has_more?: boolean }>('protocol_request', {
           method: 'chat.history',
           params: { chat_id: chatId, limit: 100, ...(beforeSeq ? { before_seq: beforeSeq } : {}) },
@@ -1475,19 +1531,51 @@ function App() {
         if (hostScopeRef.current !== scope) return
         const pageMessages = history.messages ?? []
         messages.unshift(...pageMessages)
-        target = messages.find(matches)
-        if (target || !history.has_more || pageMessages.length === 0) break
+        hasMore = history.has_more === true && pageMessages.length > 0
+        if (targetQuestionId && typeof history.has_more !== 'boolean') questionHistoryComplete = false
+        if (targetQuestionId && history.has_more === true && pageMessages.length === 0) questionHistoryComplete = false
+        if (!targetQuestionId) {
+          target = messages.find(matches)
+          if (target) break
+        }
+        if (!hasMore) break
         const oldestSeq = Number((pageMessages[0] as Message & { seq?: number }).seq)
-        if (!Number.isFinite(oldestSeq) || oldestSeq <= 0 || oldestSeq === beforeSeq) break
+        if (!Number.isFinite(oldestSeq) || oldestSeq <= 0 || (beforeSeq !== undefined && oldestSeq >= beforeSeq)) {
+          if (targetQuestionId) questionHistoryComplete = false
+          break
+        }
         beforeSeq = oldestSeq
       }
       if (hostScopeRef.current !== scope) return
-      const cacheKey = historyCacheKey(scope, chatId)
+      const cachedMessages = historyByChat[cacheKey] ?? []
+      const pendingMessages = Object.values(state.pending_messages).filter((message) => message.chat_id === chatId)
+      const canonicalMessages = Object.values(state.messages).filter((message) => message.chat_id === chatId)
+      const mergedMessages = mergeMessages(cachedMessages, messages, pendingMessages, canonicalMessages)
       setHistoryByChat((current) => ({ ...current, [cacheKey]: mergeMessages(current[cacheKey] ?? [], messages) }))
+      if (targetQuestionId) {
+        const chat = chats.find((item) => item.id === chatId)
+        const displayMessages = chat?.kind === 'project' || chat?.project_id
+          ? mergedMessages.map((message) => groupProductMessage(message)).filter((message): message is Message => message !== null)
+          : mergedMessages
+        const resolutions = resolveQuestionBlocksForMessages(displayMessages, chatId, navigationQuestions, {
+          historyComplete: questionFallbackAllowed(questionHistoryComplete, questionListSucceeded),
+        })
+        target = displayMessages.find((message) => messageHasResolvedQuestion(message, targetQuestionId, resolutions))
+      }
       selectChatRef.current(chatId)
+      if (targetQuestionId) {
+        setHistoryCompletenessByChat((current) => ({ ...current, [cacheKey]: questionHistoryComplete }))
+        setQuestionListSucceededByChat((current) => ({ ...current, [cacheKey]: questionListSucceeded }))
+      }
       if (target) setDeepLinkScrollTarget({ hostScope: scope, chatId, messageId: target.id })
     } catch (error) {
-      if (hostScopeRef.current === scope) setState((current) => ({ ...current, error: String(error) }))
+      if (hostScopeRef.current === scope) {
+        if (targetQuestionId) {
+          setHistoryCompletenessByChat((current) => ({ ...current, [cacheKey]: false }))
+          setQuestionListSucceededByChat((current) => ({ ...current, [cacheKey]: false }))
+        }
+        setState((current) => ({ ...current, error: String(error) }))
+      }
     }
   }
 
@@ -2215,7 +2303,7 @@ function App() {
 
   async function answerQuestion(question: Question, answer: QuestionAnswer) {
     const answerScope = hostScope
-    const result = await invoke<{ question?: Question }>('protocol_request', { method: 'question.answer', params: { question_id: question.id, ...answer } })
+    const result = await invoke<{ question?: Question }>('protocol_request', { method: 'question.answer', params: questionAnswerRequestParams(question, answer) })
     if (result.question && hostScopeRef.current === answerScope) {
       setHistoryQuestions((current) => ({ ...current, [answerScope]: { ...current[answerScope], [result.question!.id]: result.question! } }))
       setState((current) => ({ ...current, questions: { ...current.questions, [result.question!.id]: result.question! } }))
@@ -3161,7 +3249,7 @@ function App() {
             else if (action === 'copy') { event.preventDefault(); void copyMessage(entry.message) }
           }} onContextMenu={(event) => { event.preventDefault(); event.stopPropagation(); if ((entry.message as Message & { deleted?: boolean }).deleted) return; setFocusedMessageId(entry.message.id); setMessageMenu({ message: entry.message, x: event.clientX, y: event.clientY }) }}>
             {entry.timeSeparator && <div className="time-separator">{entry.timeSeparator}</div>}
-          <MessageBubble message={entry.message} taskAvatarBotId={entry.taskAvatarBotId} skillNames={skillsDataScope === hostScope ? getRenderableSkillNames(skills) : []} pending={state.pending_messages[entry.message.id]?.chat_id === entry.message.chat_id && entry.groupEnd} senderName={entry.message.sender?.kind === 'user' ? t('common.user') : state.bots[entry.message.sender?.bot_id ?? '']?.name || (entry.message.sender?.bot_id === currentMainBotId ? mainBotName : t('common.bot'))} senderRole={entry.message.sender?.bot_id ? String(state.bots[entry.message.sender.bot_id]?.label ?? state.bots[entry.message.sender.bot_id]?.title ?? '') : ''} mainBotName={mainBotName} groupStart={entry.groupStart} groupEnd={entry.groupEnd} showAvatar={entry.showAvatar} headerTime={entry.headerTime} exactTime={entry.exactTime} questions={currentQuestions} approvals={currentApprovalRecords} assignments={state.assignments} projects={state.projects} bots={state.bots} chats={state.chats} chatTitle={chatTitle(currentChat)} onOpenProject={openProject} onOpenChat={selectChat} onOpenApproval={openApprovalInChat} onLoopResolve={async (rootMessageId, action) => { const scope = hostScope; if (hostScopeRef.current !== scope) return; await invoke('protocol_request', { method: 'loop.resolve', params: { root_message_id: rootMessageId, action } }); if (hostScopeRef.current !== scope) return }} onRetryAssignment={retryAssignment} onOpenBotSettings={openBotPanel} onTakeoverStart={(botId) => { setPendingTakeoverAction({ botId, action: 'start', hostScope }); openComputer(botId) }} onTakeoverRelease={(botId) => { setPendingTakeoverAction({ botId, action: 'release', hostScope }); openComputer(botId) }} onTaskDetail={openTrace} onReact={(message, emoji) => void reactToMessage(message, emoji)} onOpenComputer={openComputer} onReadMessageFile={readMessageFile} onPreviewArtifact={(artifact) => void openArtifactReference(artifact)} onConfirmProject={(projectId, messageId, blockIndex) => confirmProject(projectId, messageId, blockIndex)} onRequestChanges={(projectId, messageId, blockIndex, text) => requestProjectChanges(projectId, messageId, blockIndex, text)} onApprovalDecide={decideApproval} onQuestionAnswer={answerQuestion} />
+          <MessageBubble message={entry.message} questionResolutions={currentQuestionResolutions} taskAvatarBotId={entry.taskAvatarBotId} skillNames={skillsDataScope === hostScope ? getRenderableSkillNames(skills) : []} pending={state.pending_messages[entry.message.id]?.chat_id === entry.message.chat_id && entry.groupEnd} senderName={entry.message.sender?.kind === 'user' ? t('common.user') : state.bots[entry.message.sender?.bot_id ?? '']?.name || (entry.message.sender?.bot_id === currentMainBotId ? mainBotName : t('common.bot'))} senderRole={entry.message.sender?.bot_id ? String(state.bots[entry.message.sender.bot_id]?.label ?? state.bots[entry.message.sender.bot_id]?.title ?? '') : ''} mainBotName={mainBotName} groupStart={entry.groupStart} groupEnd={entry.groupEnd} showAvatar={entry.showAvatar} headerTime={entry.headerTime} exactTime={entry.exactTime} approvals={currentApprovalRecords} assignments={state.assignments} projects={state.projects} bots={state.bots} chats={state.chats} chatTitle={chatTitle(currentChat)} onOpenProject={openProject} onOpenChat={selectChat} onOpenApproval={openApprovalInChat} onLoopResolve={async (rootMessageId, action) => { const scope = hostScope; if (hostScopeRef.current !== scope) return; await invoke('protocol_request', { method: 'loop.resolve', params: { root_message_id: rootMessageId, action } }); if (hostScopeRef.current !== scope) return }} onRetryAssignment={retryAssignment} onOpenBotSettings={openBotPanel} onTakeoverStart={(botId) => { setPendingTakeoverAction({ botId, action: 'start', hostScope }); openComputer(botId) }} onTakeoverRelease={(botId) => { setPendingTakeoverAction({ botId, action: 'release', hostScope }); openComputer(botId) }} onTaskDetail={openTrace} onReact={(message, emoji) => void reactToMessage(message, emoji)} onOpenComputer={openComputer} onReadMessageFile={readMessageFile} onPreviewArtifact={(artifact) => void openArtifactReference(artifact)} onConfirmProject={(projectId, messageId, blockIndex) => confirmProject(projectId, messageId, blockIndex)} onRequestChanges={(projectId, messageId, blockIndex, text) => requestProjectChanges(projectId, messageId, blockIndex, text)} onApprovalDecide={decideApproval} onQuestionAnswer={answerQuestion} />
           </div>
           </Fragment>)}
           {currentChat.bot_id && (currentChat.kind === 'main' || currentChat.kind === 'bot_dm') && state.typing[`${currentChat.id}:${currentChat.bot_id}`] && !currentMessages.some((message) => message.sender?.bot_id === currentChat?.bot_id && message.streaming === true) && <div className="bot-typing-indicator" role="status" aria-label={t('chat.typing')}><span className="bot-typing-dots" aria-hidden="true"><i /><i /><i /></span><span>{t('chat.typing')}</span></div>}
@@ -3874,8 +3962,9 @@ function dateLabel(date: Date) {
   return date.toLocaleDateString('zh-CN', { year: date.getFullYear() === today.getFullYear() ? undefined : 'numeric', month: 'long', day: 'numeric' })
 }
 
-function MessageBubble({ message, taskAvatarBotId, skillNames, pending = false, senderName, senderRole, mainBotName, groupStart, groupEnd, showAvatar, headerTime, exactTime, questions, approvals, assignments, projects, bots, chats, chatTitle, onOpenProject, onOpenChat, onOpenApproval, onLoopResolve, onRetryAssignment, onOpenBotSettings, onTakeoverStart, onTakeoverRelease, onTaskDetail, onReact, onOpenComputer, onReadMessageFile, onPreviewArtifact, onConfirmProject, onRequestChanges, onApprovalDecide, onQuestionAnswer }: {
+function MessageBubble({ message, questionResolutions, taskAvatarBotId, skillNames, pending = false, senderName, senderRole, mainBotName, groupStart, groupEnd, showAvatar, headerTime, exactTime, approvals, assignments, projects, bots, chats, chatTitle, onOpenProject, onOpenChat, onOpenApproval, onLoopResolve, onRetryAssignment, onOpenBotSettings, onTakeoverStart, onTakeoverRelease, onTaskDetail, onReact, onOpenComputer, onReadMessageFile, onPreviewArtifact, onConfirmProject, onRequestChanges, onApprovalDecide, onQuestionAnswer }: {
   message: Message
+  questionResolutions: QuestionBlockResolutionMap
   taskAvatarBotId?: string
   skillNames: string[]
   pending?: boolean
@@ -3887,7 +3976,6 @@ function MessageBubble({ message, taskAvatarBotId, skillNames, pending = false, 
   showAvatar: boolean
   headerTime: string
   exactTime: string
-  questions: BridgeState['questions']
   approvals: BridgeState['approvals']
   assignments: BridgeState['assignments']
   projects: BridgeState['projects']
@@ -3953,16 +4041,20 @@ function MessageBubble({ message, taskAvatarBotId, skillNames, pending = false, 
           }
           if (block.type === 'question') {
             if (blocks[index - 1]?.type === 'question') return null
-            const questionIds: string[] = []
-            for (let cursor = index; cursor < blocks.length && blocks[cursor].type === 'question'; cursor += 1) {
-              const questionId = blocks[cursor].question_id
-              if (typeof questionId === 'string') questionIds.push(questionId)
+            let groupEnd = index
+            while (groupEnd < blocks.length && blocks[groupEnd]?.type === 'question') groupEnd += 1
+            const resolutions = blocks.slice(index, groupEnd).map((_, offset) => questionResolutions[questionBlockResolutionKey(message, index + offset)] ?? { kind: 'unavailable' as const, reason: 'not_found' as const })
+            if (resolutions.every((resolution) => resolution.kind === 'resolved')) {
+              const questionList = resolutions.flatMap((resolution) => resolution.kind === 'resolved' ? [resolution.question] : [])
+              return questionList.length > 1
+                ? <QuestionDeck key={`deck-${index}`} questions={questionList} botName={senderName} mentionsUser={mentionsUser} onAnswer={onQuestionAnswer} />
+                : <QuestionCard key={`${questionList[0]!.id}-${index}`} question={questionList[0]!} botName={senderName} mentionsUser={mentionsUser} onAnswer={onQuestionAnswer} />
             }
-            const questionList = questionIds.map((id) => questions[id]).filter((question): question is Question => Boolean(question))
-            if (!questionList.length) return <div className="block-fallback" key={index}>{message.fallback_text || t('common.unsupported_block')}</div>
-            return questionList.length > 1
-              ? <QuestionDeck key={`deck-${index}`} questions={questionList} botName={senderName} mentionsUser={mentionsUser} onAnswer={onQuestionAnswer} />
-              : <QuestionCard key={`${questionList[0].id}-${index}`} question={questionList[0]} botName={senderName} mentionsUser={mentionsUser} onAnswer={onQuestionAnswer} />
+            return <div className="question-block-group" key={`question-group-${index}`}>
+              {resolutions.map((resolution, offset) => resolution.kind === 'resolved'
+                ? <QuestionCard key={`${resolution.question.id}-${index + offset}`} question={resolution.question} botName={senderName} mentionsUser={mentionsUser} onAnswer={onQuestionAnswer} />
+                : <FallbackCard key={`unavailable-${index + offset}`} text={t('block.question.unavailable')} hint={t('block.question.refresh_hint')} />)}
+            </div>
           }
           if (block.type === 'approval' || block.type === 'approval_ref') {
             const id = typeof block.approval_id === 'string' ? block.approval_id : ''
@@ -4085,14 +4177,24 @@ function QuestionCard({ question, botName, mentionsUser, onAnswer }: { question:
   const [otherOpen, setOtherOpen] = useState(false)
   const [reply, setReply] = useState('')
   const [busy, setBusy] = useState(false)
+  const [submitError, setSubmitError] = useState('')
   const answer = question.answer
+  const freeTextMode = questionFreeTextEntryMode(question)
+  const freeTextOpen = freeTextMode === 'direct' || otherOpen
   const selectedIndexes = answer?.option_indexes?.length ? answer.option_indexes : answer?.option_index === undefined || answer.option_index === null ? [] : [answer.option_index]
   const submit = async (value: QuestionAnswer) => {
     if (busy || question.state !== 'pending') return
     setBusy(true)
-    try { await onAnswer(question, value) } finally { setBusy(false) }
+    setSubmitError('')
+    try {
+      const result = await submitQuestionAnswerSafely(question, value, onAnswer)
+      if (!result.ok) setSubmitError(t('chat.send.failed').replace('{error}', String(result.error)))
+    } finally {
+      setBusy(false)
+    }
   }
   const toggle = (index: number) => {
+    setSubmitError('')
     if (!question.multi) { void submit({ option_index: index }); return }
     setSelected((current) => current.includes(index) ? current.filter((item) => item !== index) : [...current, index].sort((a, b) => a - b))
   }
@@ -4100,32 +4202,33 @@ function QuestionCard({ question, botName, mentionsUser, onAnswer }: { question:
   const selectedOptions = selectedIndexes.map((index) => question.options[index]).filter((option): option is string => typeof option === 'string')
   const title = question.state === 'answered'
     ? answer?.text ? t('block.question.you_replied') : !selectedIndexes.length ? '' : question.multi ? t('block.question.answered').replace('{letters}', letters).replace('{options}', selectedOptions.join('、')) : t('block.question.you_picked').replace('{letters}', letters)
-    : question.state === 'expired' ? t('block.question.expired') : `${question.multi ? t('block.question.multi') : t('block.question.single')} · ${t('block.question.from').replace('{bot}', botName)}`
+    : question.state === 'expired' ? t('block.question.expired') : `${freeTextMode === 'direct' ? t('block.question.free_text_only') : question.multi ? t('block.question.multi') : t('block.question.single')} · ${t('block.question.from').replace('{bot}', botName)}`
   return <section className={`question-card question-${question.state}`} tabIndex={0} onKeyDown={(event) => {
     if (event.target instanceof HTMLElement && event.target.matches('input, textarea, select, [contenteditable="true"]')) return
     if (event.metaKey || event.ctrlKey || event.altKey || event.shiftKey || event.nativeEvent.isComposing || question.state !== 'pending') return
     if (/^[1-9]$/.test(event.key)) {
       const option = event.currentTarget.querySelectorAll<HTMLButtonElement>('.question-option')[Number(event.key) - 1]
       if (option && !option.disabled) { event.preventDefault(); option.click() }
-    } else if (event.key.toLowerCase() === 'o' && question.allow_free_text) {
+    } else if (event.key.toLowerCase() === 'o' && freeTextMode === 'optional') {
       const other = event.currentTarget.querySelector<HTMLButtonElement>('.question-other-toggle')
       if (other) { event.preventDefault(); other.click() }
     }
   }}>
     <div className="question-kicker">{mentionsUser && <span className="question-mention">{t('block.question.mention')}</span>}{question.state === 'answered' && <span className="question-check">✓</span>}{title}</div>
     <strong className="question-prompt">{question.text}</strong>
-    <div className="question-options">{question.options.map((option, index) => {
+    {question.options.length > 0 && <div className="question-options">{question.options.map((option, index) => {
       const picked = selectedIndexes.includes(index)
       const isDraft = selected.includes(index)
       return <button type="button" key={`${index}-${option}`} disabled={question.state !== 'pending' || busy} className={`question-option ${picked ? 'picked' : ''} ${isDraft ? 'draft-picked' : ''}`} onClick={() => toggle(index)}>
         <span className="question-option-mark">{picked ? '✓' : question.multi ? '□' : String.fromCharCode(65 + index)}</span><span>{option}</span>
       </button>
-    })}</div>
-    {question.state === 'pending' && !question.multi && <div className="question-instruction">{t('block.question.tap_to_submit')}</div>}
-    {question.state === 'pending' && question.multi && <><div className="question-instruction">{t('block.question.selected_n').replace('{count}', String(selected.length))}</div><button className="question-submit" type="button" disabled={!selected.length || busy} onClick={() => void submit({ option_indexes: selected })}>{t('common.submit')}</button></>}
-    {question.state === 'pending' && question.allow_free_text && <div className="question-other">
-      {!otherOpen ? <button type="button" className="question-other-toggle" onClick={() => setOtherOpen(true)}>✎ {t('block.question.other')}</button> : <><textarea autoFocus value={reply} onChange={(event) => setReply(event.target.value)} placeholder={t('block.question.free_text_hint')} /><button type="button" className="question-submit" disabled={!reply.trim() || busy} onClick={() => void submit({ text: reply.trim() })}>{t('common.send')}</button></>}
+    })}</div>}
+    {question.state === 'pending' && question.options.length > 0 && !question.multi && <div className="question-instruction">{t('block.question.tap_to_submit')}</div>}
+    {question.state === 'pending' && question.options.length > 0 && question.multi && <><div className="question-instruction">{t('block.question.selected_n').replace('{count}', String(selected.length))}</div><button className="question-submit" type="button" disabled={!selected.length || busy} onClick={() => void submit({ option_indexes: selected })}>{t('common.submit')}</button></>}
+    {question.state === 'pending' && freeTextMode !== 'none' && <div className="question-other">
+      {freeTextOpen ? <><textarea aria-label={`${t('block.question.your_reply')} · ${question.text}`} autoFocus={freeTextMode === 'optional'} value={reply} onChange={(event) => { setReply(event.target.value); setSubmitError('') }} placeholder={t('block.question.free_text_hint')} /><button className="question-submit" type="button" disabled={!reply.trim() || busy} onClick={() => void submit({ text: reply.trim() })}>{t('common.send')}</button></> : <button type="button" className="question-other-toggle" onClick={() => setOtherOpen(true)}>✎ {t('block.question.other')}</button>}
     </div>}
+    {submitError && <div className="question-answer-error" role="alert">{submitError}</div>}
     {question.state === 'answered' && answer?.text && <div className="question-reply"><span>✎ {t('block.question.your_reply')}</span>{answer.text}</div>}
     {question.state === 'answered' && <div className="question-received"><Check size={12} />{t('block.question.continuing').replace('{bot}', botName)}</div>}
   </section>

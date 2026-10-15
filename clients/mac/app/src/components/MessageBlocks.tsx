@@ -68,8 +68,8 @@ export function ProjectCard({ projectId, context, note, project, memberBotIds: m
   }
 }
 
-export function FallbackCard({ text }: { text: string }) {
-  return <div className="block-fallback"><AlertTriangle size={14} /><span>{text}<small>{t('block.fallback.hint')}</small></span></div>
+export function FallbackCard({ text, hint = t('block.fallback.hint') }: { text: string; hint?: string }) {
+  return <div className="block-fallback"><AlertTriangle size={14} /><span>{text}<small>{hint}</small></span></div>
 }
 
 export function LoopPausedBlock({ state, hops, busy = false, onResolve }: { state: string; hops: number; busy?: boolean; onResolve: (action: 'continue' | 'end') => Promise<void> }) {

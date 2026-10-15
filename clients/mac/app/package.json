@@ -12,6 +12,7 @@
     "test:settings-copy": "node --test src/components/settingsCopyKeys.test.mjs",
     "test:navigation": "node --test src/navigationUi.test.mjs src/components/contextPanelMotion.model.test.mjs src/components/contextPanelWindow.model.test.mjs",
     "test:pending-actions": "node --test src/components/chatScrollPosition.model.test.mjs src/components/pendingChatActions.model.test.mjs src/components/pendingApprovalDecisions.model.test.mjs",
+    "test:question-blocks": "node --test src/components/questionBlockResolution.model.test.mjs src/components/questionCardAccessibility.test.mjs",
     "test:skill-message": "node --test src/components/skillMessage.model.test.mjs",
     "test:dashboard": "node --test src/components/dashboard.model.test.mjs",
     "test:summary": "node --test src/summaryMarkdown.test.mjs",
