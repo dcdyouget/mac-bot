@@ -30,7 +30,7 @@ GA-04 / P2：Android 独立 mock 截图发现消息列表群行仍显示普通 B
 
 ## 交付状态
 
-源码修复已本地提交。`git fetch origin` 报 `Recv failure: Operation timed out`；随后限时 `git push origin main` 报传输低速超时，尚未确认远端同步成功。没有强制推送。
+源码修复及证据已提交。初次 `git fetch origin` 报 `Recv failure: Operation timed out`，首次限时推送也超时；最终重试成功，将 `7a08bad..c320cde` 推送至 `origin/main`。没有强制推送。
 
 ## Android 图像范围
 
