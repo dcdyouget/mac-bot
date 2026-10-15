@@ -519,6 +519,17 @@ button.protocol-status-block:hover { border-color: var(--accent); background: va
 
 .group-chat-avatar { display: grid; width: 32px; height: 32px; flex: none; place-items: center; border-radius: 9px; background: var(--accent-soft); color: var(--accent); }
 .gav.s24 { --s: 24px; gap: 1px; padding: 2px; }
+.gav.n1 { display: block; overflow: hidden; padding: 0; background: transparent; }
+.gav.n1 .av { width: 100%; height: 100%; }
+.gav.stacked { display: block; overflow: hidden; padding: 0; background: transparent; }
+.gav.stacked .av { position: absolute; box-shadow: 0 0 0 1px var(--bg-active); }
+.gav.stacked.n2 .av { width: 66%; height: 66%; }
+.gav.stacked.n2 .av:nth-child(1) { top: 12%; left: 0; z-index: 2; }
+.gav.stacked.n2 .av:nth-child(2) { top: 22%; left: 34%; z-index: 1; }
+.gav.stacked.n3 .av { width: 50%; height: 50%; }
+.gav.stacked.n3 .av:nth-child(1) { top: 28%; left: 0; z-index: 3; }
+.gav.stacked.n3 .av:nth-child(2) { top: 12%; left: 25%; z-index: 2; }
+.gav.stacked.n3 .av:nth-child(3) { top: 28%; left: 50%; z-index: 1; }
 .group-avatar-overflow { display: grid; width: 100%; height: 100%; place-items: center; border-radius: 50%; background: var(--bg-elevated); color: var(--text-secondary); font-size: 8px; font-weight: 600; }
 .group-statusbar { display: flex; flex: none; gap: 4px; min-height: 36px; align-items: center; overflow-x: auto; padding: 4px 16px; border-bottom: 1px solid var(--border-subtle); scrollbar-width: none; }
 .group-statusbar::-webkit-scrollbar { display: none; }

@@ -11,7 +11,8 @@ export function GroupAvatar({ memberBotIds, bots, size = '40', label }: {
   const ids = [...new Set(memberBotIds)].filter(Boolean)
   const shown = ids.length > 4 ? ids.slice(0, 3) : ids.slice(0, 4)
   const overflow = Math.max(0, ids.length - shown.length)
-  return <span className={`gav s${size} n${Math.min(shown.length + (overflow ? 1 : 0), 4)}`} role="img" aria-label={label}>
+  const stacked = ids.length >= 2 && ids.length <= 3
+  return <span className={`gav s${size} n${Math.min(shown.length + (overflow ? 1 : 0), 4)}${stacked ? ' stacked' : ''}`} role="img" aria-label={label}>
     {shown.map((id) => {
       const bot = bots[id]
       const name = bot?.name ?? id

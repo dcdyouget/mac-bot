@@ -35,6 +35,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.zIndex
 import bot.mac.mobile.core.design.BotAvatar
 import bot.mac.mobile.core.design.FontScaleToolbar
 import bot.mac.mobile.core.protocol.arr
@@ -393,6 +394,24 @@ internal fun GroupAvatar(repository: MobileRepository, members: List<kotlinx.ser
         if (layout.totalCount == 1) {
             val bot = bots.firstOrNull { it.str("id") == botIds.single() }
             BotAvatar(repository, bot, main = bot?.boolean("is_main") == true, size = size)
+        } else if (layout.totalCount in 2..3) {
+            val twoMembers = botIds.size == 2
+            val avatarSize = size * if (twoMembers) 0.66f else 0.50f
+            // Match desktop: overlapping side stack, with the lead/Main bot at the front-left.
+            for (index in botIds.indices.reversed()) {
+                val x = size * if (twoMembers) index * 0.34f else index * 0.25f
+                val y = size * when {
+                    twoMembers && index == 0 -> 0.12f
+                    twoMembers -> 0.22f
+                    index == 1 -> 0.12f
+                    else -> 0.28f
+                }
+                val botId = botIds[index]
+                val bot = bots.firstOrNull { it.str("id") == botId }
+                Box(Modifier.offset(x, y).zIndex((botIds.size - index).toFloat())) {
+                    BotAvatar(repository, bot, main = bot?.boolean("is_main") == true, size = avatarSize)
+                }
+            }
         } else if (botIds.isNotEmpty()) {
             repeat(4) { index ->
                 val quadrant = size / 2f
