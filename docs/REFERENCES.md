@@ -9,6 +9,21 @@
 >
 > 许可证和 star 数核对于 2026-10-09。**PolyForm Noncommercial、LobeHub Community License 这类非 OSI 许可证的项目，一律只借鉴设计，不复用代码。**
 
+### 2026-10-15 官方资料复核
+
+本轮仅复核以下四项，不表示本页所有项目、依赖或最终分发包都已完成许可证审计；未引入外部代码。“person ai” 的产品指代尚未确认，不作为需求或参考来源。
+
+| 参考与官方依据 | 借鉴及适配差异 | 本项目验证方法 |
+|---|---|---|
+| [pi-durable](https://github.com/earendil-works/pi/blob/main/packages/durable/README.md)，[MIT](https://github.com/earendil-works/pi/blob/main/LICENSE) | 借鉴提交、检查点与请求幂等。其 JSONL 后端全历史驻内存；Mac Bot 保留自研 Rust、JSONL/JSON 快照方案，不采用其 SQLite 建议，也不把请求去重等同于副作用 exactly-once | WAL/快照写失败、执行中强杀、重启后同 run 恢复与 unsafe 调用暂停；本轮已执行与未覆盖边界见审查台账 |
+| [OpenBot 群架构](https://github.com/nightly-labs/openbot/blob/main/docs/architecture/channels-and-messaging.md#shared-channel-chats)，[PolyForm NC](https://github.com/nightly-labs/openbot/blob/main/LICENSE) | 官方现已将 shared channel chats 标为 Deprecated；下文相关描述属于**历史设计参考**。Mac Bot 自行保留项目群及 `(bot_id, chat_id)` 隔离、跨群并行、主 Bot 只协调，不跟随其弃用或全 Bot 串行取舍 | 同 Bot 两群并行、发送作用域、等待恢复及父子取消场景；不复用该非商用许可代码 |
+| [agent-browser 会话与画面](https://github.com/vercel-labs/agent-browser/blob/main/README.md)，[v0.39.0 Apache-2.0](https://github.com/vercel-labs/agent-browser/blob/v0.39.0/LICENSE) | 本项目锁定 v0.39.0；每 Bot 一 session、任务分 tab，由 Host 转发画面给远程客户端。当前 upstream main 的能力不能替代固定版本验收 | 固定版本的会话隔离、tab 路由、ACK 与重连；最终安装包许可证/NOTICE 与真实 Chrome 场景仍须单独验证 |
+| [Tauri opener](https://v2.tauri.app/plugin/opener/)、[文件 API](https://v2.tauri.app/plugin/file-system/)、[远程网页权限](https://v2.tauri.app/security/capabilities/#remote-api-access) | 本地路径 API 操作客户端机器；`remote.urls` 是网页 IPC 权限，不是 Host 文件传输。远程 Home/产物须经 Host HTTP 文件接口，本地打开只针对客户端确实拥有的文件 | 客户端与 Host 同名不同内容路径、远程列目录/预览/附件、下载后本地打开，不能仅检查 localhost 字符串 |
+
+以上 main/dev 文档为访问时状态，未固定所有 upstream commit；agent-browser 许可另核对了固定版本标签。验证方法不自动等于验证已通过，实际证据以 [本轮审查台账](AUDIT-2026-10-15.md) 为准。
+
+本轮新增直接依赖的 `sha2` 在 `server/Cargo.lock` 锁定为 0.11.0（原已为传递依赖）；已核对本机 registry 包的 `Cargo.toml`、`LICENSE-MIT`、`LICENSE-APACHE`，许可证为 **MIT OR Apache-2.0**。请求签名中的 HMAC 组合代码在本仓库内实现并通过 RFC 4231 向量测试；没有据此声称已证实代码来源。schema 契约测试使用锁定的 Ajv 6.15.0（MIT），仅用于开发验证，不引入新的运行时协议实现。
+
 ## 总览
 
 | 组件 | 主要参考 | 使用方式 |
@@ -37,7 +52,7 @@
 | 项目 | 许可证 | 借鉴什么 | 使用方式 |
 |------|--------|----------|----------|
 | **Grok Bot**（xAI，[文档](https://docs.x.ai/grok-bot/overview)） | 闭源 | 整体形态：有名字的 Bot、群聊（2–6 个 Bot）、Bot 间消息、定时任务、技能；三栏布局、黑白气泡、A/B/C 提问卡片；Agent Computer 实时画面和接管；Allow once / Always allow / Deny 审批 | 产品参考 |
-| **[nightly-labs/openbot](https://github.com/nightly-labs/openbot)** | PolyForm Noncommercial 1.0.0 | **形态最接近的开源实现**：本地优先的 AI 队友桌面应用；频道里每个 agent × 每个频道一条独立执行线程；单个负责人 + 显式委派；每个根请求最多 8 次自动委派；频道记忆；从 Grok Bot 导入 agent | 借鉴设计（**非商用许可，不复用代码**） |
+| **[nightly-labs/openbot](https://github.com/nightly-labs/openbot)** | PolyForm Noncommercial 1.0.0 | 源码可见项目的**历史群设计**：每个 agent × 每个频道一条独立执行线程、单个负责人、显式委派及往返上限；当前 upstream 已弃用群功能，见上方复核 | 历史设计参考（**非商用许可，不复用代码**） |
 | **[CopilotKit/OpenBot](https://github.com/CopilotKit/OpenBot)** | MIT | 「每个 Bot 一台电脑」；常驻角色在每个频道都生效；接管流程留下事件记录（help_requested / control_taken / control_released）；/bots 状态页、/memory 记忆页 | 借鉴设计 |
 
 ## 2. 服务端运行时：持久化、恢复、执行线程

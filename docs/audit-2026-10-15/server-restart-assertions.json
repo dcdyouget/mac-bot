@@ -1,0 +1,109 @@
+{
+  "note": "仅提取成功场景的断言结果；省略恢复后误标的快照存在性字段，不用该场景证明旧快照合并。完整原始日志保留在source_log路径。",
+  "cases": [
+    {
+      "source_log": "/tmp/macbot-audit-20261015-iEFvBx/final2-terminal-restart-role.log",
+      "evidence": {
+        "case": "done_first_late_answer_conflict",
+        "assignment_id": "01a140c7-cf29-77b6-96a8-6b406ce4ae73",
+        "question_id": "01a140c7-d11f-70f8-a6c2-057007096553",
+        "queued_message_id": "01a140c7-d0cf-74ac-a697-2d02bcc6784f",
+        "answer_rpc": {
+          "error": {
+            "code": "conflict",
+            "message": "conflict: cannot answer a question after its assignment has finished"
+          },
+          "ok": false
+        },
+        "question_after": {
+          "allow_free_text": true,
+          "answer": null,
+          "assignment_id": "01a140c7-cf29-77b6-96a8-6b406ce4ae73",
+          "bot_id": "01a140c7-cd18-70c4-a6b1-b423344a4b1b",
+          "chat_id": "01a140c7-ce0d-77ad-a8b0-368ae7676890",
+          "id": "01a140c7-d11f-70f8-a6c2-057007096553",
+          "multi": false,
+          "options": [
+            "Continue"
+          ],
+          "state": "pending",
+          "text": "Please answer"
+        },
+        "assignment_status": "done",
+        "run_ids": [
+          "run_01a140c7-cf29-77b6-96a8-6b406ce4ae73"
+        ],
+        "provider_calls": 2,
+        "home": "/tmp/macbot-audit-20261015-iEFvBx/final2-qa/terminal-restart-role/done-first"
+      }
+    },
+    {
+      "source_log": "/tmp/macbot-audit-20261015-iEFvBx/final2-terminal-restart-role.log",
+      "evidence": {
+        "case": "accepted_answer_kill9_restart",
+        "assignment_id": "01a140c7-dffe-72a2-9dd3-421b2204d657",
+        "question_id": "01a140c7-e1e3-73f6-b657-4b7bb1beb41a",
+        "queued_message_id": "01a140c7-e191-76f5-89f0-f196e50317e1",
+        "run_id": "run_01a140c7-dffe-72a2-9dd3-421b2204d657",
+        "job": {
+          "path": "/tmp/macbot-audit-20261015-iEFvBx/final2-qa/terminal-restart-role/accepted-kill9/data/jobs/job_01a140c7-e06a-7200-8a89-06ecb3368749.json",
+          "id": "job_01a140c7-e06a-7200-8a89-06ecb3368749",
+          "status": "done"
+        },
+        "answer_inbox": [
+          {
+            "id": "in_01a140c7-e71e-753d-bf1c-8aeaeb06b8ca",
+            "job_id": "job_01a140c7-e06a-7200-8a89-06ecb3368749",
+            "message_id": "question-answer:01a140c7-e1e3-73f6-b657-4b7bb1beb41a",
+            "text": "S12 durable canonical answer",
+            "delivery": "read",
+            "at": 1792088205086
+          }
+        ],
+        "consumed_input_ids": [
+          "in_01a140c7-e548-7117-b03c-a0df56e309d6",
+          "in_01a140c7-e71e-753d-bf1c-8aeaeb06b8ca"
+        ],
+        "provider_calls": 3,
+        "recovered_prompt_total_text_count": 2,
+        "recovered_prompt_user_role_answer_count": 1,
+        "recovered_prompt_system_history_answer_count": 1,
+        "assignment_status": "done",
+        "home": "/tmp/macbot-audit-20261015-iEFvBx/final2-qa/terminal-restart-role/accepted-kill9"
+      }
+    },
+    {
+      "source_log": "/tmp/macbot-audit-20261015-iEFvBx/final2-steer-input-role-audit.log",
+      "evidence": {
+        "result": "passed",
+        "assignment_id": "01a140c7-00e3-708c-b725-b9ba27fcad29",
+        "run_id": "run_01a140c7-00e3-708c-b725-b9ba27fcad29",
+        "job_id": "job_01a140c7-0145-7382-b75b-f69ee633b256",
+        "input_id": "in_01a140c7-0385-7023-8cda-c4e625fb17fc",
+        "input_text": "S12 explicit steer must survive restart exactly once",
+        "input_delivery": "read",
+        "snapshot_before_kill": [],
+        "jsonl_before_kill": [
+          {
+            "id": "in_01a140c7-0385-7023-8cda-c4e625fb17fc",
+            "job_id": "job_01a140c7-0145-7382-b75b-f69ee633b256",
+            "message_id": "01a140c7-0273-708d-8ea2-2839d2bb2b3b",
+            "text": "S12 explicit steer must survive restart exactly once",
+            "delivery": "queued",
+            "at": 1792088146821
+          }
+        ],
+        "runtime_consumed_ids": [
+          "in_01a140c7-0385-7023-8cda-c4e625fb17fc"
+        ],
+        "trace_steer_count": 1,
+        "recovered_prompt_text_count": 2,
+        "recovered_prompt_user_role_count": 1,
+        "canonical_history_system_role_count": 1,
+        "assignment_status": "done",
+        "provider_calls": 2,
+        "home": "/private/tmp/macbot-audit-20261015-iEFvBx/final2-qa/steer-input-kill9-role-audit"
+      }
+    }
+  ]
+}

@@ -1,0 +1,1 @@
+{"result": "passed", "case": "answer_steer_race", "after_answer_calls": 2, "max_inflight": 1, "order": ["A", "B", "A"], "queue_reason": "bot_parallel_limit", "steer_rpc_conflict": false, "steer_trace_count": 1}

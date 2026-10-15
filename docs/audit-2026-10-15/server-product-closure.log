@@ -1,0 +1,13 @@
+{
+  "project_id": "01a1402e-a7d5-7015-94f2-34e499c9c967",
+  "chat_id": "01a1402e-a7d5-7015-94f2-34e59d99a65f",
+  "first_assignment_id": "01a1402e-a860-7489-8776-3e639d6e3163",
+  "revision_assignment_id": "01a1402e-bd8b-71be-8bdb-4a3a42f2bdb0",
+  "status": "done",
+  "artifacts": [
+    "code/closure-1632d59a.md",
+    "code/revision-1632d59a.md"
+  ],
+  "home": "/private/tmp/macbot-audit-20261015-iEFvBx/s09-s10-independent-smoke/user-home/MacBot",
+  "provider_requests": 16
+}

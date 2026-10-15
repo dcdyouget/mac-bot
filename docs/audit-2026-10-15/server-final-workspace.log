@@ -1,0 +1,727 @@
+   Compiling macbot-gateway v0.1.0 (/Users/gongshaojie/Project/mac-bot/server/crates/macbot-gateway)
+   Compiling macbotd v0.1.0 (/Users/gongshaojie/Project/mac-bot/server/macbotd)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 14.45s
+     Running unittests src/lib.rs (/tmp/macbot-audit-20261015-iEFvBx/main-verify-target/debug/deps/macbot_browser-f125e64c54e7619a)
+
+running 23 tests
+test tests::broker_only_releases_latest_after_ack ... ok
+test tests::cli_uses_bot_session_and_json ... ok
+test tests::actions_for_one_bot_are_fifo ... ok
+test tests::missing_assignment_tab_does_not_leave_session_busy ... ok
+test tests::parses_agent_browser_tab_new_shape ... ok
+test tests::assignment_tab_lookup_never_crosses_private_tabs ... ok
+test tests::attach_and_plain_headless_do_not_copy_profile_data ... ok
+test tests::partial_restore_reports_cleanup_failure_with_original_error ... ok
+test tests::attach_restore_does_not_reopen_missing_user_tab ... ok
+test tests::partial_restore_closes_created_tabs_and_preserves_state_for_retry ... ok
+test tests::failed_restore_removes_half_created_session_for_retry ... ok
+test tests::takeover_and_sidecar_url_metadata_are_visible_and_persisted ... ok
+test tests::restore_keeps_current_tab_without_reopening ... ok
+test tests::restore_reopens_missing_assignment_tab ... ok
+test tests::restore_reopens_reused_tab_id_when_url_changed ... ok
+test tests::takeover_override_stays_lazy_until_screen_restore ... ok
+test tests::screen_reconnect_restores_idle_evicted_session ... ok
+test tests::screen_active_session_is_not_idle_evicted_until_last_screen_closes ... ok
+test tests::screen_restore_uses_durable_takeover_override ... ok
+test tests::bot_profile_is_copied_and_assignment_tabs_restore ... ok
+test tests::takeover_start_and_release_survive_idle_session_recreation ... ok
+test tests::process_runner_reports_exit_status_and_stderr_without_command_details ... ok
+test tests::process_runner_uses_bounded_structured_stdout_error_when_stderr_is_empty ... ok
+
+test result: ok. 23 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running unittests src/lib.rs (/tmp/macbot-audit-20261015-iEFvBx/main-verify-target/debug/deps/macbot_durable-d94337f563731f5c)
+
+running 18 tests
+test tests::inbox_recovery_propagates_snapshot_and_journal_errors ... ok
+test tests::persisted_new_job_remains_visible_after_snapshot_failure ... ok
+test tests::appended_commit_with_failed_snapshot_is_not_reused_after_reopen ... ok
+test tests::failed_snapshot_keeps_unsafe_recovery_suspended_in_memory ... ok
+test tests::recovery_initializes_sequence_after_a_large_history ... ok
+test tests::commit_sequence_reports_exhaustion_instead_of_reusing_max ... ok
+test tests::inbox_recovery_merges_journal_appends_after_snapshot ... ok
+test tests::inbox_recovery_deduplicates_logical_input_and_honors_consumed_checkpoint ... ok
+test tests::recovery_replays_commit_newer_than_snapshot ... ok
+test tests::continuation_provenance_is_preserved_and_replaced_atomically ... ok
+test tests::wal_append_failure_does_not_change_job_or_sequence ... ok
+test tests::terminal_job_cannot_be_overwritten_by_late_worker_commit ... ok
+test tests::reopened_runtime_continues_after_the_last_commit ... ok
+test tests::failed_snapshot_keeps_committed_terminal_state_in_memory ... ok
+test tests::steer_delivery_is_ordered_and_send_msg_is_idempotent ... ok
+test tests::unsafe_running_job_is_suspended_after_recovery ... ok
+test tests::resume_plan_returns_safe_work_and_suspends_unsafe_work ... ok
+test tests::continuous_commits_use_the_cached_sequence ... ok
+
+test result: ok. 18 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.92s
+
+     Running unittests src/lib.rs (/tmp/macbot-audit-20261015-iEFvBx/main-verify-target/debug/deps/macbot_gateway-a94b129ee893b32b)
+
+running 382 tests
+test adapter::tests::assignment_result_payload_respects_return_chat_permissions ... ok
+test adapter::tests::centralized_assignment_updated_event_emission_is_protocol_decodable ... ok
+test adapter::tests::bot_lifecycle_events_have_single_typed_bot_and_chat_payloads ... ok
+test adapter::tests::assignment_stop_emits_one_protocol_system_message_and_is_repeat_safe ... ok
+test adapter::tests::bot_dm_route_creates_read_only_chat_and_group_reference ... ok
+test adapter::tests::chat_sequences_are_shared_across_senders_updates_and_restart ... ok
+test adapter::tests::cancelled_approvals_expire_and_repair_durable_events_once ... ok
+test adapter::tests::corrupt_snapshot_recovers_last_committed_operation_snapshot ... ok
+test adapter::tests::assignment_cards_are_typed_sequenced_and_idempotent ... ok
+test adapter::proposal::tests::approved_bot_proposal_emits_one_user_visible_completion_message ... ok
+test adapter::tests::assignment_retry_returns_child_and_is_idempotent_after_card_persistence ... ok
+test adapter::tests::composed_duplicate_rolls_back_when_persist_snapshot_fails ... ok
+test adapter::tests::completed_operations_repair_missing_events_after_restart ... ok
+test adapter::tests::deleted_entities_are_not_resurrected_by_startup_repair ... ok
+test adapter::tests::execution_send_msg_preserves_receipt_idempotency ... ok
+test adapter::tests::execution_takeover_request_creates_private_scope_record_without_assignment ... ok
+test adapter::tests::cross_scope_blocked_result_preserves_blocked_reason_only ... ok
+test adapter::tests::hmac_sha256_matches_rfc4231_vector ... ok
+test adapter::tests::execution_question_crash_after_ask_rebuilds_marker_and_card ... ok
+test adapter::tests::confirmed_review_retry_keeps_one_card_after_restart ... ok
+test adapter::tests::execution_question_is_wrapped_and_emits_typed_event ... ok
+test adapter::tests::legacy_review_card_artifacts_are_deduplicated_on_read ... ok
+test adapter::tests::execution_terminal_receipt_replay_repairs_cached_legacy_message_once ... ok
+test adapter::tests::execution_terminal_receipt_without_cache_does_not_append_duplicate_terminal ... ok
+test adapter::tests::execution_takeover_retries_are_idempotent_across_restart_and_scope_changes ... ok
+test adapter::tests::decision_question_is_visible_idempotent_and_repaired_on_restart ... ok
+test adapter::tests::legacy_takeover_approval_ref_repair_requires_exact_record ... ok
+test adapter::tests::legacy_terminal_receipt_replay_closes_placeholder_without_created_event ... ok
+test adapter::tests::loaded_skill_updates_source_message_history_and_replay_once_per_bot_assignment ... ok
+test adapter::tests::private_takeover_answers_only_its_exact_question_scope ... ok
+test adapter::tests::private_durable_jobs_are_reflected_in_bot_status ... ok
+test adapter::tests::idempotency_receipts_bind_method_and_params_across_restart_and_rollback ... ok
+test adapter::tests::legacy_executor_question_repair_requires_exact_provenance_and_is_idempotent ... ok
+test adapter::tests::production_chat_mark_read_persists_overlay_and_event ... ok
+test adapter::tests::pending_bot_proposal_question_has_a_durable_card_and_legacy_backfill ... ok
+test adapter::tests::production_bot_dm_ids_and_chat_kinds_are_consistent_across_reads ... ok
+test adapter::tests::production_ping_returns_protocol_server_time_without_persistence ... ok
+test adapter::tests::group_dispatch_done_notifies_and_wakes_main_once ... ok
+test adapter::tests::production_usage_queries_and_csv_use_the_durable_ledger ... ok
+test adapter::tests::production_pending_approval_without_assignment_is_visible ... ok
+test adapter::tests::production_chat_send_persists_reply_and_attachments_through_restart ... ok
+test adapter::tests::loop_resolve_updates_pause_message_and_emits_new_assignment ... ok
+test adapter::tests::production_duplicate_uses_preallocated_target_and_rolls_back_skills ... ok
+test adapter::tests::production_chat_thread_reactions_read_flags_and_cursor_survive_restart ... ok
+test adapter::tests::project_create_result_and_events_use_the_protocol_shapes ... ok
+test adapter::tests::project_attention_repairs_missing_events_after_restart ... ok
+test adapter::tests::project_create_persists_one_typed_main_project_card_across_retry_and_restart ... ok
+test adapter::tests::project_confirm_done_accepts_active_project ... ok
+test adapter::tests::project_attention_does_not_requeue_main_no_report ... ok
+test adapter::tests::project_attention_restores_snapshot_notice_when_chat_row_is_missing ... ok
+test adapter::tests::production_rpc_returns_complete_protocol_objects_and_durable_event ... ok
+test adapter::tests::project_attention_refresh_emits_typed_system_notice_once ... ok
+test adapter::tests::repaired_events_deduplicate_new_keys_and_legacy_payloads ... ok
+test adapter::tests::routine_tick_returns_execution_dispatch_and_assignment_event ... ok
+test adapter::tests::durable_wait_rebuilds_missing_legacy_questions_without_running_tools ... ok
+test adapter::tests::settings_secret_params_are_separate_and_redacted_from_operations ... ok
+test adapter::tests::startup_fails_when_legacy_chat_log_has_io_error_during_tombstone_migration ... ok
+test adapter::tests::project_attention_does_not_derive_main_siblings_for_multiple_worker_notices ... ok
+test adapter::tests::send_msg_projects_add_member_checked_mentioned_cards ... ok
+test adapter::tests::project_request_changes_returns_canonical_message_and_survives_restart ... ok
+test adapter::tests::proposal_answers_are_targeted_idempotent_and_preflight_duplicate_names ... ok
+test adapter::tests::retrying_an_already_answered_stale_proposal_finalizes_only_that_proposal ... ok
+test adapter::tests::takeover_projection_publishes_group_before_private_storage_failure ... ok
+test adapter::tests::takeover_projection_updates_private_null_scope_and_repairs_missing_event ... ok
+test adapter::tests::send_msg_done_reviews_queued_messages_before_creating_delivery ... ok
+test adapter::tests::send_msg_to_current_bot_rejects_main_private_assignment_and_keeps_group_scope ... ok
+test adapter::tests::usage_queries_do_not_wait_for_mutation_writer ... ok
+test adapter::tests::takeover_start_retries_exact_pending_question_for_active_scope ... ok
+test adapter::tests::takeover_start_and_release_preserve_scope_and_remaining_driver ... ok
+test backend::assignment_run_request_tests::assignment_run_lookup_propagates_corrupt_request_files ... ok
+test adapter::tests::queued_message_can_be_steered_after_chat_is_marked_read ... ok
+test backend::explicit_skill_source_tests::source_annotation_requires_the_exact_message_association ... ok
+test adapter::tests::waiting_private_takeover_recovery_requires_exact_job_and_card ... ok
+test backend::model_resolution_tests::allowed_approval_recovery_requires_exact_waiting_checkpoint ... ok
+test backend::model_resolution_tests::allowed_write_approval_matches_checkpoint_detail_and_raw_args ... ok
+test backend::model_resolution_tests::answered_decision_recovery_rejects_unsafe_or_incomplete_jobs ... ok
+test backend::model_resolution_tests::answered_decision_recovery_requires_exact_assignment_or_private_scope ... ok
+test backend::model_resolution_tests::answered_decision_recovery_uses_text_or_option_without_guessing ... ok
+test backend::model_resolution_tests::assignment_recovery_selects_root_when_child_shares_assignment_id ... ok
+test backend::model_resolution_tests::chat_delivery_promotion_requires_explicit_mention_or_reply_target ... ok
+test backend::assignment_run_request_tests::assignment_run_lookup_returns_parent_and_children_only_for_that_assignment ... ok
+test backend::model_resolution_tests::child_completion_targets_only_a_waiting_decision_parent ... ok
+test backend::model_resolution_tests::continuation_queue_and_promotion_events_decode_as_protocol_frames ... ok
+test backend::model_resolution_tests::decision_resume_rejects_old_checkpoint_for_same_assignment ... ok
+test backend::model_resolution_tests::explicit_bot_model_overrides_default_and_missing_is_none ... ok
+test backend::model_resolution_tests::group_history_distinguishes_user_and_system_notifications ... ok
+test backend::model_resolution_tests::group_history_keeps_other_bots_out_of_own_assistant_turns ... ok
+test backend::model_resolution_tests::legacy_main_waiting_request_recomputes_tools_before_continuation ... ok
+test backend::model_resolution_tests::legacy_safe_question_marker_overrides_old_unsafe_flag_only_for_known_wait_tools ... ok
+test backend::model_resolution_tests::live_status_refreshes_only_at_run_boundaries ... ok
+test adapter::tests::startup_reconciles_answered_proposal_left_pending_after_name_conflict ... ok
+test backend::model_resolution_tests::main_can_report_from_a_dm_but_never_acquires_worker_tools ... ok
+test backend::model_resolution_tests::maintenance_null_uses_bot_default_and_inherit_uses_main ... ok
+test backend::model_resolution_tests::missing_model_dm_resolves_worker_and_main_bots_without_provider ... ok
+test backend::model_resolution_tests::missing_model_notice_uses_project_or_bot_chat ... ok
+test backend::model_resolution_tests::null_bot_models_use_live_role_defaults ... ok
+test backend::model_resolution_tests::project_cancellation_targets_queued_before_running_work ... ok
+test backend::model_resolution_tests::project_summary_artifacts_are_order_independent_and_deduplicated ... ok
+test backend::model_resolution_tests::project_summary_contains_goal_artifacts_and_highlights ... ok
+test backend::model_resolution_tests::takeover_message_projection_requires_exact_run_scope_and_updates_lifecycle ... ok
+test backend::model_resolution_tests::queued_promotion_emits_one_working_assignment_update ... ok
+test backend::model_resolution_tests::takeover_message_projection_updates_private_card_with_same_scope ... ok
+test backend::model_resolution_tests::waiting_message_reply_matches_decision_wait_id ... ok
+test adapter::tests::unknown_send_target_has_no_rpc_message_assignment_or_event_side_effects ... ok
+test backend::persistence_tests::approved_recovery_claim_has_one_owner_until_release ... ok
+test adapter::tests::project_review_requires_confirmation_and_propose_returns_question ... ok
+test adapter::tests::startup_restores_deleted_queue_tombstone_from_legacy_chat_log ... ok
+test backend::persistence_tests::continuation_engine_prepares_browser_without_scheduler_or_screen ... ok
+test adapter::tests::user_chat_steer_preserves_canonical_message_and_independent_delivery ... ok
+test backend::persistence_tests::idle_memory_maintenance_excludes_main_bots_but_keeps_idle_workers ... ok
+test backend::persistence_tests::denied_private_approval_cancels_waiting_job_without_tool_execution ... ok
+test adapter::tests::user_direct_worker_messages_stay_in_dm_and_results_return_to_main ... ok
+test backend::persistence_tests::denied_private_waiting_recovery_cancels_only_exact_job ... ok
+test backend::persistence_tests::durable_assignment_recovery_persists_timestamp_and_updated_event ... ok
+test backend::persistence_tests::project_find_bridge_selection_reaches_next_private_model_context ... ok
+test backend::persistence_tests::first_connection_greeting_is_idempotent_across_bootstrap_and_restart ... ok
+test backend::persistence_tests::screen_browser_configuration_restores_persisted_bot_without_run ... ok
+test backend::persistence_tests::screen_takeover_restore_reads_durable_active_state ... ok
+test backend::persistence_tests::executor_question_publishes_only_canonical_card_and_resumes_after_answer ... ok
+test backend::persistence_tests::concurrent_finish_usage_and_rpc_rebuild_latest_fresh_snapshots ... ok
+test backend::persistence_tests::chat_locale_is_per_message_profile_preferred_and_retry_stable ... ok
+test backend::persistence_tests::startup_does_not_replay_message_with_terminal_execution_record ... ok
+test backend::persistence_tests::runtime_feature_access_authorizes_host_user_profile_for_private_and_group_runs ... ok
+test backend::persistence_tests::mentioning_worker_in_main_dm_does_not_change_private_reply_identity ... ok
+test backend::persistence_tests::stale_caller_snapshot_is_replaced_before_wal_append ... ok
+test backend::persistence_tests::trace_history_keeps_waiting_and_parent_runs_live_across_paging ... ok
+test collaboration_tools::tests::browser_commands_are_scoped_to_supported_agent_browser_operations ... ok
+test collaboration_tools::tests::browser_stream_is_dispatched_through_the_assignment_bridge ... ok
+test collaboration_tools::tests::create_project_requires_bot_ids_and_ignores_legacy_flow ... ok
+test collaboration_tools::tests::dispatch_model_preflight_failure_does_not_create_a_group_or_assignment ... ok
+test collaboration_tools::tests::finish_project_tool_requires_done_state_from_explicit_user_confirmation ... ok
+test collaboration_tools::tests::main_dispatch_persists_idempotent_group_assignment_message_with_source_context ... ok
+test collaboration_tools::tests::main_private_subagent_uses_own_run_scope_and_ignores_model_scope_args ... ok
+test collaboration_tools::tests::private_worker_routine_cannot_choose_project_scope ... ok
+test collaboration_tools::tests::project_creation_guides_real_group_opening ... ok
+test collaboration_tools::tests::role_tool_sets_keep_main_and_worker_capabilities_separate ... ok
+test collaboration_tools::tests::schemas_and_risk_are_stable ... ok
+test collaboration_tools::tests::subagent_dispatch_receives_independent_context_metadata ... ok
+test collaboration_tools::tests::takeover_requests_are_pending_and_private_browser_scope_is_stable ... ok
+test collaboration_tools::tests::web_fetch_strips_markup_and_search_normalizes_provider_shapes ... ok
+test backend::assignment_run_request_tests::assignment_cancel_stops_parent_and_subagent_provider_runs_before_late_results ... ok
+test collaboration_tools::tests::worker_cannot_delegate_and_routine_injects_run_identity ... ok
+test execution::prepared_context_tests::compaction_keeps_recent_turns_after_summary_and_system_blocks ... ok
+test execution::prepared_context_tests::context_write_failure_adds_a_matched_error_tool_result ... ok
+test execution::prepared_context_tests::memory_update_precedes_first_user_message_and_preserves_tool_result_fields ... ok
+test execution::prepared_context_tests::structured_context_keeps_two_blocks_and_moves_dynamic_system_after_l3 ... ok
+test backend::persistence_tests::startup_does_not_replay_private_message_while_approval_is_pending ... ok
+test backend::persistence_tests::startup_claims_at_most_one_orphan_per_private_chat ... ok
+test execution::tests::approval_detail_resolves_tilde_and_legacy_pending_is_rejected ... ok
+test backend::persistence_tests::startup_skips_private_orphan_while_question_is_pending ... ok
+test execution::tests::approval_settings_match_global_mode_tools_and_literal_commands ... ok
+test backend::persistence_tests::maintenance_report_publishes_durable_event_through_gateway_state ... ok
+test backend::persistence_tests::startup_skips_private_orphan_while_same_chat_has_waiting_run ... ok
+test execution::tests::allowed_unsafe_tool_still_has_a_write_ahead_checkpoint ... ok
+test execution::tests::always_allow_mode_skips_second_approval_for_risky_tool ... ok
+test execution::tests::approved_background_bash_resumes_without_waiting_for_output_eof ... ok
+test execution::tests::approval_continuation_executes_pending_tool_after_engine_restart ... ok
+test execution::tests::approved_tilde_call_carries_resolution_metadata_through_resume ... ok
+test backend::persistence_tests::startup_recovers_only_unread_private_message_without_durable_execution ... ok
+test execution::tests::approval_rules_are_live_and_ask_first_prefers_auto_allow ... ok
+test execution::tests::cancel_is_durable_and_terminal ... ok
+test execution::tests::approved_followups_recheck_each_risk_and_preserve_safe_calls ... ok
+test execution::tests::approved_write_followup_rejects_invalid_send_msg_then_retries_correct_target ... ok
+test execution::tests::coordination_tools_use_internal_policy_under_require_mode ... ok
+test execution::tests::ask_user_waits_and_resumes_with_answer ... ok
+test execution::tests::cancellation_drops_pending_model_request_and_closes_private_stream_once ... ok
+test execution::tests::assigned_run_with_failed_send_msg_cannot_finish_without_a_report ... ok
+test execution::tests::execution_phase_follows_runtime_semantics ... ok
+test backend::persistence_tests::model_finish_project_requires_user_confirmation_before_summary ... ok
+test execution::tests::background_bash_does_not_wait_for_output_channel_close ... ok
+test execution::tests::cancellation_during_serial_tool_calls_stays_terminal_and_stops_queue ... ok
+test execution::tests::memory_arguments_are_rejected_before_approval ... ok
+test execution::tests::execution_recover_returns_safe_jobs_and_suspends_unsafe_jobs ... ok
+test execution::tests::memory_targets_require_existing_bot_or_project_records ... ok
+test execution::tests::model_call_limits_only_private_and_coordinator_buckets ... ok
+test execution::tests::group_send_is_once_even_when_run_replayed ... ok
+test execution::tests::context_compaction_failure_fails_run_before_model_and_next_run_can_continue ... ok
+test execution::tests::project_creation_and_explicit_ask_first_are_internal_gates ... ok
+test execution::tests::error_tool_traces_are_typed ... ok
+test execution::tests::background_followup_approval_does_not_wait_for_output_eof ... ok
+test execution::tests::duplicate_message_resume_does_not_replay_running_provider_turn ... ok
+test execution::tests::invalid_memory_approval_is_rejected_atomically_and_retried ... ok
+test execution::tests::private_assignment_uses_send_msg_without_assistant_stream_placeholder ... ok
+test execution::tests::mock_provider_private_run_streams_and_persists_trace_and_usage ... ok
+test execution::tests::provider_is_resolved_per_run_from_live_registry ... ok
+test execution::tests::rebuilt_engine_continues_running_checkpoint_without_new_job ... ok
+test execution::tests::send_msg_schema_declares_reply_to_and_decision_guidance ... ok
+test execution::tests::send_msg_done_ends_run_before_later_model_tools ... ok
+test backend::persistence_tests::terminal_private_send_msg_reuses_and_closes_streaming_placeholder ... ok
+test execution::tests::private_stream_messages_use_shared_durable_chat_sequences ... ok
+test execution::tests::provider_and_resolver_failures_close_private_streams_and_keep_job_identity ... ok
+test execution::tests::skill_draft_arguments_are_rejected_before_approval ... ok
+test execution::tests::safe_tools_run_concurrently_in_group_chats ... ok
+test execution::tests::request_takeover_waits_for_user_and_never_grants_itself ... ok
+test execution::tests::shared_execution_state_recovers_unsafe_jobs_once ... ok
+test execution::tests::send_msg_decision_waits_and_resumes_without_replaying_receipt ... ok
+test execution::tests::feature_memory_commit_publishes_the_durable_event_once ... ok
+test execution::tests::send_msg_invalid_target_is_feedback_then_corrected_without_submission ... ok
+test execution::tests::send_msg_without_intent_returns_tool_error_instead_of_progress ... ok
+test execution::tests::snapshot_after_cancel_commit_still_stops_provider_and_returns_error ... ok
+test execution::tests::snapshot_after_cancel_commit_stops_running_tool_and_returns_error ... ok
+test execution::tests::short_answer_is_kept_as_user_input_even_when_system_context_contains_it ... ok
+test execution::tests::shared_execution_state_serializes_sequences_across_engines ... ok
+test execution::tests::user_memory_tool_writes_are_rejected_before_orchestrator_snapshot ... ok
+test execution::tests::steer_is_delivered_and_read_at_model_boundary ... ok
+test execution::tests::subagent_cannot_execute_provider_tool_calls ... ok
+test features::tests::bot_search_upserts_state_objects_and_survives_restart ... ok
+test features::tests::conversation_batch_preserves_order_and_persists_all_messages ... ok
+test execution::tests::unsafe_tool_checkpoint_waits_for_approval_without_side_effect ... ok
+test features::tests::conversation_index_is_durable ... ok
+test execution::tests::tool_output_is_forwarded_as_temporary_trace_event ... ok
+test features::tests::duplicate_bot_skill_settings_can_be_rolled_back ... ok
+test execution::tests::trace_cursor_is_monotonic_across_restart ... ok
+test execution::tests::truncated_tool_trace_contains_typed_full_output_ref ... ok
+test features::tests::feature_skill_roots_follow_settings_and_filesystem_changes ... ok
+test features::tests::duplicate_bot_skill_settings_persist_without_copying_invocations ... ok
+test features::tests::maintenance_extract_calls_model_with_only_memory_tool ... ok
+test features::tests::maintenance_has_fallback_and_usage_phase_hooks ... ok
+test execution::tests::usage_does_not_mark_an_unreported_assignment_done ... ok
+test features::tests::curator_batches_trigger_on_idle_threshold_and_daily_fallback ... ok
+test features::tests::compact_summary_is_persisted_immediately ... ok
+test features::tests::concurrent_memory_request_retries_append_one_changelog_row ... ok
+test features::tests::curator_failures_persist_status_and_back_off_across_restart ... ok
+test features::tests::memory_access_separates_user_group_and_private_scopes ... ok
+test execution::tests::skill_draft_event_survives_approval_resume_with_rebuilt_sink ... ok
+test features::tests::memory_rpc_overwrites_untrusted_provenance ... ok
+test features::tests::maintenance_adapter_uses_model_provider_and_commits_summary ... ok
+test features::tests::main_project_summary_writes_worklog_and_is_idempotent ... ok
+test features::tests::memory_actor_permissions_and_context_hook ... ok
+test features::tests::curator_replays_delete_event_changelog_and_tombstone_after_restart ... ok
+test features::tests::manual_delete_receipt_recovers_tombstone_after_restart_and_retry ... ok
+test features::tests::maintenance_tick_keeps_prior_events_when_a_later_target_fails ... ok
+test features::tests::memory_tool_mutations_are_immediate_versioned_and_idempotent ... ok
+test features::tests::partial_profile_answer_stays_unonboarded_until_complete_or_skip ... ok
+test features::tests::search_indexes_chat_messages_without_path_classifying_internal_records ... ok
+test features::tests::search_filters_deleted_objects_against_live_state_and_keeps_no_state_fixtures ... ok
+test features::tests::project_summary_ignores_full_bot_worklog_quota ... ok
+test features::tests::skill_mutations_persist_events_and_replay ... ok
+test features::tests::search_returns_typed_hits_for_all_durable_object_kinds ... ok
+test features::tests::skill_metadata_survives_feature_service_restart ... ok
+test features::tests::profile_onboarding_completes_or_skips_with_host_timezone_bot_actor_and_cas ... ok
+test features::tests::skill_update_preserves_enablement_after_persist_and_restart ... ok
+test features::tests::profile_onboarding_skip_and_single_reminder_survive_restart ... ok
+test housekeeping::tests::fresh_upload_is_retained ... ok
+test housekeeping::tests::removes_expired_unreferenced_and_keeps_referenced ... ok
+test features::tests::project_summary_retry_keeps_legacy_worklog_entries ... ok
+test memory_tools::tests::context_hook_keeps_l0_and_group_boundary ... ok
+test features::tests::manual_user_memory_mutations_write_unified_changelog ... ok
+test memory_tools::tests::execution_context_and_shared_handle_are_stable ... ok
+test memory_tools::tests::incremental_messages_keep_final_entry_state_filter_self_and_catalog_large_items ... ok
+test features::tests::user_curator_does_not_replace_newer_manual_memory ... ok
+test memory_tools::tests::main_runtime_does_not_register_skill_draft ... ok
+test memory_tools::tests::memory_argument_validator_matches_supported_actions_and_kinds ... ok
+test memory_tools::tests::memory_argument_validator_rejects_invalid_kind_before_authorization ... ok
+test features::tests::user_curator_trigger_commits_once_and_restores_cursor_after_restart ... ok
+test memory_tools::tests::memory_schemas_require_explicit_project_and_bot_ids ... ok
+test features::tests::user_memory_rpc_reports_quota_full_at_the_user_limit ... ok
+test memory_tools::tests::memory_search_argument_validator_requires_explicit_scoped_owner ... ok
+test memory_tools::tests::context_window_segment_extracts_trims_summarizes_then_rebuilds_l2 ... ok
+test memory_tools::tests::memory_tool_preserves_not_allowed_error_code ... ok
+test memory_tools::tests::bot_memory_is_private_and_tool_writes_survive_run_failure ... ok
+test memory_tools::tests::memory_search_tool_does_not_leak_other_users_or_bots ... ok
+test memory_tools::tests::oversized_first_context_extracts_before_summarizing ... ok
+test features::tests::project_summary_is_idempotent_and_survives_restart ... ok
+test memory_tools::tests::out_of_scope_maintenance_target_is_ignored_during_normal_context_build ... ok
+test memory_tools::tests::profile_onboarding_tool_is_private_main_only_and_requires_gateway_admission ... ok
+test features::tests::profile_language_rpc_and_curator_share_validation_and_persistence ... ok
+test memory_tools::tests::memory_tool_commits_immediately_and_uses_compare_and_swap ... ok
+test memory_tools::tests::main_context_ignores_legacy_bot_and_project_memory_without_blocking_run ... ok
+test memory_tools::tests::skill_draft_tool_validates_registers_and_stays_unpublished ... ok
+test memory_tools::tests::memory_delta_is_visible_again_in_a_later_run_of_the_same_segment ... ok
+test memory_tools::tests::skill_updated_metadata_from_other_tool_is_ignored ... ok
+test memory_tools::tests::successful_skill_draft_trace_emits_skill_updated_event ... ok
+test memory_tools::tests::quota_full_automatic_memory_writes_do_not_block_worker_model_run ... ok
+test memory_tools::tests::skill_tool_loads_forced_invocation_and_records_it ... ok
+test mock::contract_tests::login_announcement_members_ignores_assignments_from_other_projects ... ok
+test memory_tools::tests::private_project_find_selection_opens_segment_and_loads_project_catalog ... ok
+test features::tests::user_memory_mutations_recover_atomic_receipts_after_snapshot_before_event ... ok
+test memory_tools::tests::persistent_snapshot_write_failure_is_returned_and_persisted ... ok
+test memory_tools::tests::memory_tool_returns_quota_full_with_existing_entry_directory ... ok
+test memory_tools::tests::runtime_user_and_project_group_targets_receive_only_the_authorized_profile ... ok
+test memory_tools::tests::profile_tool_normalizes_language_and_rejects_invalid_without_changes ... ok
+test features::tests::user_memory_rpc_persists_cas_events_and_profile_without_owner_input ... ok
+test mock::contract_tests::assignment_fixture_is_typed ... ok
+test mock::contract_tests::mock_approval_keeps_matched_rule_text_snapshot ... ok
+test mock::contract_tests::dashboard_mock_dimensions_resolve_and_support_drilldown ... ok
+test mock::contract_tests::mock_artifact_history_supports_version_list_paging_and_content_reads ... ok
+test mock::contract_tests::mock_assignment_create_and_retry_include_null_recovered_at_in_events ... ok
+test mock::contract_tests::mock_bot_dm_trigger_requires_valid_bot_chat_and_request_id ... ok
+test mock::contract_tests::mock_bot_group_trigger_rejects_non_members_and_non_project_chats ... ok
+test mock::contract_tests::mock_chat_send_resolves_quotes_and_reply_mentions ... ok
+test mock::contract_tests::mock_chat_send_persists_uploaded_file_blocks_including_attachment_only ... ok
+test mock::contract_tests::mock_bot_dm_trigger_emits_once_persists_and_is_host_scoped ... ok
+test mock::contract_tests::mock_clear_main_chat_rejects_other_chats_and_missing_request_id ... ok
+test mock::contract_tests::mock_code_bot_private_chat_has_conversation_project_and_approval_cards ... ok
+test mock::contract_tests::mock_deleted_queued_message_cannot_be_promoted_and_does_not_change_assignment ... ok
+test mock::contract_tests::mock_bot_group_trigger_is_member_scoped_idempotent_and_broadcast ... ok
+test mock::contract_tests::mock_explicit_skill_loads_are_durable_per_bot_and_replay_with_history ... ok
+test mock::contract_tests::mock_clear_main_chat_is_host_scoped_idempotent_and_stable_on_reconnect ... ok
+test mock::contract_tests::mock_filters_pages_and_detects_request_conflicts ... ok
+test mock::contract_tests::mock_host_permissions_returns_conservative_states_and_settings_defaults_auto_allow ... ok
+test mock::contract_tests::mock_chat_locale_is_scoped_to_each_message_and_not_inherited ... ok
+test mock::contract_tests::mock_login_history_has_hydratable_questions_in_all_protocol_states ... ok
+test mock::contract_tests::mock_login_question_flow_answers_independently_and_preserves_other_state ... ok
+test mock::contract_tests::mock_members_and_waiting_items_are_referential ... ok
+test mock::contract_tests::mock_memory_scenarios_expose_quota_conflict_and_complete_profile ... ok
+test mock::contract_tests::mock_pending_review_round_trips_through_card_bootstrap_and_workbench ... ok
+test mock::contract_tests::mock_message_block_scenarios_cover_clickable_project_task_and_delegation_cards ... ok
+test mock::contract_tests::mock_mutations_return_protocol_objects ... ok
+test mock::contract_tests::mock_profile_language_matches_production_validation ... ok
+test mock::contract_tests::mock_project_without_announcement_returns_explicit_empty_text ... ok
+test mock::contract_tests::mock_project_and_assignment_creation_emit_cards_for_rpc_navigation ... ok
+test mock::contract_tests::mock_question_history_lists_multiple_answered_and_expired_questions ... ok
+test mock::contract_tests::mock_steer_rejects_a_delivery_already_consumed_by_the_bot ... ok
+test mock::contract_tests::mock_routines_seed_three_design_examples_and_run_history_once ... ok
+test mock::contract_tests::mock_user_memory_and_profile_enforce_versions_and_emit_user_events ... ok
+test mock::contract_tests::usage_auto_granularity_matches_production_ranges ... ok
+test mock::contract_tests::mock_question_list_requires_a_scope_and_history_cards_are_hydratable ... ok
+test mock::contract_tests::mock_skill_examples_support_design_screens_and_stay_deleted ... ok
+test mock::contract_tests::mock_unknown_or_bot_disabled_explicit_skill_is_not_recorded ... ok
+test mock::contract_tests::mock_skill_attachment_files_are_seeded_and_listed_in_skill_detail ... ok
+test rate_limit::tests::concurrent_reservations_are_bounded_and_survive_reopen ... ok
+test tests::absolute_artifact_paths_stay_inside_selected_project ... ok
+test mock::contract_tests::mock_search_has_cross_entity_hits_and_empty_result ... ok
+test rate_limit::tests::waiting_can_be_cancelled_without_reserving_another_call ... ok
+test mock::contract_tests::web_redesign_trace_is_detailed_and_keeps_assignment_queue_state ... ok
+test mock::contract_tests::workbench_aggregates_assignments_waiting_and_takeover_typed ... ok
+test tests::client_locale_enforces_bcp47_subtag_order_and_lengths ... ok
+test mock::contract_tests::pending_review_mock_has_group_history_and_project_artifacts ... ok
+test mock::contract_tests::usage_mock_is_seeded_filtered_and_typed ... ok
+test tests::file_list_entry_name_skips_non_utf8_bytes ... ok
+test mock::contract_tests::mock_waiting_queue_counts_per_assignment_and_promotes_only_selected_delivery ... ok
+test tests::file_resolution_uses_project_slug_and_rejects_traversal ... ok
+test tests::formal_node_id_is_uuidv7_and_persists ... ok
+test tests::admin_model_onboarding_requires_a_browser_session ... ok
+test mock::contract_tests::search_indexes_fixture_corpus_and_honors_filters ... ok
+test tests::global_trace_projection_preserves_cursor_without_disclosing_payload ... ok
+test tests::admin_settings_preserves_models_and_rejects_invalid_port ... ok
+test tests::admin_model_onboarding_reports_empty_state_and_stores_only_encrypted_credentials ... ok
+test mock::contract_tests::mock_skill_deletions_survive_gateway_restart_while_fresh_home_gets_examples ... ok
+test tests::config_managed_host_name_is_reported_and_cannot_be_overwritten ... ok
+test tests::config_managed_port_is_reported_and_cannot_be_written_to_legacy_settings ... ok
+test tests::fresh_mock_home_seeds_artifact_files_without_replacing_existing_files ... ok
+test tests::mock_screen_frame_preserves_selected_tab_url ... ok
+test tests::mock_screen_frames_have_protocol_dimensions ... ok
+test tests::admin_status_reports_persisted_curator_failures_and_pending_operations ... ok
+test tests::non_integer_port_is_rejected_and_explicit_legacy_default_is_marked ... ok
+test tests::production_trace_unsubscribe_is_handled_by_the_websocket_layer ... ok
+test tests::mock_bootstrap_and_hello_share_node_id ... ok
+test tests::range ... ok
+test tests::mock_bootstrap_and_idempotency ... ok
+test tests::fresh_admin_settings_keep_defaults_for_settings_and_usage_csv ... ok
+test tests::mock_fixture_indexes_trace_chat_updates_and_team_objects ... ok
+test tests::screen_auto_selects_mobile_from_user_agent ... ok
+test tests::screen_auto_uses_configured_desktop_and_mobile_profiles ... ok
+test tests::protected_admin_status_rejects_missing_session_without_a_challenge ... ok
+test tests::initial_setup_is_loopback_only_sets_a_session_and_cannot_repeat ... ok
+test tests::screen_input_geometry_ignores_device_height_offset_and_page_scale_for_content ... ok
+test tests::screen_input_geometry_preserves_native_content_after_low_frame_rounding ... ok
+test tests::screen_input_geometry_uses_frame_content_height_for_low_quality ... ok
+test tests::screen_input_geometry_without_metadata_is_identity ... ok
+test tests::screen_profile_rejects_out_of_range_values ... ok
+test tests::screen_quality_matches_protocol_profiles ... ok
+test tests::screen_state_url_uses_selected_tab ... ok
+test tests::screen_state_broadcast_driver_follows_takeover_lifecycle ... ok
+test tests::sidecar_click_and_key_press_emit_physical_pairs ... ok
+test tests::sidecar_input_scales_frame_pixels_to_viewport_coordinates ... ok
+test tests::sidecar_input_scales_touch_points ... ok
+test tests::screen_frame_header_uses_encoded_jpeg_dimensions_and_url ... ok
+test tests::root_and_admin_path_serve_the_custom_login_page_without_a_challenge ... ok
+test tests::upload_file_ref_with_empty_path_resolves_to_the_file ... ok
+test tests::trace_subscribe_returns_inflight_and_applies_both_scopes ... ok
+test tests::trace_runtime_handles_concurrent_stream_deltas_and_subscribes ... ok
+test tests::mock_bootstrap_emits_one_stable_first_connection_greeting ... ok
+test tests::resume_rejects_future_cursors_without_overflow ... ok
+test tests::websocket_resume_normalizes_legacy_assignment_before_wire_decode ... ok
+test tests::resume_done_never_advances_past_replayed_events ... ok
+test tests::file_list_serializes_utf8_names_and_seeds_nested_mock_artifacts ... ok
+test tests::uploads_accept_files_larger_than_the_framework_default_limit ... ok
+test tests::unsubscribed_socket_receives_trace_cursor_in_live_and_replay ... ok
+test tests::network_auth_and_health ... ok
+test tests::login_logout_and_password_change_manage_admin_sessions ... ok
+
+test result: ok. 382 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 27.45s
+
+     Running unittests src/lib.rs (/tmp/macbot-audit-20261015-iEFvBx/main-verify-target/debug/deps/macbot_memory-0653efe3aa3301f7)
+
+running 19 tests
+test tests::profile_language_normalizes_names_and_validates_bcp47 ... ok
+test tests::group_context_has_at_most_thirty_recent_messages_and_80_percent_boundary ... ok
+test tests::rejected_profile_language_is_atomic_and_does_not_migrate_legacy_data ... ok
+test tests::l2_uses_frozen_entry_and_profile_values_until_new_snapshot ... ok
+test tests::quotas_are_per_scope_and_kind ... ok
+test tests::maintenance_provider_is_injectable ... ok
+test tests::searches_sessions_projects_and_history ... ok
+test tests::snapshot_stays_frozen_until_a_new_segment_rebuilds_it ... ok
+test tests::shared_store_serializes_concurrent_quota_checks ... ok
+test tests::user_profile_is_pinned_in_user_authorized_private_and_group_contexts ... ok
+test tests::worklog_rolls_old_entries_into_a_bounded_month_marker ... ok
+test tests::persisted_entries_keep_source_and_reload ... ok
+test tests::empty_store_and_segment_snapshot_state_survive_restart ... ok
+test tests::legacy_changelog_rows_are_normalized_and_preserved_during_prune ... ok
+test tests::write_ahead_record_recovers_failed_state_write_and_idempotency_receipt ... ok
+test tests::immediate_mutations_require_versions_and_replay_by_operation_id ... ok
+test tests::recovery_keeps_healthy_changelog_append_only_and_repairs_partial_transactions ... ok
+test tests::changelog_gap_and_segment_retention_are_detected ... ok
+test tests::user_memory_versions_conflicts_quota_and_profile_survive_restart ... ok
+
+test result: ok. 19 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.31s
+
+     Running unittests src/lib.rs (/tmp/macbot-audit-20261015-iEFvBx/main-verify-target/debug/deps/macbot_orchestrator-a03e8f5c89679dec)
+
+running 79 tests
+test state::tests::artifacts_without_project_are_scoped_to_the_sending_bot ... ok
+test state::tests::announcement_deduplicates_legacy_rows_without_mutating_them ... ok
+test state::tests::artifacts_upsert_by_project_path_preserves_identity_and_actual_owner ... ok
+test state::tests::blocked_assignments_block_bot_and_member_removal_and_unknown_routine_is_not_found ... ok
+test state::tests::announcement_prefers_current_work_and_selects_history_deterministically ... ok
+test state::tests::blocked_attention_is_deduped_per_episode_and_reopens_after_resume ... ok
+test state::tests::bot_create_and_template_keep_dm_chat_id_in_sync ... ok
+test state::tests::answering_waiting_assignment_obeys_existing_assignment_admission ... ok
+test state::tests::approval_and_question_waiting_states_validate_inputs ... ok
+test state::tests::assignment_return_routes_are_distinct_and_stable_after_restore ... ok
+test state::tests::bot_create_request_is_idempotent_and_bound_to_its_parameters ... ok
+test state::tests::decision_self_mention_rejects_main_alias_without_mutating_state ... ok
+test state::tests::bot_update_model_null_restores_default_selection ... ok
+test state::tests::decision_without_recipient_or_options_rejects_without_mutating_state ... ok
+test state::tests::cancellation_emits_system_message_and_confirm_done_stops_active_work ... ok
+test state::tests::bot_duplicate_copies_profile_and_routines_without_history ... ok
+test state::tests::denying_approval_fails_assignment_and_expires_other_pending ... ok
+test state::tests::decision_options_to_bot_waits_for_bot_and_resolves_question ... ok
+test state::tests::duplicate_membership_is_rejected_and_repeated_add_is_idempotent ... ok
+test state::tests::cancelling_assignment_expires_only_its_pending_approvals ... ok
+test state::tests::expire_invalid_approval_is_idempotent_and_does_not_touch_assignment ... ok
+test state::tests::deleting_bot_keeps_terminal_history_and_disables_orphan_routines_on_restore ... ok
+test state::tests::concurrent_projects_with_same_name_get_unique_homes ... ok
+test state::tests::finish_routine_run_updates_snapshot_and_is_idempotent ... ok
+test state::tests::filtered_lists_steer_idle_bot_and_validate_routine_project ... ok
+test state::tests::finish_routine_run_updates_run_and_last_run_idempotently ... ok
+test state::tests::new_main_bot_defaults_to_secretary_general_and_coordination_only_tools ... ok
+test state::tests::private_decision_options_create_question_without_assignment ... ok
+test state::tests::private_question_scope_rejects_non_dm_chat ... ok
+test state::tests::private_question_scope_does_not_create_or_resume_assignment ... ok
+test state::tests::main_assignment_ignores_zero_bot_limit_and_projects_include_main ... ok
+test state::tests::main_coordination_does_not_consume_worker_global_slot ... ok
+test state::tests::group_done_creates_handoff_assignment ... ok
+test state::tests::json_string_self_mention_is_rejected_before_state_change ... ok
+test state::tests::group_send_msg_without_assignment_infers_project_for_handoff_and_artifact ... ok
+test state::tests::json_string_mentions_route_user_and_bot_without_main_alias ... ok
+test state::tests::private_scope_and_main_delegate_scope_are_canonical ... ok
+test state::tests::project_assignments_reject_missing_project_or_membership_on_create_and_restore ... ok
+test state::tests::project_attention_polls_terminal_and_stale_workers_idempotently ... ok
+test state::tests::project_review_transition_is_idempotent_and_terminal_projects_are_protected ... ok
+test state::tests::project_review_requires_resolved_work_and_recognizes_explicit_retry_chain ... ok
+test state::tests::question_answer_is_idempotent_only_for_the_same_response ... ok
+test state::tests::project_changes_wakes_main_with_user_message_trigger ... ok
+test state::tests::project_incarnation_cannot_send_to_bot_dm ... ok
+test state::tests::loop_limit_returns_pause_block_and_resume_dispatches_once ... ok
+test state::tests::project_update_duplicate_and_completion_operations_are_persisted ... ok
+test state::tests::reconcile_legacy_working_decision_is_idempotent ... ok
+test state::tests::project_incarnations_bind_one_bot_to_one_canonical_group_scope ... ok
+test state::tests::reconcile_decision_rejects_terminal_and_does_not_infer_without_options ... ok
+test state::tests::restore_does_not_guess_ambiguous_decision_wait_message ... ok
+test state::tests::restore_legacy_question_link_uses_creation_time_for_duplicate_text ... ok
+test state::tests::restore_migrates_legacy_main_dm_history_without_changing_refs ... ok
+test state::tests::restore_renames_only_legacy_default_main_bot ... ok
+test state::tests::renaming_project_does_not_reuse_another_project_home ... ok
+test state::tests::restore_normalizes_legacy_dm_ids ... ok
+test state::tests::restore_relinks_legacy_decision_message_to_question ... ok
+test state::tests::reconcile_answered_question_relinks_without_reopening_or_duplicating ... ok
+test state::tests::restore_relinks_legacy_private_decision_message ... ok
+test state::tests::run_scoped_subagents_obey_run_and_global_limits_and_release_quota ... ok
+test state::tests::reconcile_bot_decision_waits_for_bot_and_skips_ambiguous_match ... ok
+test state::tests::send_msg_multi_question_persists_options_and_rejects_free_text ... ok
+test state::tests::routine_test_run_creates_assignment_and_dispatch_descriptor ... ok
+test state::tests::same_path_in_different_projects_is_not_merged ... ok
+test state::tests::send_msg_is_idempotent_and_hands_off ... ok
+test state::tests::rpc_assignment_routes_project_work_to_project_chat_and_rejects_private_delegation ... ok
+test state::tests::routine_delivery_uses_real_chat_and_migrates_legacy_origin ... ok
+test state::tests::steer_delivery_progresses_queued_delivered_read ... ok
+test state::tests::routine_limits_and_timezone_are_validated ... ok
+test state::tests::send_msg_rejects_unknown_target_before_mutation ... ok
+test state::tests::routine_last_run_tracks_trigger_order_when_completions_overlap ... ok
+test state::tests::terminal_assignment_allows_only_exact_replay_of_a_committed_answer ... ok
+test state::tests::stale_attention_uses_latest_ack_or_progress_and_blocked_wakes_main ... ok
+test state::tests::steering_does_not_clear_a_question_tool_wait_without_a_message_checkpoint ... ok
+test state::tests::workbench_includes_standalone_pending_approval ... ok
+test state::tests::subagent_limit_loop_resolution_and_routine_tick ... ok
+test state::tests::steer_delivery_updates_each_assignment_for_one_user_message ... ok
+test state::tests::worker_done_wakes_main_without_marking_project_ready_for_review ... ok
+test state::tests::user_chat_send_routes_mentions_and_persists_delivery ... ok
+test state::tests::routine_cron_timezone_and_minimum_interval_are_enforced ... ok
+
+test result: ok. 79 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running unittests src/lib.rs (/tmp/macbot-audit-20261015-iEFvBx/main-verify-target/debug/deps/macbot_providers-f2208de61f99d763)
+
+running 20 tests
+test tests::anthropic_request_contains_tool_results_and_images ... ok
+test tests::anthropic_cached_tokens_and_fragmented_tools_are_normalized ... ok
+test tests::anthropic_system_cache_breakpoint_is_preserved ... ok
+test tests::google_thought_signature_survives_native_function_response ... ok
+test tests::anthropic_catalog_uses_versioned_route ... ok
+test tests::anthropic_stream_uses_versioned_route_and_retains_signed_tool_context ... ok
+test tests::google_tools_images_and_reasoning_use_the_common_contract ... ok
+test tests::http_stream_against_local_fake_server ... ok
+test tests::interrupted_stream_and_malformed_tool_arguments_are_errors ... ok
+test tests::responses_converts_multimodal_content_and_tool_results ... ok
+test tests::responses_tool_call_id_is_preserved ... ok
+test tests::signed_thinking_survives_tool_result_continuation ... ok
+test tests::split_tool_arguments_and_usage ... ok
+test secrets::tests::encrypted_store_rejects_checkouts_and_symlink_reads ... ok
+test secrets::tests::encrypted_records_bind_the_provider_id_and_reject_tampering ... ok
+test secrets::tests::encrypted_files_survive_reopen_and_replace_without_leaking_plaintext ... ok
+test registry::tests::crud_wal_restart_and_idempotency_never_persist_key ... ok
+test registry::tests::model_ref_keeps_namespaced_provider_model_id ... ok
+test registry::tests::delete_rejects_in_use_model_and_accepts_after_release ... ok
+test registry::tests::refresh_uses_local_fake_models_endpoint ... ok
+
+test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.24s
+
+     Running unittests src/lib.rs (/tmp/macbot-audit-20261015-iEFvBx/main-verify-target/debug/deps/macbot_skills-080113a48bc183b2)
+
+running 16 tests
+test tests::rejects_git_subdir_escape_and_builtin_writes ... ok
+test tests::forced_skill_invocation_loads_only_known_skill ... ok
+test tests::bot_skill_settings_snapshot_restores_target_state ... ok
+test tests::duplicate_copies_only_source_bot_disablement ... ok
+test tests::rejects_zip_traversal ... ok
+test tests::rejects_filesystem_symlink_entries ... ok
+test tests::draft_cannot_be_invoked_before_publish ... ok
+test tests::manages_draft_publish ... ok
+test tests::first_root_wins_and_bot_disable_is_scoped ... ok
+test tests::invocation_time_tracks_actual_loads_and_survives_rescan_and_legacy_metadata ... ok
+test tests::respects_disable_model_invocation_frontmatter ... ok
+test tests::extra_dirs_reload_and_filesystem_changes_are_detected ... ok
+test tests::restoring_target_settings_preserves_concurrent_other_bot_changes ... ok
+test tests::restores_enablement_and_invocations_after_rescan ... ok
+test tests::update_preserves_global_and_bot_enablement_metadata ... ok
+test tests::scans_frontmatter_and_loads_body_on_demand ... ok
+
+test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running unittests src/lib.rs (/tmp/macbot-audit-20261015-iEFvBx/main-verify-target/debug/deps/macbot_store-2b6123beb17abc3c)
+
+running 13 tests
+test tests::rejects_malformed_complete_jsonl_record_during_open ... ok
+test tests::rejects_parent_traversal_and_symlink_escape ... ok
+test tests::events_are_monotonic ... ok
+test tests::event_indexes_distinguish_new_payloads_and_rebuild_after_reopen ... ok
+test tests::operation_event_receipt_is_atomic_concurrent_and_survives_reopen ... ok
+test tests::large_snapshot_round_trips_from_complete_file ... ok
+test tests::snapshot_replace_is_readable ... ok
+test tests::chat_sequences_are_shared_and_updates_keep_their_position_after_recovery ... ok
+test tests::chat_sequence_recovery_repairs_a_torn_reservation_without_reusing_committed_positions ... ok
+test tests::truncates_incomplete_last_line_and_keeps_previous_records ... ok
+test tests::torn_event_does_not_restore_an_uncommitted_operation_receipt ... ok
+test tests::concurrent_chat_sequence_allocations_are_unique ... ok
+test tests::concurrent_event_appends_have_unique_sequences ... ok
+
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.57s
+
+     Running unittests src/lib.rs (/tmp/macbot-audit-20261015-iEFvBx/main-verify-target/debug/deps/macbot_tools-cbc1707cab718970)
+
+running 14 tests
+test tests::read_returns_supported_images_as_base64_parts ... ok
+test tests::bash_jobs_are_scoped_and_cleanup_only_owns_run ... ok
+test tests::tool_context_resolve_uses_process_home_for_tilde ... ok
+test tests::edit_requires_unique_replacements ... ok
+test tests::resolve_tool_path_expands_home_without_changing_other_paths ... ok
+test tests::write_and_read_work ... ok
+test tests::bash_sanitizes_api_keys_and_returns_error_value ... ok
+test tests::find_and_grep_respect_gitignore ... ok
+test tests::truncated_read_and_bash_save_complete_output_under_run ... ok
+test tests::bash_job_kill_ends_the_process_group ... ok
+test tests::bash_job_reports_live_output_and_does_not_kill_completed_jobs ... ok
+test tests::foreground_bash_cancellation_kills_process_group ... ok
+test tests::registered_local_service_is_retained_only_for_its_run ... ok
+test tests::foreground_bash_emits_partial_output_before_exit ... ok
+
+test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.03s
+
+     Running unittests src/lib.rs (/tmp/macbot-audit-20261015-iEFvBx/main-verify-target/debug/deps/macbot_usage-bda7396bfe70eb37)
+
+running 8 tests
+test tests::cache_is_a_subset_of_input_and_price_is_separate ... ok
+test tests::empty_interval_and_percentiles_are_safe ... ok
+test tests::unknown_price_propagates_and_heatmap_uses_host_timezone ... ok
+test tests::timezone_and_dst_share_local_day ... ok
+test tests::top_series_is_folded_into_other ... ok
+test tests::rebuild_and_request_idempotence ... ok
+test tests::summary_has_previous_window_and_minute_flush_persists_hourly ... ok
+test tests::default_top_is_six_with_other_series ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.09s
+
+     Running unittests src/main.rs (/tmp/macbot-audit-20261015-iEFvBx/main-verify-target/debug/deps/macbotd-77eeed6179ac49f2)
+
+running 7 tests
+test tests::port_priority_and_legacy_default_migration_are_stable ... ok
+test tests::existing_config_permissions_are_corrected_and_bare_filename_has_a_parent ... ok
+test tests::config_overrides_parse_port_home_and_host_name ... ok
+test tests::config_template_is_created_and_parses_as_an_empty_override ... ok
+test tests::concurrent_config_initialization_creates_one_complete_private_file ... ok
+test tests::explicit_7788_choice_marks_legacy_migration_without_changing_the_port ... ok
+test tests::old_default_port_migrates_once_and_later_explicit_7788_is_preserved ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+
+   Doc-tests macbot_browser
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests macbot_durable
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests macbot_gateway
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests macbot_memory
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests macbot_orchestrator
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests macbot_providers
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests macbot_skills
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests macbot_store
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests macbot_tools
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests macbot_usage
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s

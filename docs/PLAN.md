@@ -47,7 +47,7 @@
 | Bot 执行模型 | 任务按 durable 流程执行（借鉴 pi-durable）；**群消息只来自 `send_msg` 工具**，不流式；插话走 steer；详细过程只在用户打开时推送（5.3、5.11） |
 | 并行 | 同一个 Bot 可以同时在多个群里干活，有全局上限和每个 Bot 的上限；同一个群里同一个 Bot 的活按顺序做（5.3.5） |
 | 记忆 | 三种（用户、Bot、项目），由服务端管理；客户端只展示和编辑用户记忆，Bot 与项目记忆不展示；项目共享要点由 Bot 写进公告（5.5） |
-| 工具 | 照搬 pi 的文件工具和 bash，另有 agent-browser、子代理、web、`send_msg`、技能（5.10） |
+| 工具 | 参考 pi 的文件工具和 bash 语义，以本项目实现和验证为准；另有 agent-browser、子代理、web、`send_msg`、技能（5.10） |
 | 技能 | Agent Skills 规范，所有 Bot 共用；客户端可以增删改，逻辑都在服务端 |
 | 浏览器 | agent-browser sidecar；**每个 Bot 一个浏览器会话**，同一个 Bot 并行的任务各用一个标签页（5.8） |
 | 连接 | 一个 TCP 端口：主连接 `/ws`（消息、事件、心跳、运行轨迹）+ 按需的画面连接 `/ws/screen` + HTTP（文件）。QUIC 以后作为画面的可选加速（5.7） |
@@ -155,7 +155,7 @@ mac-bot/
 ~/MacBot/                       # 默认数据目录；可由 config.toml 的 data_home 覆盖
 ├── data/
 │   ├── node.json  auth.json  settings.json
-│   ├── providers.json  models.json       # API Key 存在钥匙串，这里只存引用
+│   ├── providers.json  models.json       # API Key 加密保存在 data/provider-secrets/，这里只存引用
 │   ├── devices.json
 │   ├── bots/<bot_id>.json
 │   ├── projects/<project_id>.json
@@ -308,7 +308,7 @@ send_msg(
 - **共享资源**：
   - 浏览器按 Bot 共享（5.8）。
   - Home 目录由群成员共享，约定每个 Bot 写自己的子目录（例如 `product/`、`code/`、`test/`）。
-  - 记忆的写入在 run 结束时提交，冲突时以后写入的为准。
+  - 记忆工具立即提交；replace/remove 按 `expected_version` 检查冲突（5.5.1），不以 run 结束或最后写入覆盖为准。
 
 #### 5.3.7 持久化与恢复
 
@@ -465,7 +465,7 @@ send_msg(
 
 - API 类型：`openai-completions`、`openai-responses`、`anthropic-messages`、`google-generative`。任意 OpenAI 兼容端点都可以接入（Ollama、vLLM、DeepSeek、Qwen 等）。
 - 统一的流式事件：TextDelta、ThinkingDelta、ToolCallDelta、Usage、Stop。
-- API Key 存在钥匙串里，`provider.list` 只返回 `has_key`。
+- API Key 使用 AES-256-GCM 加密保存在 `data/provider-secrets/`，不使用钥匙串；`provider.list` 只返回 `has_key`（DECISIONS 2026-10-14）。
 - 每个 Bot 一个模型（私聊和干活共用）；主 Bot、子代理和 maintenance（记忆整理、压缩）各有默认模型。
 
 ### 5.7 连接
@@ -564,10 +564,10 @@ struct ToolResult { content: Vec<Part /* Text | Image */>, details: Value, is_er
 |------|:---:|:---:|:---:|
 | 文件、bash | — | ✅ | 默认只读，可以授权写入 |
 | 浏览器 | — | ✅ | 默认只读类 |
-| subagent | — | ✅ | — |
-| skill、web | ✅ | ✅ | ✅ |
+| subagent | 仅私聊协调时可启动只读子运行（5.3.5） | ✅ | — |
+| skill、web | — | ✅ | ✅ |
 | send_msg | ✅ | ✅ | — |
-| 记忆和检索 | ✅ | ✅ | — |
+| 记忆和检索 | — | ✅ | — |
 
 每个 Bot 可以在设置里关掉某类工具（`Bot.tools`）。
 

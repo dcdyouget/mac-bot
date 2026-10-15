@@ -1,0 +1,6 @@
+Method: 89 serde dispatch -> generator binding -> exported schema matches
+EventName: 42 serde dispatch -> generator binding -> exported schema matches
+TraceType: 12 serde dispatch -> generator binding -> exported schema matches
+method_result.json: nested TraceItem binds 12 variants
+event_data.json: nested TraceItem binds 12 variants
+event_frame.json: nested TraceItem binds 12 variants

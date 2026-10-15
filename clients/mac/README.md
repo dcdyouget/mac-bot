@@ -5,9 +5,20 @@
 界面工程位于 `app/`：Tauri 2 负责窗口与 Rust bridge，React/TypeScript/Vite 负责界面；bridge 复用 `crates/macbot-client-core`，连接状态和协议事件保留在 Rust。客户端不会启动 mock；先在终端启动服务端 mock，再在客户端连接页输入地址和密码。
 
 ```sh
-# 从仓库根目录启动隔离的 mock 数据目录
-MACBOT_HOME=/tmp/macbot-mock cargo run --manifest-path server/Cargo.toml -p macbotd -- --mock --port 7789 --password dev
+# 从仓库根目录创建独立配置和数据目录，再启动 mock
+MOCK_ROOT="$(mktemp -d /tmp/mb-desktop.XXXXXX)"
+MOCK_HOME="$MOCK_ROOT/home"
+MOCK_CONFIG="$MOCK_ROOT/config.toml"
+mkdir -p "$MOCK_HOME"
+cat > "$MOCK_CONFIG" <<EOF
+port = 18789
+data_home = "$MOCK_HOME"
+EOF
+cargo run --manifest-path server/Cargo.toml -p macbotd -- \
+  --mock --config "$MOCK_CONFIG" --home "$MOCK_HOME" --port 18789 --password dev
 ```
+
+若 `18789` 已被占用，请换用其他未占用端口，并同步修改配置文件中的 `port`、启动参数 `--port` 和客户端连接地址；不要停止占用该端口的服务。
 
 开发运行与前端检查：
 
@@ -20,7 +31,7 @@ npm run build               # TypeScript 检查和 Vite 前端构建
 npm run tauri -- build      # Tauri 原始 release bundle，位于 app/src-tauri/target/release/bundle/
 ```
 
-首次连接 mock 时，在连接页输入 `127.0.0.1:7789` 和密码 `dev`。正式服务的默认端口是 `28789`；地址支持任意 `host:port`、IP、域名及 `ws://`/`wss://`。Tauri UI 不读取旧 GPUI 使用的 `MACBOT_HOST`、`MACBOT_PASSWORD` 环境变量。
+首次连接上述 mock 时，在连接页输入 `127.0.0.1:18789` 和密码 `dev`。正式服务的默认端口是 `28789`；地址支持任意 `host:port`、IP、域名及 `ws://`/`wss://`。Tauri UI 不读取旧 GPUI 使用的 `MACBOT_HOST`、`MACBOT_PASSWORD` 环境变量。
 
 正式 `.app` 和 `.dmg` 使用仓库打包脚本生成：
 

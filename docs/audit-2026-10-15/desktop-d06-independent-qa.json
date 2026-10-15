@@ -1,0 +1,36 @@
+{
+  "date": "2026-10-15",
+  "scope": "Independent read-only verification of frozen desktop D06 tree; no clients/mac source edits",
+  "automated": {
+    "node": "node --test src/components/*.test.mjs: 123/123 passed",
+    "tauri": "cargo test --manifest-path app/src-tauri/Cargo.toml --lib: 56/56 passed",
+    "bundle": "npm run tauri -- build --config /tmp/macbot-audit-20261015-iEFvBx/desktop-verification/tauri.qa.json --bundles app: passed; chunk-size warning only"
+  },
+  "isolated_mock_hosts": [
+    {
+      "endpoint": "127.0.0.1:55381",
+      "home": "/tmp/macbot-audit-20261015-iEFvBx/desktop-verification/host-a"
+    },
+    {
+      "endpoint": "127.0.0.1:55382",
+      "home": "/tmp/macbot-audit-20261015-iEFvBx/desktop-verification/host-b"
+    }
+  ],
+  "ui_verified": [
+    "Project Home Open entered Host A remote Home root and listed docs/reports/src.",
+    "Composer Home picker selected Host A docs/brief.md; attachment uploaded to Host A. Uploaded bytes SHA-256 matched remote source: 080ebae...551df84f.",
+    "Host B picker listed host-b-only.txt and previewed Host B only; Host B attachment upload landed under Host B uploads and matched SHA-256 daf64b5e26b797427c37adf35a0cb752ee0d1a6d9191508356e4d73eaba17b62. Host A-only marker was not observed on Host B.",
+    "Finder reveal selected the downloaded cache copy /Users/gongshaojie/Library/Caches/bot.mac.desktop.audit20261015/remote-files/d162d33f-36f8-4fb0-94dc-239ed4b78dbf-brief.md; SHA-256 matched Host A source."
+  ],
+  "skill_conflict": {
+    "remote_update": "POST /api/v1/rpc skill.update to isolated Host B and Host A returned HTTP 200.",
+    "observed": "UI displayed remote conflict banner and preserved local draft.",
+    "reload_button": "Follow-up retry passed. On the relaunched isolated QA app, a fresh full AX tree reported button id 95 under conflict container 93; `await app.click(95); await app.getAXState()` removed the banner and Save button and replaced the textarea with remote content `# Host A REMOTE RELOAD REPRO`. First run used stale AX id 41 and coordinates and showed no change; likely first-run UI automation target/focus issue, not a confirmed product defect."
+  },
+  "screenshots": "CUA screenshots inspected in-session; documented API has no filesystem save/export method. No screencapture or privacy bypass. AX evidence: conflict container 93/button 95; click result removed conflict banner and replaced textarea with remote content. RPC update response was HTTP 200 curl stdout; batch2-rpc.jsonl and state-batch-rpc.jsonl predate this D06 retry.",
+  "limits": [
+    "Did not verify reverse Host A-only marker after Host B because further UI clicks stopped changing AX state in the first run.",
+    "Did not test 100 MiB boundary in GUI."
+  ],
+  "source_tree": "Read-only; QA used isolated bundle ID bot.mac.desktop.audit20261015 and MACBOT_CLIENT_DATA_DIR under this temporary directory."
+}

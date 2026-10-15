@@ -1,0 +1,125 @@
+{
+  "scope": "isolated bot.mac.mobile.capacitytest UI/RPC verification",
+  "build": {
+    "command": "./gradlew --no-daemon --rerun-tasks -PmacbotNotificationCapacityIsolated=true :shared:testAndroidHostTest :androidApp:testDebugUnitTest :androidApp:assembleDebug :androidApp:assembleDebugAndroidTest",
+    "result": "BUILD SUCCESSFUL",
+    "shared_tests": {
+      "count": 196,
+      "failed": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "android_unit_tests": {
+      "count": 37,
+      "failed": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "app_package": "bot.mac.mobile.capacitytest"
+  },
+  "approval_multi_double_tap": {
+    "question_id": "q_mock_login_flow_3",
+    "selected_option_indexes": [
+      0,
+      2
+    ],
+    "immediate_failure_retry": {
+      "request_count": 2,
+      "request_ids": [
+        "ba5c9e9d-2213-4a45-acb5-fbc827a0b995",
+        "201e46b6-0490-4760-8211-3e59dc4cec4b"
+      ],
+      "client_request_id": "d750579b-7cfd-45b8-97bb-bbfe260cdac8",
+      "request_times_unix": [
+        1792078768.398667,
+        1792078768.457267
+      ],
+      "interpretation": "The first injected conflict returned before the second tap; this is a failure retry, not two in-flight submissions. Same client_request_id is retained."
+    },
+    "500ms_delayed_failure_in_flight_double_tap": {
+      "request_count": 1,
+      "request_id": "f88e9064-bf47-4d6b-9733-b788518eed19",
+      "client_request_id": "d750579b-7cfd-45b8-97bb-bbfe260cdac8",
+      "request_time_unix": 1792079307.20193,
+      "proxy_response_delay_ms": 500,
+      "ui_after_failure": "two selections retained; injected error visible"
+    },
+    "logs": [
+      "mobile-rpc-final.jsonl",
+      "mobile-rpc-delayed.jsonl"
+    ],
+    "screenshots": [
+      "final-approval-multi-selected-m07.png",
+      "final-approval-multi-failure-m07.png",
+      "approval-500ms-selected-before.png",
+      "approval-500ms-after.png"
+    ]
+  },
+  "takeover_host_switch": {
+    "start": {
+      "host": "A",
+      "method": "takeover.start",
+      "bot_id": "bot_main",
+      "request_id": "f882bdc3-778c-4acd-afcb-8635798e1bf7"
+    },
+    "release": {
+      "host": "A",
+      "method": "takeover.release",
+      "bot_id": "bot_main",
+      "request_id": "5036c525-c603-4750-bdc2-e2e304123fb4",
+      "ok": true
+    },
+    "host_b_release_requests": 0,
+    "logs": [
+      "mobile-rpc-final.jsonl",
+      "mobile-rpc-host-b.jsonl"
+    ],
+    "ui_screenshot_saved": false,
+    "visual_evidence": null,
+    "evidence_note": "Takeover host ownership is evidenced by RPC logs only; no takeover-specific screenshot or UI hierarchy XML was saved."
+  },
+  "trace_host_switch": {
+    "entry": "Messages > Main Bot chat > delegated task message > scroll Details above composer > Details",
+    "assignment_id": "asg_mock_delegation",
+    "shim": "Preserved upstream trace.history items/aseq; changed only result.live from false to true because macbotd mock hardcodes false.",
+    "subscribe": {
+      "host": "A",
+      "method": "trace.subscribe",
+      "request_id": "2ec8dd54-9c50-4747-9e8c-0fe7046112b9",
+      "stream": "stream_01a14041-dba6-7593-a818-3e6846288e38",
+      "ok": true
+    },
+    "unsubscribe": {
+      "host": "A",
+      "method": "trace.unsubscribe",
+      "request_id": "3a4b3d8f-7885-4fb7-81d2-31b9b98eeddb",
+      "stream": "stream_01a14041-dba6-7593-a818-3e6846288e38",
+      "ok": true
+    },
+    "host_b_unsubscribe_requests": 0,
+    "logs": [
+      "mobile-rpc-trace-shim.jsonl",
+      "mobile-rpc-host-b-final.jsonl"
+    ],
+    "screenshots": [
+      "trace-live-shim.png",
+      "trace-after-host-switch.png"
+    ],
+    "limitation": "Validates the mobile client's captured-Host cleanup path under a temporary live=true shim; not proof of a live server trace stream."
+  },
+  "search_regression": {
+    "reproduction": "Search login > open 登录功能",
+    "result": "final capacitytest APK stayed in MainActivity; no fatal, ANR, or force-finish",
+    "evidence": [
+      "final-search-open.png",
+      "final-search-open-logcat.txt"
+    ]
+  },
+  "credential_free_log_files": [
+    "mobile-rpc-final.jsonl",
+    "mobile-rpc-delayed.jsonl",
+    "mobile-rpc-trace-shim.jsonl",
+    "mobile-rpc-host-b.jsonl",
+    "mobile-rpc-host-b-final.jsonl"
+  ]
+}

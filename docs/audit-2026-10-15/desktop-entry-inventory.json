@@ -1,0 +1,103 @@
+[
+  {
+    "file": "App.tsx",
+    "rpc_methods": [
+      "announcement.update",
+      "approval.decide",
+      "approval.list",
+      "artifact.version.get",
+      "artifact.versions.list",
+      "assignment.get",
+      "assignment.retry",
+      "assignment.stop",
+      "bot.create_from_template",
+      "bot.templates",
+      "chat.get",
+      "chat.history",
+      "chat.react",
+      "host.permissions",
+      "loop.resolve",
+      "memory.profile.get",
+      "memory.user.list",
+      "message.steer",
+      "project.confirm_done",
+      "project.create",
+      "project.get",
+      "project.request_changes",
+      "project.update",
+      "provider.list",
+      "question.answer",
+      "question.list",
+      "routine.create",
+      "routine.delete",
+      "routine.list",
+      "routine.runs",
+      "routine.set_enabled",
+      "routine.test_run",
+      "routine.update",
+      "search",
+      "settings.get",
+      "skill.create",
+      "skill.delete",
+      "skill.get",
+      "skill.import",
+      "skill.list",
+      "skill.publish",
+      "skill.set_enabled",
+      "skill.update",
+      "takeover.release",
+      "takeover.start",
+      "trace.history"
+    ],
+    "verification": "static inventory only; no UI acceptance"
+  },
+  {
+    "file": "components/WorkbenchPage.tsx",
+    "rpc_methods": [
+      "assignment.stop",
+      "workbench.get"
+    ],
+    "verification": "static inventory only; no UI acceptance"
+  },
+  {
+    "file": "components/ArtifactPage.tsx",
+    "rpc_methods": [
+      "artifact.version.get",
+      "artifact.versions.list"
+    ],
+    "verification": "static inventory only; no UI acceptance"
+  },
+  {
+    "file": "components/BotPanel.tsx",
+    "rpc_methods": [
+      "assignment.list",
+      "bot.delete",
+      "bot.duplicate",
+      "bot.get",
+      "bot.update",
+      "provider.list",
+      "settings.get",
+      "settings.update",
+      "skill.list",
+      "usage.breakdown"
+    ],
+    "verification": "static inventory only; no UI acceptance"
+  },
+  {
+    "file": "components/DashboardPage.tsx",
+    "rpc_methods": [
+      "usage.breakdown",
+      "usage.heatmap",
+      "usage.summary",
+      "usage.timeseries"
+    ],
+    "verification": "static inventory only; no UI acceptance"
+  },
+  {
+    "file": "components/SettingsDetail.tsx",
+    "rpc_methods": [
+      "provider.list"
+    ],
+    "verification": "static inventory only; no UI acceptance"
+  }
+]

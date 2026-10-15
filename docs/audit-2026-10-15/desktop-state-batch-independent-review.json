@@ -1,0 +1,36 @@
+{
+  "review": "independent desktop state-batch verification",
+  "source": "frozen state batch; clients/mac only read",
+  "tests": [
+    {
+      "command": "node --test src/components/canonicalHistory.model.test.mjs src/components/routineRunHistory.model.test.mjs src/components/previousMessageEdit.model.test.mjs src/components/routineRunRefresh.test.mjs src/components/skillsRefresh.test.mjs",
+      "passed": 11,
+      "failed": 0
+    },
+    {
+      "command": "cargo test --manifest-path clients/mac/app/src-tauri/Cargo.toml --lib",
+      "passed": 63,
+      "failed": 0
+    }
+  ],
+  "build": {
+    "command": "npm run tauri -- build --config /tmp/macbot-audit-20261015-iEFvBx/desktop-verification/tauri.qa.json --bundles app",
+    "result": "passed; isolated release bundle built"
+  },
+  "production_review": [
+    "history question/approval merges retain existing terminal live records when history returns pending records",
+    "routine_revision advances only for routine.run, routine.updated, routine.deleted; run history effect depends on active routine, stable host-scoped loader, and this revision",
+    "skill detail effect is host-scoped and ignores stale responses; same-name updated_at change re-fetches detail, preserves dirty content and sets remote conflict; save disabled until user resolves conflict",
+    "ArrowUp selects only most recent own plain text; it does not skip ineligible own messages; send path calls message.edit with target message id and updates local canonical message"
+  ],
+  "ui": {
+    "mock": "isolated mock on 55376 via websocket/RPC proxy 55377",
+    "question": "answered pending question through UI; canonical answered state and selected option visible",
+    "approval": "denied pending approval through UI; card updated to denied",
+    "previous_message_edit": "ArrowUp opened edit mode, save called message.edit, bubble displayed edited text",
+    "skills_conflict": "dirty web-auth-patterns draft preserved after same-name external skill.update; remote conflict notice shown; save disabled"
+  },
+  "rpc_log": "state-batch-rpc.jsonl",
+  "screenshot": "CUA screenshots displayed and inspected; PNG was not saved because macOS screencapture denied access; no permission workaround attempted",
+  "disposition": "passed; D06 remains out of scope for this state batch"
+}

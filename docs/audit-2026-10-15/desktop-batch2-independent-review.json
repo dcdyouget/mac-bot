@@ -1,0 +1,33 @@
+{
+  "review": "independent desktop batch 2 verification",
+  "source": "frozen batch2 tree; clients/mac only read",
+  "tests": [
+    {
+      "command": "node --test src/components/questionBlockResolution.model.test.mjs src/components/questionCardAccessibility.test.mjs",
+      "passed": 16,
+      "failed": 0
+    },
+    {
+      "command": "node --test src/components/reliableSend.model.test.mjs src/components/bootstrapRefresh.test.mjs",
+      "passed": 9,
+      "failed": 0
+    },
+    {
+      "command": "cargo test --manifest-path clients/mac/app/src-tauri/Cargo.toml --lib",
+      "passed": 62,
+      "failed": 0
+    }
+  ],
+  "build": "npm run tauri -- build --config /tmp/macbot-audit-20261015-iEFvBx/desktop-verification/tauri.qa.json --bundles app; passed; isolated MacBotAudit.app",
+  "ui": {
+    "mock_port": 55376,
+    "proxy_port": 55377,
+    "ordinary_send": "visible and delivered through chat.send; complete params and client_request_id logged",
+    "gap_recovery": "injected event gap; real bootstrap then question.list/chat.history/approval.list; marker visible in same chat after recovery",
+    "outbox": "empty after server accepted message"
+  },
+  "rpc_log": "batch2-rpc.jsonl",
+  "screenshot": "CUA screenshot displayed and inspected; packaging/screenshot-window.sh could not write PNG because screencapture lacks permission",
+  "disposition": "batch2 passed; next batch unblocked",
+  "follow_up": "D06 remote Home remains unresolved: home_attachment_context passes server home_path to local canonicalization/file dialog."
+}

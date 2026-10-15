@@ -1,0 +1,13 @@
+{
+  "project_id": "01a140c7-25d9-757e-956a-2f0d365f26b5",
+  "chat_id": "01a140c7-25d9-757e-956a-2f0e5e77316c",
+  "first_assignment_id": "01a140c7-2661-77a5-b023-80860aca1cb4",
+  "revision_assignment_id": "01a140c7-3dd5-758a-9bc4-a81cbdf0032b",
+  "status": "done",
+  "artifacts": [
+    "code/closure-e712e025.md",
+    "code/revision-e712e025.md"
+  ],
+  "home": "/private/tmp/macbot-audit-20261015-iEFvBx/final2-qa/product-closure/user-home/MacBot",
+  "provider_requests": 18
+}

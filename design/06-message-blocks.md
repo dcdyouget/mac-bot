@@ -53,7 +53,7 @@
 | 8 | `progress` | 阶段进展 | 独立，左缩进 40 | 6 的圆点 + 「编码：……」`--mb-fs-s` `text.secondary` | 每个任务最多 3 条 |
 | 9 | `blocked` | 卡住 | 宽气泡 | 头部「卡住了」`danger`；原因；「需要：@你 / @秘书长」；[重试] [换模型] | Bot 状态同时变为 ! 卡住 |
 | 10 | `review_card` | 待验收 | 宽气泡 | 头部「待验收 · 群名」`review`；产物行；[确认完成] [提修改意见] [进入群聊] | `confirmed` / `changes_requested` 变成结果行 |
-| 11 | `delegation` | 转交 | 气泡 | reply 图标 + 「交给 [16 头像] **调研** 处理（不建群）」 | 后面紧跟被转交 Bot 的回复 |
+| 11 | `delegation` | 转交（历史兼容） | 气泡 | reply 图标 + 「交给 [16 头像] **调研** 处理」 | 只用于兼容历史消息；新的普通 Bot 派活必须创建或复用项目群，通过群聊卡片进入（DESIGN §1、PLAN §5.3.5） |
 | 12 | `approval` | 审批 | 宽气泡，**只出现在发起审批的那个 Bot 的私聊里** | 头部 shield「需要审批 · 工具名」；命令块；说明；[允许一次] [总是允许] [拒绝] | pending 时 1px `warning` 描边；`allowed_once` / `always_allowed` / `denied` / `expired` 变成结果行 |
 | 13 | `approval_ref` | 审批提示（群里） | 独立，左缩进 40 | `warning.soft` 底的一行：shield + [16 头像] **编码** 在私聊里等你审批 + [前往] | 跳到那个 Bot 的私聊并定位到审批卡片 |
 | 14 | `takeover_request` | 接管请求 | 宽气泡 | `pending`：头部 hand「需要你接管」+ 原因 + 72 高缩略图 + [接管并处理]；`active`：「你正在操作 · Bot 已暂停」+ [回到画面] [交还给 Bot]；`done`：「已交还给 Bot」 | 打开 Agent Computer |

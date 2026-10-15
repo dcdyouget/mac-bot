@@ -1,0 +1,1 @@
+{"ok": true, "case": "reply", "assignments_done": 1, "provider_calls": 4, "inbox_items_for_case_message": 1, "provider_marker_roles": {"system": 2, "user": 2}, "durable_job_statuses": ["done"]}

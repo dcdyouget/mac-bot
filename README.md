@@ -19,6 +19,7 @@
 | [docs/PROTOCOL.md](docs/PROTOCOL.md) | 客户端 ↔ 服务端协议（全部字段） |
 | [docs/REFERENCES.md](docs/REFERENCES.md) | 参考的开源项目和依赖库 |
 | [AGENTS.md](AGENTS.md) | 多 agent 开发、验证与提交约定 |
+| [docs/AUDIT-2026-10-15.md](docs/AUDIT-2026-10-15.md) | 本轮系统审查：工作区基线、缺陷、场景覆盖与验证证据 |
 
 ## License
 
