@@ -30,15 +30,20 @@ use macbot_providers::registry::{ProviderRegistry, RegistryError};
 use macbot_skills::BotSkillSettingsSnapshot;
 use macbot_store::Store;
 use macbot_usage::UsageLedger;
+use rand::RngCore;
 use serde::{
     de::{IgnoredAny, MapAccess, Visitor},
     Deserialize, Deserializer,
 };
 use serde_json::{json, Map, Value};
+use sha2::{Digest, Sha256};
+#[cfg(unix)]
+use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::{
     collections::{HashMap, HashSet},
     fs,
-    io::{BufRead, BufReader, Read},
+    fs::OpenOptions,
+    io::{BufRead, BufReader, Read, Write},
     path::Path,
     sync::{Arc, Mutex as StdMutex},
 };
@@ -273,8 +278,17 @@ pub struct ProductionBackend {
     write_lock: Arc<Mutex<()>>,
     persist_lock: Arc<Mutex<()>>,
     event_lock: Arc<Mutex<()>>,
-    idempotency: Arc<Mutex<HashMap<String, Value>>>,
+    idempotency: Arc<Mutex<HashMap<String, IdempotencyReceipt>>>,
+    request_signing_key: Arc<[u8; 32]>,
     startup_repair_events: Arc<StdMutex<Option<Vec<macbot_store::Event>>>>,
+}
+
+#[derive(Clone, Debug)]
+struct IdempotencyReceipt {
+    method: String,
+    signature: String,
+    result: Value,
+    legacy_params: Option<Value>,
 }
 
 #[derive(Clone)]
@@ -356,6 +370,11 @@ impl ProductionBackend {
         let secrets_home = home.as_ref().to_path_buf();
         let durable = DurableRuntime::open(home)?;
         let store = durable.store().clone();
+        let request_signing_key = Arc::new(
+            load_or_create_request_signing_key(store.root()).map_err(|error| {
+                AdapterError::OrchestratorSnapshot(format!("idempotency signing key: {error}"))
+            })?,
+        );
         let usage = UsageLedger::from_store(store.clone())?;
         let orchestrator = Orchestrator::default();
         let operations = read_operation_log(&store)?;
@@ -407,7 +426,31 @@ impl ProductionBackend {
             match op.get("status").and_then(Value::as_str) {
                 Some("done") => {
                     if let Some(result) = op.get("result") {
-                        idempotency.insert(id.into(), result.clone());
+                        if let (Some(method), Some(params)) = (
+                            op.get("idempotency_method")
+                                .or_else(|| op.get("method"))
+                                .and_then(Value::as_str),
+                            op.get("params"),
+                        ) {
+                            let legacy = op["request_signature_version"] != 1;
+                            let signature = (!legacy)
+                                .then(|| op.get("request_signature").and_then(Value::as_str))
+                                .flatten()
+                                .map(str::to_owned)
+                                .unwrap_or_else(|| {
+                                    request_signature(&request_signing_key, method, params)
+                                });
+                            idempotency.insert(
+                                id.into(),
+                                IdempotencyReceipt {
+                                    method: method.into(),
+                                    signature,
+                                    result: result.clone(),
+                                    legacy_params: legacy
+                                        .then(|| legacy_semantic_params(method, params)),
+                                },
+                            );
+                        }
                     }
                 }
                 Some("rolled_back") => {
@@ -430,6 +473,7 @@ impl ProductionBackend {
             persist_lock: Arc::new(Mutex::new(())),
             event_lock: Arc::new(Mutex::new(())),
             idempotency: Arc::new(Mutex::new(idempotency)),
+            request_signing_key,
             startup_repair_events: Arc::new(StdMutex::new(None)),
         };
         if terminal_approvals_migrated || deleted_user_messages_migrated {
@@ -1569,13 +1613,19 @@ impl ProductionBackend {
         params: &Value,
     ) -> RpcResult {
         let _guard = self.write_lock.lock().await;
-        if let Some(request_id) = params.get("client_request_id").and_then(Value::as_str) {
-            if self.idempotency.lock().await.contains_key(request_id) {
-                // The operation is already durably committed. A retry must
-                // not select another scope or emit another continuation;
-                // the public protocol result is still the empty object.
-                return Ok(json!({}));
-            }
+        if params
+            .get("client_request_id")
+            .and_then(Value::as_str)
+            .is_some()
+            && self
+                .idempotent_result("takeover.start", params)
+                .await?
+                .is_some()
+        {
+            // The operation is already durably committed. A retry must
+            // not select another scope or emit another continuation;
+            // the public protocol result is still the empty object.
+            return Ok(json!({}));
         }
         let result = self.takeover_start(state, params).await?;
         self.persist(state, "takeover.start", params, &json!({}))
@@ -2247,12 +2297,12 @@ impl ProductionBackend {
                             })
                         });
                         let text = if is_done {
-                            "完成请验收".to_owned()
+                            "任务已完成".to_owned()
                         } else {
                             format!("任务受阻：{summary}")
                         };
                         let note = if is_done {
-                            "产物已登记，可打开项目群查看。".to_owned()
+                            "产物已登记，主 Bot 正在汇总；项目进入待验收后会另行通知。".to_owned()
                         } else {
                             format!("失败原因与建议措施：{summary}")
                         };
@@ -2447,8 +2497,9 @@ impl ProductionBackend {
         &self,
         key: &str,
         event_name: &str,
-        data: Value,
+        mut data: Value,
     ) -> Result<Option<macbot_store::Event>, RpcError> {
+        normalize_event_data(event_name, &mut data);
         // New keyed events can be deduplicated from the in-memory receipt
         // index. Older releases wrote unkeyed events, so only a fingerprint
         // hit takes the expensive exact event-log compatibility path.
@@ -2497,9 +2548,10 @@ impl ProductionBackend {
         &self,
         key: &str,
         event_name: &str,
-        data: Value,
+        mut data: Value,
         events: &[macbot_store::Event],
     ) -> Result<Option<macbot_store::Event>, RpcError> {
+        normalize_event_data(event_name, &mut data);
         // New keyed events can be deduplicated from the in-memory receipt
         // index. Older releases wrote unkeyed events, so only a fingerprint
         // hit takes the expensive exact event-log compatibility path.
@@ -2972,12 +3024,18 @@ impl ProductionBackend {
         params: &Value,
     ) -> RpcResult {
         let _guard = self.write_lock.lock().await;
-        if let Some(request_id) = params.get("client_request_id").and_then(Value::as_str) {
-            if self.idempotency.lock().await.contains_key(request_id) {
-                // Do not consume a second active takeover when a caller
-                // retries after the first release was durably committed.
-                return Ok(json!({}));
-            }
+        if params
+            .get("client_request_id")
+            .and_then(Value::as_str)
+            .is_some()
+            && self
+                .idempotent_result("takeover.release", params)
+                .await?
+                .is_some()
+        {
+            // Do not consume a second active takeover when a caller
+            // retries after the first release was durably committed.
+            return Ok(json!({}));
         }
         let result = self.takeover_release(state, params).await?;
         self.persist(state, "takeover.release", params, &json!({}))
@@ -2994,8 +3052,12 @@ impl ProductionBackend {
         params: Value,
     ) -> RpcResult {
         let _guard = self.write_lock.lock().await;
-        if let Some(request_id) = params.get("client_request_id").and_then(Value::as_str) {
-            if let Some(value) = self.idempotency.lock().await.get(request_id).cloned() {
+        if params
+            .get("client_request_id")
+            .and_then(Value::as_str)
+            .is_some()
+        {
+            if let Some(value) = self.idempotent_result("takeover.request", &params).await? {
                 return Ok(value);
             }
         }
@@ -3082,12 +3144,11 @@ impl ProductionBackend {
                 message: "assignment lookup returned no assignment".into(),
                 details: None,
             })?;
-        let data = json!({"assignment":assignment});
-        let event = self
-            .store
-            .append_event("assignment.updated", data.clone())
-            .map_err(store_error)?;
-        state.publish_event(event.seq, &event.event, data).await;
+        let event =
+            append_assignment_updated_event(&self.store, assignment).map_err(store_error)?;
+        state
+            .publish_event(event.seq, &event.event, event.data)
+            .await;
         Ok(json!({"message":message}))
     }
 
@@ -3138,31 +3199,28 @@ impl ProductionBackend {
     /// holding the RPC request lock.
     pub async fn persist_orchestrator(&self, operation: Value) -> RpcResult {
         let _guard = self.persist_lock.lock().await;
-        let request_id = operation
-            .get("client_request_id")
-            .and_then(Value::as_str)
-            .map(str::to_owned);
-        let status = operation
-            .get("status")
-            .and_then(Value::as_str)
-            .unwrap_or("done")
-            .to_owned();
-        let result = self.persist_orchestrator_locked(operation)?;
-        if let Some(request_id) = request_id {
-            if status == "rolled_back" {
-                self.idempotency.lock().await.remove(&request_id);
-            } else if status == "done" {
-                self.idempotency
-                    .lock()
-                    .await
-                    .insert(request_id, result.clone());
-            }
-        }
+        let (operation, snapshot, result) = self.append_orchestrator_operation_locked(operation)?;
+        self.update_idempotency_from_operation(&operation).await;
+        self.store
+            .write_snapshot("data/orchestrator/state.json", &snapshot)
+            .map_err(store_error)?;
         Ok(result)
     }
 
     // All callers hold persist_lock, including the single-threaded constructor.
-    fn persist_orchestrator_locked(&self, mut operation: Value) -> RpcResult {
+    fn persist_orchestrator_locked(&self, operation: Value) -> RpcResult {
+        let (_operation, snapshot, result) =
+            self.append_orchestrator_operation_locked(operation)?;
+        self.store
+            .write_snapshot("data/orchestrator/state.json", &snapshot)
+            .map_err(store_error)?;
+        Ok(result)
+    }
+
+    fn append_orchestrator_operation_locked(
+        &self,
+        mut operation: Value,
+    ) -> Result<(Value, Value, Value), RpcError> {
         let snapshot = self.orchestrator.snapshot().map_err(Self::error)?;
         let object = operation.as_object_mut().ok_or_else(|| RpcError {
             code: "invalid_params".into(),
@@ -3172,14 +3230,110 @@ impl ProductionBackend {
         object.insert("snapshot".into(), snapshot.clone());
         object.entry("status").or_insert_with(|| json!("done"));
         object.entry("at").or_insert_with(|| json!(now()));
+        if let (Some(method), Some(params), Some(request_id)) = (
+            object
+                .get("idempotency_method")
+                .or_else(|| object.get("method"))
+                .and_then(Value::as_str),
+            object.get("params"),
+            object.get("client_request_id").and_then(Value::as_str),
+        ) {
+            if !request_id.is_empty() {
+                if object
+                    .get("request_signature")
+                    .and_then(Value::as_str)
+                    .is_none()
+                {
+                    object.insert(
+                        "request_signature".into(),
+                        json!(request_signature(&self.request_signing_key, method, params)),
+                    );
+                }
+                object.insert("request_signature_version".into(), json!(1));
+            }
+        }
         let result = object.get("result").cloned().unwrap_or(Value::Null);
         self.store
             .append_jsonl("data/orchestrator/operations.jsonl", &operation)
             .map_err(store_error)?;
-        self.store
-            .write_snapshot("data/orchestrator/state.json", &snapshot)
-            .map_err(store_error)?;
-        Ok(result)
+        Ok((operation, snapshot, result))
+    }
+
+    async fn update_idempotency_from_operation(&self, operation: &Value) {
+        let Some(request_id) = operation.get("client_request_id").and_then(Value::as_str) else {
+            return;
+        };
+        match operation
+            .get("status")
+            .and_then(Value::as_str)
+            .unwrap_or("done")
+        {
+            "rolled_back" => {
+                self.idempotency.lock().await.remove(request_id);
+            }
+            "done" => {
+                let (Some(method), Some(params), Some(result)) = (
+                    operation
+                        .get("idempotency_method")
+                        .or_else(|| operation.get("method"))
+                        .and_then(Value::as_str),
+                    operation.get("params"),
+                    operation.get("result"),
+                ) else {
+                    return;
+                };
+                let signature = operation
+                    .get("request_signature")
+                    .and_then(Value::as_str)
+                    .map(str::to_owned)
+                    .unwrap_or_else(|| {
+                        request_signature(&self.request_signing_key, method, params)
+                    });
+                self.idempotency.lock().await.insert(
+                    request_id.to_owned(),
+                    IdempotencyReceipt {
+                        method: method.to_owned(),
+                        signature,
+                        result: result.clone(),
+                        legacy_params: None,
+                    },
+                );
+            }
+            _ => {}
+        }
+    }
+
+    async fn idempotent_result(
+        &self,
+        method: &str,
+        params: &Value,
+    ) -> Result<Option<Value>, RpcError> {
+        let Some(request_id) = params.get("client_request_id").and_then(Value::as_str) else {
+            return Ok(None);
+        };
+        let receipt = self.idempotency.lock().await.get(request_id).cloned();
+        let Some(receipt) = receipt else {
+            return Ok(None);
+        };
+        let expected_signature = params
+            .get("_idempotency_signature")
+            .and_then(Value::as_str)
+            .map(str::to_owned)
+            .unwrap_or_else(|| request_signature(&self.request_signing_key, method, params));
+        let same_request = receipt.method == method
+            && (receipt.signature == expected_signature
+                || receipt.legacy_params.as_ref().is_some_and(|legacy| {
+                    !contains_redaction_marker(legacy)
+                        && legacy == &legacy_semantic_params(method, params)
+                }));
+        if !same_request {
+            return Err(RpcError {
+                code: "conflict".into(),
+                message: "client_request_id was already used for a different request".into(),
+                details: Some(json!({"client_request_id":request_id})),
+            });
+        }
+        Ok(Some(receipt.result))
     }
 
     async fn persist(
@@ -3191,15 +3345,26 @@ impl ProductionBackend {
     ) -> RpcResult {
         let request_id = params.get("client_request_id").and_then(Value::as_str);
         let event_key = mutation_event_key(method, request_id, params);
-        let audit_params = if method == "settings.update" {
+        let mut audit_params = if method == "settings.update" {
             redact_settings_params(params)
         } else {
             params.clone()
         };
+        if let Some(object) = audit_params.as_object_mut() {
+            object.remove("_idempotency_signature");
+        }
         let operation = json!({
             "method":method,
             "params":audit_params,
             "client_request_id":request_id,
+            "request_signature":request_id.map(|_| {
+                params.get("_idempotency_signature")
+                    .and_then(Value::as_str)
+                    .map(str::to_owned)
+                    .unwrap_or_else(|| {
+                        request_signature(&self.request_signing_key, method, params)
+                    })
+            }),
             "result":result,
             "event_key":event_key,
             "status":"done",
@@ -3873,6 +4038,9 @@ impl ProductionBackend {
             .get("message")
             .cloned()
             .unwrap_or_else(|| envelope.clone());
+        if let Some(object) = params.as_object_mut() {
+            object.remove("_idempotency_signature");
+        }
         let receipt = envelope.get("receipt");
         if let (Some(run_id), Some(call_id)) = (
             receipt
@@ -3902,6 +4070,10 @@ impl ProductionBackend {
                 );
             }
         }
+        let signature = request_signature(&self.request_signing_key, "send_msg", &params);
+        if let Some(object) = params.as_object_mut() {
+            object.insert("_idempotency_signature".into(), json!(signature));
+        }
         let terminal_placeholder = self.terminal_private_placeholder_for_params(&params)?;
         let replace_streaming_placeholder = terminal_placeholder.is_some();
         if let Some(object) = params.as_object_mut() {
@@ -3913,12 +4085,7 @@ impl ProductionBackend {
                 object.remove("_replace_streaming_placeholder");
             }
         }
-        let cached_result =
-            if let Some(request_id) = params.get("client_request_id").and_then(Value::as_str) {
-                self.idempotency.lock().await.get(request_id).cloned()
-            } else {
-                None
-            };
+        let cached_result = self.idempotent_result("send_msg", &params).await?;
         if let Some(value) = cached_result {
             if let Some(placeholder) = terminal_placeholder.as_ref() {
                 let cached_id = value
@@ -4079,6 +4246,7 @@ impl ProductionBackend {
             "method":"send_msg",
             "params":replay_params,
             "client_request_id":params.get("client_request_id"),
+            "request_signature":params.get("_idempotency_signature"),
             "result":message,
             "event_key":format!("execution-terminal-placeholder:{run_id}:{call_id}"),
             "status":"done",
@@ -4204,8 +4372,10 @@ impl ProductionBackend {
         let result = json!({"_queue_review":{"message_ids":ids,"messages":reviewed}});
         let operation = json!({
             "method":"execution.queue.review",
+            "idempotency_method":"send_msg",
             "params":{"assignment_id":assignment_id,"bot_id":bot_id,"message_ids":ids},
             "client_request_id":params.get("client_request_id"),
+            "request_signature":params.get("_idempotency_signature"),
             "result":result,
             "status":"done",
             "at":now()
@@ -4229,7 +4399,12 @@ impl RpcBackend for ProductionBackend {
             })
     }
 
-    async fn call(&self, method: &str, params: Value, state: &GatewayState) -> RpcResult {
+    async fn call(&self, method: &str, mut params: Value, state: &GatewayState) -> RpcResult {
+        if let Some(object) = params.as_object_mut() {
+            // This field is only an internal handoff between gateway stages;
+            // public RPC callers cannot choose the receipt signature.
+            object.remove("_idempotency_signature");
+        }
         // Liveness probes must not wait behind the mutation writer.  The
         // protocol requires a fresh server timestamp in the response.
         if method == "ping" {
@@ -4270,7 +4445,20 @@ impl RpcBackend for ProductionBackend {
             return self.usage_query(state, method, &params).await;
         }
         let _guard = self.write_lock.lock().await;
-        let mut params = params;
+        if let Some(object) = params.as_object_mut() {
+            object.remove("_idempotency_signature");
+        }
+        if params
+            .get("client_request_id")
+            .and_then(Value::as_str)
+            .is_some()
+        {
+            let signature = request_signature(&self.request_signing_key, method, &params);
+            self.idempotent_result(method, &params).await?;
+            if let Some(object) = params.as_object_mut() {
+                object.insert("_idempotency_signature".into(), json!(signature));
+            }
+        }
         if method == "send_msg"
             && params
                 .get("_replace_streaming_placeholder")
@@ -4338,8 +4526,13 @@ impl RpcBackend for ProductionBackend {
             }
             return Ok(reply.result);
         }
-        if let Some(request_id) = params.get("client_request_id").and_then(Value::as_str) {
-            if let Some(value) = self.idempotency.lock().await.get(request_id).cloned() {
+        if params
+            .get("client_request_id")
+            .and_then(Value::as_str)
+            .is_some()
+        {
+            let request_id = params["client_request_id"].as_str().unwrap_or_default();
+            if let Some(value) = self.idempotent_result(method, &params).await? {
                 let operation = self
                     .store
                     .read_jsonl::<Value>("data/orchestrator/operations.jsonl")
@@ -4427,11 +4620,14 @@ impl RpcBackend for ProductionBackend {
             validate_settings_secret_params(&params)?;
         }
         if Self::is_mutation(method) {
-            let audit_params = if method == "settings.update" {
+            let mut audit_params = if method == "settings.update" {
                 redact_settings_params(&params)
             } else {
                 params.clone()
             };
+            if let Some(object) = audit_params.as_object_mut() {
+                object.remove("_idempotency_signature");
+            }
             let start = json!({ "method": method, "params": audit_params, "client_request_id": params.get("client_request_id").and_then(Value::as_str), "status": "started", "at": now() });
             self.store
                 .append_jsonl("data/orchestrator/operations.jsonl", &start)
@@ -5823,13 +6019,11 @@ impl ProductionBackend {
         } else {
             None
         };
-        let create_request_id = format!("proposal:{question_id}");
-        let previous_create = self
-            .idempotency
-            .lock()
-            .await
-            .get(&create_request_id)
-            .cloned();
+        let previous_create = if let Some(create_params) = create_params.as_ref() {
+            self.idempotent_result("bot.create", create_params).await?
+        } else {
+            None
+        };
         if let (Some(create_params), None) = (create_params.as_ref(), previous_create.as_ref()) {
             let requested_name = create_params.get("name").and_then(Value::as_str);
             let name_conflict = requested_name.is_some_and(|name| {
@@ -6341,8 +6535,12 @@ impl ProductionBackend {
         feature_service: Arc<FeatureService>,
     ) -> RpcResult {
         let _guard = self.write_lock.lock().await;
-        if let Some(request_id) = params.get("client_request_id").and_then(Value::as_str) {
-            if let Some(value) = self.idempotency.lock().await.get(request_id).cloned() {
+        if params
+            .get("client_request_id")
+            .and_then(Value::as_str)
+            .is_some()
+        {
+            if let Some(value) = self.idempotent_result("bot.duplicate", params).await? {
                 return Ok(value);
             }
         }
@@ -9449,6 +9647,117 @@ fn redact_settings_params(params: &Value) -> Value {
     redacted
 }
 
+fn semantic_params(method: &str, params: &Value) -> Value {
+    let mut semantic = params.clone();
+    if let Some(object) = semantic.as_object_mut() {
+        object.remove("client_request_id");
+        object.remove("_idempotency_signature");
+    }
+    // `method` is part of the signature separately. Keep the method argument
+    // here to make call sites explicit about the scope of this normalization.
+    let _ = method;
+    semantic
+}
+
+fn legacy_semantic_params(method: &str, params: &Value) -> Value {
+    let semantic = semantic_params(method, params);
+    if method == "settings.update" {
+        redact_settings_params(&semantic)
+    } else {
+        semantic
+    }
+}
+
+fn contains_redaction_marker(value: &Value) -> bool {
+    match value {
+        Value::String(value) => value == "<redacted>",
+        Value::Array(values) => values.iter().any(contains_redaction_marker),
+        Value::Object(values) => values.values().any(contains_redaction_marker),
+        _ => false,
+    }
+}
+
+fn request_signature(key: &[u8; 32], method: &str, params: &Value) -> String {
+    let bytes = serde_json::to_vec(&json!({
+        "method":method,
+        "params":semantic_params(method, params)
+    }))
+    .expect("JSON values always serialize");
+    hmac_sha256(key, &bytes)
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
+}
+
+fn hmac_sha256(key: &[u8], message: &[u8]) -> [u8; 32] {
+    const BLOCK_SIZE: usize = 64;
+    let mut normalized_key = [0u8; BLOCK_SIZE];
+    if key.len() > BLOCK_SIZE {
+        normalized_key[..32].copy_from_slice(&Sha256::digest(key));
+    } else {
+        normalized_key[..key.len()].copy_from_slice(key);
+    }
+    let mut inner_key = [0x36; BLOCK_SIZE];
+    let mut outer_key = [0x5c; BLOCK_SIZE];
+    for (index, byte) in normalized_key.iter().enumerate() {
+        inner_key[index] ^= byte;
+        outer_key[index] ^= byte;
+    }
+    let mut inner = Sha256::new();
+    inner.update(inner_key);
+    inner.update(message);
+    let inner_digest = inner.finalize();
+    let mut outer = Sha256::new();
+    outer.update(outer_key);
+    outer.update(inner_digest);
+    outer.finalize().into()
+}
+
+fn load_or_create_request_signing_key(root: &Path) -> std::io::Result<[u8; 32]> {
+    let directory = root.join("data");
+    fs::create_dir_all(&directory)?;
+    let path = directory.join("idempotency-signing.key");
+    match fs::symlink_metadata(&path) {
+        Ok(metadata) if metadata.is_file() && !metadata.file_type().is_symlink() => {
+            #[cfg(unix)]
+            fs::set_permissions(&path, fs::Permissions::from_mode(0o600))?;
+            let bytes = fs::read(path)?;
+            bytes
+                .try_into()
+                .map_err(|_| std::io::Error::new(std::io::ErrorKind::InvalidData, "invalid key"))
+        }
+        Ok(_) => Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "key path must be a regular file",
+        )),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            let mut key = [0u8; 32];
+            rand::rngs::OsRng.fill_bytes(&mut key);
+            let temporary = directory.join(format!(".idempotency-key-{}.tmp", Uuid::now_v7()));
+            let result = (|| {
+                let mut options = OpenOptions::new();
+                options.write(true).create_new(true);
+                #[cfg(unix)]
+                options.mode(0o600);
+                let mut file = options.open(&temporary)?;
+                file.write_all(&key)?;
+                file.sync_all()?;
+                match fs::hard_link(&temporary, &path) {
+                    Ok(()) => {}
+                    Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
+                    Err(error) => return Err(error),
+                }
+                fs::File::open(&directory)?.sync_all()?;
+                Ok::<(), std::io::Error>(())
+            })();
+            let _ = fs::remove_file(&temporary);
+            result?;
+            load_or_create_request_signing_key(root)
+        }
+        Err(error) => Err(error),
+    }
+}
+
 fn browser_error(error: BrowserError) -> RpcError {
     RpcError {
         code: "invalid_params".into(),
@@ -9955,7 +10264,7 @@ fn normalize_announcement(value: &mut Value) {
     let updated_at = o.get("updated_at").cloned().unwrap_or_else(|| json!(now()));
     o.entry("text_updated_at").or_insert(updated_at);
 }
-fn normalize_assignment(value: &mut Value) {
+pub(crate) fn normalize_assignment(value: &mut Value) {
     let o = obj(value);
     if let Some(sender) = o.get_mut("from") {
         normalize_sender(sender);
@@ -9968,6 +10277,23 @@ fn normalize_assignment(value: &mut Value) {
         obj(usage).entry("requests").or_insert(json!(0));
     }
 }
+
+pub(crate) fn normalize_event_data(event_name: &str, data: &mut Value) {
+    if event_name == "assignment.updated" {
+        if let Some(assignment) = data.get_mut("assignment") {
+            normalize_assignment(assignment);
+        }
+    }
+}
+
+pub(crate) fn append_assignment_updated_event(
+    store: &Store,
+    mut assignment: Value,
+) -> Result<macbot_store::Event, macbot_store::StoreError> {
+    normalize_assignment(&mut assignment);
+    store.append_event("assignment.updated", json!({"assignment":assignment}))
+}
+
 fn normalize_chat(value: &mut Value) {
     let _ = obj(value);
 }
@@ -10299,14 +10625,20 @@ fn assignment_result_artifacts(
         .and_then(Value::as_array)
         .cloned()
         .unwrap_or_default();
-    requested.extend(artifacts.values().filter_map(|artifact| {
-        (artifact.get("assignment_id").and_then(Value::as_str) == Some(assignment_id)).then(|| {
-            json!({
-                "title":artifact.get("title"),
-                "path_or_url":artifact.get("path_or_url")
+    requested.extend(
+        artifacts
+            .values()
+            .filter(|artifact| {
+                artifact.get("assignment_id").and_then(Value::as_str) == Some(assignment_id)
             })
-        })
-    }));
+            .map(|artifact| {
+                json!({
+                    "title":artifact.get("title"),
+                    "path_or_url":artifact.get("path_or_url")
+                })
+            }),
+    );
+
     let mut copied = Vec::new();
     let mut seen = HashSet::new();
     for reference in &requested {
@@ -11044,6 +11376,46 @@ fn validate_result(method: &str, value: &Value) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn centralized_assignment_updated_event_emission_is_protocol_decodable() {
+        let home = tempfile::tempdir().unwrap();
+        let store = Store::open(home.path()).unwrap();
+        let event = append_assignment_updated_event(
+            &store,
+            json!({
+                "id":"assignment-wire",
+                "project_id":null,
+                "origin_chat_id":"chat-main",
+                "bot_id":"bot-main",
+                "title":"wire test",
+                "instruction":"wire test",
+                "from":"main",
+                "status":"working",
+                "queue_reason":null,
+                "wait":null,
+                "created_at":"2026-10-16T00:00:00Z",
+                "started_at":null,
+                "finished_at":null,
+                "subagents_active":0,
+                "pending_messages":0,
+                "steers":[],
+                "result_message_id":null,
+                "model":"provider/model",
+                "usage":{"input_tokens":0,"output_tokens":0,"cache_read_tokens":0,
+                    "cache_write_tokens":0,"requests":0,"cost":null}
+            }),
+        )
+        .unwrap();
+        let frame: macbot_protocol::EventFrame = serde_json::from_value(json!({
+            "v":1,"kind":"evt","seq":event.seq,"event":event.event,"data":event.data
+        }))
+        .expect("all assignment.updated events must use the wire Sender shape");
+        assert_eq!(frame.event, macbot_protocol::EventName::AssignmentUpdated);
+        let persisted = store.events_since(0).unwrap();
+        assert_eq!(persisted.len(), 1);
+        assert_eq!(persisted[0].data["assignment"]["from"]["kind"], "bot");
+    }
 
     #[test]
     fn legacy_review_card_artifacts_are_deduplicated_on_read() {
@@ -13107,7 +13479,7 @@ mod tests {
             .iter()
             .any(|item| {
                 item["id"] == format!("msg_main_assignment_result_{assignment_id}")
-                    && item["fallback_text"] == "完成请验收"
+                    && item["fallback_text"] == "任务已完成"
                     && item["blocks"][1]["type"] == "project_card"
                     && item["blocks"][1]["project_id"] == project["project"]["id"]
             }));
@@ -14452,7 +14824,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn group_dispatch_ack_artifact_done_notifies_main_once_without_summary_assignment() {
+    async fn group_dispatch_done_notifies_and_wakes_main_once() {
         let home = tempdir().unwrap();
         let gateway = Gateway::new(GatewayConfig {
             home: home.path().to_path_buf(),
@@ -14596,7 +14968,7 @@ mod tests {
             .iter()
             .find(|message| message["id"] == main_notice_id)
             .expect("deterministic main-chat completion notice");
-        assert_eq!(main_notice["fallback_text"], "完成请验收");
+        assert_eq!(main_notice["fallback_text"], "任务已完成");
         assert_eq!(main_notice["quote"]["message_id"], root_id);
         assert_eq!(main_notice["blocks"][1]["type"], "project_card");
         assert_eq!(main_notice["blocks"][1]["project_id"], project_id);
@@ -14621,8 +14993,8 @@ mod tests {
                     assignment["bot_id"] == "main" && assignment["trigger_message_id"] == done["id"]
                 })
                 .count(),
-            0,
-            "terminal completion notification must not enqueue a redundant main summary assignment"
+            1,
+            "explicit done @main creates one coordinator assignment"
         );
 
         let replay = backend
@@ -16226,7 +16598,7 @@ mod tests {
             .unwrap();
         let project_id = project["project"]["id"].as_str().unwrap();
         let chat_id = project["project"]["chat_id"].as_str().unwrap();
-        backend
+        let assignment = backend
             .call(
                 "assignment.create",
                 json!({
@@ -16236,6 +16608,21 @@ mod tests {
                     "title":"review",
                     "instruction":"prepare review",
                     "from":"main"
+                }),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        backend
+            .call(
+                "send_msg",
+                json!({
+                    "bot_id":bot_id,
+                    "chat_id":chat_id,
+                    "assignment_id":assignment["id"],
+                    "text":"已准备验收",
+                    "intent":"done",
+                    "mentions":[]
                 }),
                 &gateway.state,
             )
@@ -16416,6 +16803,14 @@ mod tests {
             )
             .await
             .unwrap();
+        let premature_review = backend
+            .call(
+                "project.request_review",
+                json!({"project_id":project["project"]["id"],"summary":"too early"}),
+                &gateway.state,
+            )
+            .await;
+        assert_eq!(premature_review.unwrap_err().code, "conflict");
         backend
             .call(
                 "send_msg",
@@ -16426,6 +16821,21 @@ mod tests {
                     "text":"产物已生成",
                     "intent":"ack",
                     "artifacts":[{"title":"报告","path_or_url":"runs/report.md"}]
+                }),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        backend
+            .call(
+                "send_msg",
+                json!({
+                    "bot_id":bot["bot"]["id"],
+                    "chat_id":project["project"]["chat_id"],
+                    "assignment_id":assignment["id"],
+                    "text":"实现已完成",
+                    "intent":"done",
+                    "mentions":[]
                 }),
                 &gateway.state,
             )
@@ -18512,11 +18922,29 @@ mod tests {
             "delivery":[],
             "reactions":[]
         });
-        backend
-            .idempotency
-            .lock()
-            .await
-            .insert(request_id, legacy_result);
+        backend.idempotency.lock().await.insert(
+            request_id,
+            IdempotencyReceipt {
+                method: "send_msg".into(),
+                signature: request_signature(
+                    &backend.request_signing_key,
+                    "send_msg",
+                    &json!({
+                        "client_request_id":format!("execution:{run_id}:{call_id}"),
+                        "run_id":run_id,
+                        "call_id":call_id,
+                        "message_id":"msg_model_selected_a_different_id",
+                        "chat_id":chat_id,
+                        "bot_id":bot_id,
+                        "assignment_id":null,
+                        "intent":"done",
+                        "text":"旧缓存完成报告"
+                    }),
+                ),
+                result: legacy_result,
+                legacy_params: None,
+            },
+        );
         let envelope = json!({
             "receipt":{"run_id":run_id,"call_id":call_id},
             "message":{
@@ -18812,6 +19240,8 @@ mod tests {
             routine: false,
             price: None,
             resume_approved: false,
+            continuation_id: None,
+            continuation_payload: None,
             subagent: false,
             tools: None,
             phase: None,
@@ -19102,6 +19532,8 @@ mod tests {
             routine: false,
             price: None,
             resume_approved: false,
+            continuation_id: None,
+            continuation_payload: None,
             subagent: false,
             tools: None,
             phase: None,
@@ -19453,6 +19885,170 @@ mod tests {
                 })
                 .count(),
             1
+        );
+    }
+
+    #[tokio::test]
+    async fn idempotency_receipts_bind_method_and_params_across_restart_and_rollback() {
+        let home = tempdir().unwrap();
+        let gateway = Gateway::new(GatewayConfig {
+            home: home.path().to_path_buf(),
+            ..Default::default()
+        });
+        let backend = ProductionBackend::open(home.path()).unwrap();
+        let bot = backend
+            .call(
+                "bot.create",
+                json!({"name":"receipt member"}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        let params = json!({
+            "name":"receipt project",
+            "goal":"receipt check",
+            "member_bot_ids":[bot["bot"]["id"]],
+            "client_request_id":"receipt-stable-id"
+        });
+        let first = backend
+            .call("project.create", params.clone(), &gateway.state)
+            .await
+            .unwrap();
+        let replay = backend
+            .call("project.create", params.clone(), &gateway.state)
+            .await
+            .unwrap();
+        assert_eq!(first["project"]["id"], replay["project"]["id"]);
+        assert_eq!(
+            backend
+                .call(
+                    "bot.create",
+                    json!({"name":"cross-method","client_request_id":"receipt-stable-id"}),
+                    &gateway.state,
+                )
+                .await
+                .unwrap_err()
+                .code,
+            "conflict"
+        );
+        let mut changed = params.clone();
+        changed["goal"] = json!("different semantics");
+        assert_eq!(
+            backend
+                .call("project.create", changed, &gateway.state)
+                .await
+                .unwrap_err()
+                .code,
+            "conflict"
+        );
+        let committed = backend
+            .store
+            .read_jsonl::<Value>("data/orchestrator/operations.jsonl")
+            .unwrap()
+            .into_iter()
+            .find(|row| {
+                row["method"] == "project.create"
+                    && row["client_request_id"] == "receipt-stable-id"
+                    && row["status"] == "done"
+            })
+            .unwrap();
+        assert!(committed["request_signature"].as_str().is_some());
+
+        let settings_secret = json!({
+            "patch":{"web_search":{"provider":"brave","endpoint":"https://search.example"}},
+            "web_search_key":"low-entropy-secret",
+            "client_request_id":"receipt-settings-key"
+        });
+        backend
+            .call("settings.update", settings_secret.clone(), &gateway.state)
+            .await
+            .unwrap();
+        let operation_log =
+            fs::read_to_string(home.path().join("data/orchestrator/operations.jsonl")).unwrap();
+        assert!(!operation_log.contains("low-entropy-secret"));
+        assert_eq!(
+            backend
+                .call("settings.update", settings_secret.clone(), &gateway.state)
+                .await
+                .unwrap()["settings"]["web_search"]["has_key"],
+            true
+        );
+        let mut changed_secret = settings_secret.clone();
+        changed_secret["web_search_key"] = json!("different-low-entropy-secret");
+        assert_eq!(
+            backend
+                .call("settings.update", changed_secret, &gateway.state)
+                .await
+                .unwrap_err()
+                .code,
+            "conflict"
+        );
+        let signing_key_path = home.path().join("data/idempotency-signing.key");
+        assert_eq!(fs::read(&signing_key_path).unwrap().len(), 32);
+        #[cfg(unix)]
+        assert_eq!(
+            fs::metadata(&signing_key_path)
+                .unwrap()
+                .permissions()
+                .mode()
+                & 0o777,
+            0o600
+        );
+
+        drop(backend);
+        drop(gateway);
+        let restarted_gateway = Gateway::new(GatewayConfig {
+            home: home.path().to_path_buf(),
+            ..Default::default()
+        });
+        let restarted = ProductionBackend::open(home.path()).unwrap();
+        let replay = restarted
+            .call("project.create", params.clone(), &restarted_gateway.state)
+            .await
+            .unwrap();
+        assert_eq!(first["project"]["id"], replay["project"]["id"]);
+        assert!(restarted
+            .call("settings.update", settings_secret, &restarted_gateway.state)
+            .await
+            .is_ok());
+        restarted
+            .persist_orchestrator(json!({
+                "method":"project.create.rollback",
+                "params":params,
+                "client_request_id":"receipt-stable-id",
+                "result":{"rolled_back":true},
+                "status":"rolled_back"
+            }))
+            .await
+            .unwrap();
+        assert!(restarted
+            .idempotency
+            .lock()
+            .await
+            .get("receipt-stable-id")
+            .is_none());
+        drop(restarted);
+        drop(restarted_gateway);
+        let reopened = ProductionBackend::open(home.path()).unwrap();
+        assert!(reopened
+            .idempotency
+            .lock()
+            .await
+            .get("receipt-stable-id")
+            .is_none());
+    }
+
+    #[test]
+    fn hmac_sha256_matches_rfc4231_vector() {
+        let key = [0x0b; 20];
+        let digest = hmac_sha256(&key, b"Hi There");
+        let actual = digest
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect::<String>();
+        assert_eq!(
+            actual,
+            "b0344c61d8db38535ca8afceaf0bf12b881dc200c9833da726e9376c2e32cff7"
         );
     }
 }

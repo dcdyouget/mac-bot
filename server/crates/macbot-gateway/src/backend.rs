@@ -38,6 +38,7 @@ use macbot_tools::{
     Part, ReadTool, Tool, ToolContext, ToolResult, WriteTool,
 };
 use macbot_usage::{Price, Totals, UsageLedger, UsageRecord};
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
 use std::fs;
@@ -148,11 +149,48 @@ pub struct RuntimeExecution {
     feature_service: Arc<FeatureService>,
     backend: Arc<ProductionBackend>,
     gateway_state: GatewayState,
+    cancelling_assignments: Arc<Mutex<HashSet<String>>>,
 }
 
 enum WaitingContinuation {
     Question(String),
     Takeover(Option<String>),
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+enum ContinuationAction {
+    Approval {
+        approval_id: String,
+    },
+    Decision {
+        question_id: String,
+        answer: String,
+    },
+    ToolQuestion {
+        marker_id: String,
+        answer: String,
+    },
+    Takeover {
+        assignment_id: String,
+        note: Option<String>,
+    },
+    Message {
+        assignment_id: String,
+        expected_message_id: String,
+        text: String,
+        steer_message_id: Option<String>,
+    },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct DurableContinuation {
+    id: String,
+    assignment_id: String,
+    run_id: String,
+    action: ContinuationAction,
+    state: String,
+    created_at: String,
 }
 
 /// Composes the transport/orchestrator adapter with durable model execution.
@@ -167,6 +205,7 @@ pub struct ComposedBackend {
     scheduled: Arc<Mutex<HashSet<String>>>,
     active_runs: Arc<std::sync::Mutex<HashSet<String>>>,
     waiting_runs: Arc<std::sync::Mutex<HashSet<String>>>,
+    continuation_lock: Arc<std::sync::Mutex<()>>,
     approved_recovery_claims: Arc<std::sync::Mutex<HashSet<String>>>,
     denied_cancellation_claims: Arc<std::sync::Mutex<HashSet<String>>>,
     #[cfg(test)]
@@ -223,6 +262,7 @@ impl ComposedBackend {
             scheduled: Arc::new(Mutex::new(HashSet::new())),
             active_runs: Arc::new(std::sync::Mutex::new(HashSet::new())),
             waiting_runs: Arc::new(std::sync::Mutex::new(HashSet::new())),
+            continuation_lock: Arc::new(std::sync::Mutex::new(())),
             approved_recovery_claims: Arc::new(std::sync::Mutex::new(HashSet::new())),
             denied_cancellation_claims: Arc::new(std::sync::Mutex::new(HashSet::new())),
             #[cfg(test)]
@@ -245,6 +285,19 @@ impl ComposedBackend {
             if let Err(error) = recovery.configure_feature_runtime().await {
                 tracing::warn!(%error, "feature runtime configuration unavailable during recovery");
             }
+            let continuation_runs = match recovery_backend.read_continuations() {
+                Ok(records) => Some(
+                    records
+                        .into_iter()
+                        .filter(|record| record.state != "done")
+                        .map(|record| record.run_id)
+                        .collect::<HashSet<_>>(),
+                ),
+                Err(error) => {
+                    tracing::error!(%error, "cannot read continuation ownership before recovery; ordinary resume deferred");
+                    None
+                }
+            };
             match recovery.recover().await {
                 Ok(jobs) => {
                     for job in jobs {
@@ -256,8 +309,15 @@ impl ComposedBackend {
                         }
                         let Some(run_id) = job.checkpoint.get("run_id").and_then(Value::as_str)
                         else {
+                            tracing::error!(job_id=%job.id, "recoverable job has no run id; ordinary resume deferred");
                             continue;
                         };
+                        if continuation_runs
+                            .as_ref()
+                            .is_none_or(|runs| runs.contains(run_id))
+                        {
+                            continue;
+                        }
                         let request = recovery.store.read_snapshot::<ExecutionRequest>(format!(
                             "data/run_requests/{run_id}.json"
                         ));
@@ -310,6 +370,7 @@ impl ComposedBackend {
             recovery_backend.recover_denied_tool_approvals().await;
             recovery_backend.recover_allowed_tool_approvals().await;
             recovery_backend.recover_answered_decisions().await;
+            recovery_backend.recover_continuations().await;
             #[cfg(test)]
             if let Some(gate) = dispatch_gate {
                 gate.notified().await;
@@ -618,21 +679,7 @@ impl ComposedBackend {
         let Some(approvals) = snapshot.get("approvals").and_then(Value::as_object) else {
             return;
         };
-        let Ok(entries) = fs::read_dir(self.inner.store.root().join("data/jobs")) else {
-            return;
-        };
-        let jobs = entries
-            .filter_map(Result::ok)
-            .filter_map(|entry| {
-                (entry.path().extension().and_then(|x| x.to_str()) == Some("json"))
-                    .then(|| {
-                        fs::read(entry.path()).ok().and_then(|bytes| {
-                            serde_json::from_slice::<macbot_durable::Job>(&bytes).ok()
-                        })
-                    })
-                    .flatten()
-            })
-            .collect::<Vec<_>>();
+        let jobs = self.durable_jobs_snapshot().await;
         if let Err(error) = self.runtime.configure_feature_runtime().await {
             tracing::warn!(%error, "cannot configure invalid memory recovery");
             return;
@@ -859,20 +906,7 @@ impl ComposedBackend {
         let Some(approvals) = snapshot.get("approvals").and_then(Value::as_object) else {
             return;
         };
-        let Ok(entries) = fs::read_dir(self.inner.store.root().join("data/jobs")) else {
-            return;
-        };
-        let jobs = entries
-            .filter_map(Result::ok)
-            .filter_map(|entry| {
-                (entry.path().extension().and_then(|x| x.to_str()) == Some("json")).then(|| {
-                    fs::read(entry.path()).ok().and_then(|bytes| {
-                        serde_json::from_slice::<macbot_durable::Job>(&bytes).ok()
-                    })
-                })
-            })
-            .flatten()
-            .collect::<Vec<_>>();
+        let jobs = self.durable_jobs_snapshot().await;
         let mut waiting_by_call: HashMap<String, Vec<macbot_durable::Job>> = HashMap::new();
         for job in jobs {
             if job.status != macbot_durable::JobStatus::Waiting || !job.unsafe_replay {
@@ -945,6 +979,22 @@ impl ComposedBackend {
                 continue;
             }
             let run_id = candidates.pop().expect("candidate length checked");
+            if let Some(assignment_id) = approval.get("assignment_id").and_then(Value::as_str) {
+                if let Err(error) = self
+                    .enqueue_continuation(
+                        format!("approval-{approval_id}"),
+                        assignment_id.to_owned(),
+                        run_id,
+                        ContinuationAction::Approval {
+                            approval_id: approval_id.clone(),
+                        },
+                    )
+                    .await
+                {
+                    tracing::warn!(%approval_id, %error, "approved recovery could not be queued");
+                }
+                continue;
+            }
             if !self.claim_approved_continuation(approval_id) {
                 continue;
             }
@@ -1026,11 +1076,7 @@ impl ComposedBackend {
         let Some(questions) = snapshot.get("questions").and_then(Value::as_object) else {
             return;
         };
-        let jobs_dir = self.inner.store.root().join("data/jobs");
-        let Ok(entries) = fs::read_dir(&jobs_dir) else {
-            return;
-        };
-        let entries = entries.filter_map(Result::ok).collect::<Vec<_>>();
+        let jobs = self.durable_jobs_snapshot().await;
         let mut claimed_runs = HashSet::new();
         for (question_id, question) in questions {
             if question
@@ -1064,16 +1110,7 @@ impl ComposedBackend {
                 continue;
             };
             let mut candidates = Vec::new();
-            for entry in &entries {
-                if entry.path().extension().and_then(|value| value.to_str()) != Some("json") {
-                    continue;
-                }
-                let Ok(bytes) = fs::read(entry.path()) else {
-                    continue;
-                };
-                let Ok(job) = serde_json::from_slice::<macbot_durable::Job>(&bytes) else {
-                    continue;
-                };
+            for job in &jobs {
                 let status = match job.status {
                     macbot_durable::JobStatus::Waiting => "waiting",
                     macbot_durable::JobStatus::Suspended => "suspended",
@@ -1112,12 +1149,32 @@ impl ComposedBackend {
             if !claimed_runs.insert(request.run_id.clone()) {
                 continue;
             }
+            if let Some(assignment_id) = request.assignment_id.as_deref() {
+                if let Err(error) = self
+                    .enqueue_continuation(
+                        format!("question-{question_id}"),
+                        assignment_id.to_owned(),
+                        request.run_id.clone(),
+                        ContinuationAction::Decision {
+                            question_id: question_id.clone(),
+                            answer,
+                        },
+                    )
+                    .await
+                {
+                    tracing::warn!(%question_id, %error, "answered decision recovery could not be queued");
+                }
+                continue;
+            }
             let Some(active_key) = self.reserve_run(&request) else {
                 continue;
             };
             let assignment_id = request.assignment_id.clone();
             self.mark_waiting(assignment_id.as_deref(), &request.run_id, true);
-            let continuation = self.runtime.resume_question(question_id, answer).await;
+            let continuation = self
+                .runtime
+                .resume_question_for_run(question_id, answer, Some(&request.run_id))
+                .await;
             if let Ok(mut active) = self.active_runs.lock() {
                 active.remove(&active_key);
             }
@@ -1187,6 +1244,17 @@ impl ComposedBackend {
                 }
             }
         }
+    }
+
+    async fn durable_jobs_snapshot(&self) -> Vec<macbot_durable::Job> {
+        self.runtime
+            .state
+            .durable
+            .lock()
+            .await
+            .jobs()
+            .cloned()
+            .collect()
     }
 
     /// Advance due routines and dispatch each newly-created run through the
@@ -1318,6 +1386,8 @@ impl ComposedBackend {
                 routine: true,
                 price,
                 resume_approved: false,
+                continuation_id: None,
+                continuation_payload: None,
                 subagent: false,
                 tools: bot_tool_allowlist(bot, is_main, false, true, self.web_search_configured()),
                 phase: Some(if is_main { "coordinate" } else { "work" }.into()),
@@ -1740,6 +1810,8 @@ impl ComposedBackend {
             routine: false,
             price,
             resume_approved: false,
+            continuation_id: None,
+            continuation_payload: None,
             subagent: false,
             tools,
             phase: None,
@@ -1957,10 +2029,29 @@ impl ComposedBackend {
             .get("project_id")
             .and_then(Value::as_str)
             .map(str::to_owned);
-        let private = chat_id == "chat_main" || chat_id.starts_with("dm_");
-        let mut messages = self.chat_model_messages(&snapshot, &chat_id, &bot_id, None, None);
+        // Queued routine assignments must keep the same identity and source
+        // as immediately dispatched routines, including after a restart.
+        let routine_run_id = snapshot
+            .get("routine_runs")
+            .and_then(Value::as_object)
+            .into_iter()
+            .flat_map(|routines| routines.values())
+            .filter_map(Value::as_array)
+            .flatten()
+            .find(|run| run.get("assignment_id").and_then(Value::as_str) == Some(&assignment_id))
+            .and_then(|run| run.get("id"))
+            .and_then(Value::as_str);
+        let routine = routine_run_id.is_some();
+        let private = !routine && (chat_id == "chat_main" || chat_id.starts_with("dm_"));
+        let mut messages = if routine {
+            Vec::new()
+        } else {
+            self.chat_model_messages(&snapshot, &chat_id, &bot_id, None, None)
+        };
         messages.push(json!({"role":"user","content":instruction}));
-        let run_id = format!("run_{assignment_id}");
+        let run_id = routine_run_id
+            .map(str::to_owned)
+            .unwrap_or_else(|| format!("run_{assignment_id}"));
         let price = self.runtime.price_for_model(&model);
         let cwd = self.runtime.cwd_for(project_id.as_deref(), &bot_id);
         Some(ExecutionRequest {
@@ -1981,9 +2072,11 @@ impl ComposedBackend {
             private,
             allow_unsafe: false,
             cwd: Some(cwd),
-            routine: false,
+            routine,
             price,
             resume_approved: false,
+            continuation_id: None,
+            continuation_payload: None,
             subagent: false,
             tools: bot_tool_allowlist(bot, is_main, private, true, self.web_search_configured()),
             phase: Some(if is_main { "coordinate" } else { "work" }.into()),
@@ -2036,9 +2129,8 @@ impl ComposedBackend {
         state: &GatewayState,
         assignment: &Value,
     ) {
-        let Ok(event) = inner
-            .store
-            .append_event("assignment.updated", json!({"assignment": assignment}))
+        let Ok(event) =
+            crate::adapter::append_assignment_updated_event(&inner.store, assignment.clone())
         else {
             tracing::warn!("failed to persist queued assignment promotion event");
             return;
@@ -2053,7 +2145,20 @@ impl ComposedBackend {
     /// only starts `working` assignments and uses `active_runs` to prevent a
     /// duplicate spawn during overlapping RPC/event callbacks.
     async fn dispatch_ready_assignments(&self) {
-        let status_events = self.inner.store.events_since(0).unwrap_or_default();
+        let status_events = match self.inner.store.events_since(0) {
+            Ok(events) => events,
+            Err(error) => {
+                tracing::error!(%error, "cannot inspect assignment event tail; dispatch deferred");
+                return;
+            }
+        };
+        let continuations = match self.read_continuations() {
+            Ok(records) => records,
+            Err(error) => {
+                tracing::error!(%error, "cannot inspect durable continuations; dispatch deferred");
+                return;
+            }
+        };
         let assignments = match self.inner.orchestrator.snapshot() {
             Ok(snapshot) => snapshot
                 .get("assignments")
@@ -2066,6 +2171,84 @@ impl ComposedBackend {
             }
         };
         for assignment in assignments {
+            let assignment_id = assignment.get("id").and_then(Value::as_str);
+            let continuation = assignment_id.and_then(|id| {
+                continuations
+                    .iter()
+                    .filter(|record| {
+                        record.assignment_id == id
+                            && !matches!(record.state.as_str(), "done" | "uncertain")
+                    })
+                    .min_by(|left, right| {
+                        left.created_at
+                            .cmp(&right.created_at)
+                            .then_with(|| left.id.cmp(&right.id))
+                    })
+                    .cloned()
+            });
+            if assignment.get("status").and_then(Value::as_str) == Some("working") {
+                if let Some(continuation) = continuation {
+                    let request = match self.request_for_run(&continuation.run_id) {
+                        Ok(Some(request)) => request,
+                        Ok(None) => {
+                            tracing::error!(continuation_id=%continuation.id, "continuation run request is missing");
+                            continue;
+                        }
+                        Err(error) => {
+                            tracing::error!(continuation_id=%continuation.id, %error, "continuation run request read failed");
+                            continue;
+                        }
+                    };
+                    if request.assignment_id.as_deref() == Some(continuation.assignment_id.as_str())
+                    {
+                        if Self::assignment_status_event_needed(&status_events, &assignment) {
+                            Self::publish_assignment_status(&self.inner, &self.state, &assignment)
+                                .await;
+                        }
+                        // The assignment is already admitted by the orchestrator's
+                        // pump. `waiting_runs` records the old checkpoint state,
+                        // so it must not suppress this exact continuation; the
+                        // active-run reservation is the duplicate-spawn guard.
+                        if let Some(active_key) = self.reserve_run(&request) {
+                            self.spawn_reserved_continuation(continuation, request, active_key);
+                        }
+                    }
+                    continue;
+                }
+            }
+            // A question/approval/reply mutation can make an assignment
+            // eligible before its continuation record is written. The old
+            // run is still the owner of that admitted slot; never create a
+            // replacement run in this persistence window.
+            if assignment.get("status").and_then(Value::as_str) == Some("working") {
+                let Some(assignment_id) = assignment_id else {
+                    continue;
+                };
+                match self.durable_request_for_assignment(assignment_id).await {
+                    Ok(Some((
+                        macbot_durable::JobStatus::Waiting | macbot_durable::JobStatus::Suspended,
+                        _,
+                    ))) => {
+                        continue;
+                    }
+                    Ok(Some((_, request))) => {
+                        let Some(active_key) = self.reserve_run(&request) else {
+                            continue;
+                        };
+                        if Self::assignment_status_event_needed(&status_events, &assignment) {
+                            Self::publish_assignment_status(&self.inner, &self.state, &assignment)
+                                .await;
+                        }
+                        self.spawn_reserved_request(request, active_key);
+                        continue;
+                    }
+                    Ok(None) => {}
+                    Err(error) => {
+                        tracing::error!(%assignment_id, %error, "cannot establish whether a waiting run owns this assignment; dispatch deferred");
+                        continue;
+                    }
+                }
+            }
             let Some(request) = self.request_for_assignment(&assignment) else {
                 if assignment.get("status").and_then(Value::as_str) == Some("working") {
                     if let Some(assignment_id) = assignment.get("id").and_then(Value::as_str) {
@@ -2144,6 +2327,1058 @@ impl ComposedBackend {
         }
     }
 
+    fn canonical_steer_text(result: &Value, params: &Value) -> Option<String> {
+        params
+            .get("text")
+            .and_then(Value::as_str)
+            .or_else(|| result.pointer("/message/text").and_then(Value::as_str))
+            .or_else(|| {
+                result
+                    .pointer("/message/fallback_text")
+                    .and_then(Value::as_str)
+            })
+            .filter(|text| !text.trim().is_empty())
+            .map(str::to_owned)
+    }
+
+    async fn schedule_assignment_steer(&self, result: &Value, params: &Value) {
+        let assignment_id = result
+            .get("assignment")
+            .and_then(|assignment| assignment.get("id"))
+            .and_then(Value::as_str)
+            .or_else(|| result.get("assignment_id").and_then(Value::as_str))
+            .or_else(|| params.get("assignment_id").and_then(Value::as_str));
+        let message_id = result
+            .get("message")
+            .and_then(|message| message.get("id"))
+            .and_then(Value::as_str)
+            .or_else(|| params.get("message_id").and_then(Value::as_str));
+        let Some((assignment_id, message_id)) = assignment_id.zip(message_id) else {
+            tracing::warn!("steer result has no assignment or message id");
+            return;
+        };
+        let Some(text) = Self::canonical_steer_text(result, params) else {
+            tracing::error!(%assignment_id, %message_id, "steer result has no canonical message text");
+            return;
+        };
+
+        // Persist the user-visible delivery before competing continuations
+        // inspect the same waiting checkpoint. The checkpoint continuation
+        // will enqueue this exact message id idempotently as a second guard.
+        enqueue_steer_runtime(
+            self.runtime.clone(),
+            &json!({"steer":{"message_id":message_id,"assignment_id":assignment_id}}),
+            &json!({"text":text}),
+        )
+        .await;
+
+        // A queued steer may interrupt a safe decision wait.  Keep this on
+        // the same continuation + admission path as a chat reply; pending
+        // unsafe tool effects remain waiting for their approval.
+        let expected_wait = self
+            .inner
+            .orchestrator
+            .snapshot()
+            .ok()
+            .and_then(|snapshot| waiting_message_id_for_assignment(&snapshot, assignment_id));
+        match self
+            .waiting_run_for_assignment(assignment_id, expected_wait.as_deref(), &[], Some(false))
+            .await
+        {
+            Ok(Some(run_id)) => {
+                let job = self.durable_job_for_run(&run_id).await;
+                let expected_message_id = job.as_ref().and_then(|job| {
+                    (matches!(
+                        job.checkpoint.get("waiting_reason").and_then(Value::as_str),
+                        Some("decision" | "blocked")
+                    ) && job
+                        .checkpoint
+                        .get("pending_tool")
+                        .is_none_or(Value::is_null))
+                    .then(|| {
+                        job.checkpoint
+                            .get("waiting_message_id")
+                            .and_then(Value::as_str)
+                            .map(str::to_owned)
+                    })
+                    .flatten()
+                });
+                if let Some(expected_message_id) = expected_message_id {
+                    if let Err(error) = self
+                        .enqueue_continuation(
+                            format!("steer-{message_id}"),
+                            assignment_id.to_owned(),
+                            run_id,
+                            ContinuationAction::Message {
+                                assignment_id: assignment_id.to_owned(),
+                                expected_message_id,
+                                text: text.clone(),
+                                steer_message_id: Some(message_id.to_owned()),
+                            },
+                        )
+                        .await
+                    {
+                        tracing::error!(%assignment_id, %error, "steer continuation could not be queued");
+                    }
+                }
+            }
+            Ok(None) => {}
+            Err(error) => {
+                tracing::error!(%assignment_id, %error, "steer continuation lookup failed");
+            }
+        }
+    }
+
+    fn continuation_path(&self, id: &str) -> PathBuf {
+        self.inner
+            .store
+            .root()
+            .join("data/continuations")
+            .join(format!("{}.json", safe_component(id)))
+    }
+
+    fn read_continuations(&self) -> Result<Vec<DurableContinuation>, String> {
+        let directory = self.inner.store.root().join("data/continuations");
+        let entries = match fs::read_dir(&directory) {
+            Ok(entries) => entries,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+            Err(error) => return Err(error.to_string()),
+        };
+        let mut records = Vec::new();
+        for entry in entries {
+            let entry = entry.map_err(|error| error.to_string())?;
+            if entry.path().extension().and_then(|value| value.to_str()) != Some("json") {
+                continue;
+            }
+            let bytes = fs::read(entry.path()).map_err(|error| error.to_string())?;
+            records.push(serde_json::from_slice(&bytes).map_err(|error| error.to_string())?);
+        }
+        records.sort_by(|left: &DurableContinuation, right| {
+            left.created_at
+                .cmp(&right.created_at)
+                .then_with(|| left.id.cmp(&right.id))
+        });
+        Ok(records)
+    }
+
+    async fn enqueue_late_question_answer(
+        &self,
+        assignment_id: &str,
+        question_id: &str,
+        answer: &str,
+    ) -> Result<bool, String> {
+        let snapshot = self
+            .inner
+            .orchestrator
+            .snapshot()
+            .map_err(|error| error.to_string())?;
+        let question_message_id = snapshot
+            .get("messages")
+            .and_then(Value::as_object)
+            .and_then(|messages| {
+                messages.values().find_map(|message| {
+                    (message.get("question_id").and_then(Value::as_str) == Some(question_id))
+                        .then(|| message.get("id").and_then(Value::as_str).map(str::to_owned))
+                        .flatten()
+                })
+            });
+        let Some(question_message_id) = question_message_id else {
+            return Ok(false);
+        };
+        let candidate = {
+            let _guard = self
+                .continuation_lock
+                .lock()
+                .map_err(|_| "continuation state lock poisoned".to_owned())?;
+            self.read_continuations()?.into_iter().find(|record| {
+                record.assignment_id == assignment_id
+                    && matches!(record.state.as_str(), "claimed" | "input_committed")
+                    && matches!(
+                        &record.action,
+                        ContinuationAction::Message {
+                            expected_message_id,
+                            ..
+                        } if expected_message_id == &question_message_id
+                    )
+            })
+        };
+        let Some(record) = candidate else {
+            return Ok(false);
+        };
+        let Some(job) = self.durable_job_for_run(&record.run_id).await else {
+            return Err(format!(
+                "claimed continuation run {} has no durable job",
+                record.run_id
+            ));
+        };
+        if matches!(
+            job.status,
+            macbot_durable::JobStatus::Done
+                | macbot_durable::JobStatus::Failed
+                | macbot_durable::JobStatus::Cancelled
+        ) {
+            return Err("the assignment run has already finished".into());
+        }
+        let claimed_before_resume = record.state == "claimed"
+            && matches!(
+                job.status,
+                macbot_durable::JobStatus::Waiting | macbot_durable::JobStatus::Suspended
+            )
+            && job.checkpoint.get("run_id").and_then(Value::as_str) == Some(record.run_id.as_str())
+            && matches!(
+                &record.action,
+                ContinuationAction::Message {
+                    expected_message_id,
+                    ..
+                } if job.checkpoint.get("waiting_message_id").and_then(Value::as_str)
+                    == Some(expected_message_id.as_str())
+                    && job.checkpoint.get("waiting_message").and_then(Value::as_bool)
+                        == Some(true)
+            );
+        if !continuation_checkpoint_matches(&job.checkpoint, &record) && !claimed_before_resume {
+            return Err(format!(
+                "claimed continuation {} is not attached to its durable run",
+                record.id
+            ));
+        }
+        let input_id = format!("question-answer:{question_id}");
+        if !self
+            .runtime
+            .enqueue_input_for_run(&record.run_id, &input_id, answer)
+            .await
+        {
+            return Err(format!(
+                "cannot persist answer input for run {}",
+                record.run_id
+            ));
+        }
+        Ok(true)
+    }
+
+    async fn persist_continuation(&self, record: &DurableContinuation) -> Result<(), String> {
+        let _guard = self
+            .continuation_lock
+            .lock()
+            .map_err(|_| "continuation state lock poisoned".to_owned())?;
+        self.inner
+            .store
+            .write_snapshot(
+                format!("data/continuations/{}.json", safe_component(&record.id)),
+                record,
+            )
+            .map_err(|error| error.to_string())
+    }
+
+    fn request_for_run(&self, run_id: &str) -> Result<Option<ExecutionRequest>, String> {
+        self.inner
+            .store
+            .read_snapshot(format!("data/run_requests/{run_id}.json"))
+            .map_err(|error| error.to_string())
+    }
+
+    async fn durable_job_for_run(&self, run_id: &str) -> Option<macbot_durable::Job> {
+        self.runtime
+            .state
+            .durable
+            .lock()
+            .await
+            .jobs()
+            .find(|job| job.checkpoint.get("run_id").and_then(Value::as_str) == Some(run_id))
+            .cloned()
+    }
+
+    async fn durable_request_for_assignment(
+        &self,
+        assignment_id: &str,
+    ) -> Result<Option<(macbot_durable::JobStatus, ExecutionRequest)>, String> {
+        let jobs = {
+            let durable = self.runtime.state.durable.lock().await;
+            durable
+                .jobs()
+                .filter(|job| {
+                    job.kind == "model_run"
+                        && !matches!(
+                            job.status,
+                            macbot_durable::JobStatus::Done
+                                | macbot_durable::JobStatus::Failed
+                                | macbot_durable::JobStatus::Cancelled
+                        )
+                })
+                .cloned()
+                .collect::<Vec<_>>()
+        };
+        let mut matches = Vec::new();
+        for job in jobs {
+            let Some(run_id) = job.checkpoint.get("run_id").and_then(Value::as_str) else {
+                return Err(format!("nonterminal durable job {} has no run id", job.id));
+            };
+            let request = self
+                .request_for_run(run_id)
+                .map_err(|error| error.to_string())?
+                .ok_or_else(|| format!("durable run request {run_id} is missing"))?;
+            if is_root_request_for_assignment(&request, assignment_id) {
+                matches.push((job.status, request));
+            }
+        }
+        if matches.len() > 1 {
+            return Err(format!(
+                "assignment {assignment_id} has multiple nonterminal root durable runs"
+            ));
+        }
+        Ok(matches.pop())
+    }
+
+    async fn waiting_run_for_assignment(
+        &self,
+        assignment_id: &str,
+        expected_message_id: Option<&str>,
+        pending_tools: &[&str],
+        unsafe_replay: Option<bool>,
+    ) -> Result<Option<String>, String> {
+        let jobs = self
+            .runtime
+            .state
+            .durable
+            .lock()
+            .await
+            .jobs()
+            .cloned()
+            .collect::<Vec<_>>();
+        let mut matches = Vec::new();
+        for job in jobs {
+            if !matches!(
+                job.status,
+                macbot_durable::JobStatus::Waiting | macbot_durable::JobStatus::Suspended
+            ) {
+                continue;
+            }
+            if let Some(message_id) = expected_message_id {
+                if !waiting_checkpoint_matches_message(&job.checkpoint, message_id) {
+                    continue;
+                }
+            }
+            if !pending_tools.is_empty() {
+                let Some(name) = job
+                    .checkpoint
+                    .pointer("/pending_tool/name")
+                    .and_then(Value::as_str)
+                else {
+                    continue;
+                };
+                if !pending_tools.contains(&name) {
+                    continue;
+                }
+            }
+            if !waiting_checkpoint_safety_matches(&job, unsafe_replay) {
+                continue;
+            }
+            let Some(run_id) = job.checkpoint.get("run_id").and_then(Value::as_str) else {
+                continue;
+            };
+            let Some(request) = self.request_for_run(run_id)? else {
+                return Err(format!("durable job {run_id} has no run request"));
+            };
+            if request.assignment_id.as_deref() == Some(assignment_id) && request.run_id == run_id {
+                matches.push(run_id.to_owned());
+            }
+        }
+        Ok((matches.len() == 1).then(|| matches.remove(0)))
+    }
+
+    async fn approved_run_for_assignment(
+        &self,
+        approval_id: &str,
+        assignment_id: &str,
+    ) -> Result<Option<String>, String> {
+        let snapshot = self
+            .inner
+            .orchestrator
+            .snapshot()
+            .map_err(|error| error.to_string())?;
+        let Some(approval) = snapshot
+            .get("approvals")
+            .and_then(|items| items.get(approval_id))
+        else {
+            return Ok(None);
+        };
+        if approval.get("assignment_id").and_then(Value::as_str) != Some(assignment_id) {
+            return Ok(None);
+        }
+        let mapped_call = self
+            .inner
+            .store
+            .read_snapshot::<Value>(format!(
+                "data/approval-map/{}.json",
+                safe_component(approval_id)
+            ))
+            .map_err(|error| error.to_string())?
+            .and_then(|value| {
+                value
+                    .get("call_id")
+                    .and_then(Value::as_str)
+                    .map(str::to_owned)
+            });
+        let Some(mapped_call) = mapped_call else {
+            return Ok(None);
+        };
+        let jobs = self
+            .runtime
+            .state
+            .durable
+            .lock()
+            .await
+            .jobs()
+            .cloned()
+            .collect::<Vec<_>>();
+        let mut matches = Vec::new();
+        for job in jobs {
+            if job.status != macbot_durable::JobStatus::Waiting || !job.unsafe_replay {
+                continue;
+            }
+            let Some(run_id) = job.checkpoint.get("run_id").and_then(Value::as_str) else {
+                continue;
+            };
+            let Some(request) = self.request_for_run(run_id)? else {
+                return Err(format!("durable job {run_id} has no run request"));
+            };
+            if request.assignment_id.as_deref() == Some(assignment_id)
+                && allowed_tool_approval_matches(
+                    &snapshot,
+                    approval,
+                    Some(&mapped_call),
+                    &job,
+                    &request,
+                    false,
+                )
+            {
+                matches.push(run_id.to_owned());
+            }
+        }
+        Ok((matches.len() == 1).then(|| matches.remove(0)))
+    }
+
+    async fn enqueue_continuation(
+        &self,
+        id: String,
+        assignment_id: String,
+        run_id: String,
+        action: ContinuationAction,
+    ) -> Result<(), String> {
+        if self.durable_job_for_run(&run_id).await.is_none() {
+            return Err(format!(
+                "durable job for continuation run {run_id} not found"
+            ));
+        }
+        let _continuation_guard = self
+            .continuation_lock
+            .lock()
+            .map_err(|_| "continuation state lock poisoned".to_owned())?;
+        for mut existing in self
+            .read_continuations()
+            .map_err(|error| error.to_owned())?
+        {
+            if existing.run_id != run_id || matches!(existing.state.as_str(), "done" | "uncertain")
+            {
+                continue;
+            }
+            if existing.id == id {
+                if existing.assignment_id != assignment_id || existing.action != action {
+                    return Err(format!(
+                        "continuation id {} was reused with different data",
+                        id
+                    ));
+                }
+                if existing.state == "queued" {
+                    drop(_continuation_guard);
+                    self.queue_assignment_for_continuation(&assignment_id)
+                        .await?;
+                    self.dispatch_ready_assignments().await;
+                    return Ok(());
+                }
+                if existing.state == "claimed" {
+                    return Ok(());
+                }
+            }
+            // A safe decision answer is the authoritative continuation input.
+            // Keep any concurrent queued message steer in the durable inbox,
+            // but let the answer continue the original checkpoint.  If the
+            // steer won the race while still queued, switch that single slot
+            // to the answer action so the run cannot be resumed twice.
+            match (&existing.action, &action, existing.state.as_str()) {
+                (ContinuationAction::Decision { .. }, ContinuationAction::Message { .. }, _) => {
+                    return Ok(());
+                }
+                (
+                    ContinuationAction::Message { .. },
+                    ContinuationAction::Decision { .. },
+                    "queued",
+                ) => {
+                    existing.action = action;
+                    self.inner
+                        .store
+                        .write_snapshot(
+                            format!("data/continuations/{}.json", safe_component(&existing.id)),
+                            &existing,
+                        )
+                        .map_err(|error| error.to_string())?;
+                    drop(_continuation_guard);
+                    self.queue_assignment_for_continuation(&assignment_id)
+                        .await?;
+                    self.dispatch_ready_assignments().await;
+                    return Ok(());
+                }
+                _ => {
+                    return Err(format!(
+                        "run {run_id} already has continuation {} in state {}",
+                        existing.id, existing.state
+                    ));
+                }
+            }
+        }
+        let path = self.continuation_path(&id);
+        if let Some(existing) = self
+            .inner
+            .store
+            .read_snapshot::<DurableContinuation>(
+                path.strip_prefix(self.inner.store.root()).unwrap_or(&path),
+            )
+            .map_err(|error| error.to_string())?
+        {
+            if existing.assignment_id != assignment_id
+                || existing.run_id != run_id
+                || existing.action != action
+            {
+                return Err(format!(
+                    "continuation id {} was reused with different data",
+                    id
+                ));
+            }
+            if matches!(existing.state.as_str(), "done" | "claimed" | "uncertain") {
+                return Ok(());
+            }
+            drop(_continuation_guard);
+            self.queue_assignment_for_continuation(&assignment_id)
+                .await?;
+            self.dispatch_ready_assignments().await;
+            return Ok(());
+        }
+        let record = DurableContinuation {
+            id: id.clone(),
+            assignment_id: assignment_id.clone(),
+            run_id,
+            action,
+            state: "queued".into(),
+            created_at: crate::now(),
+        };
+        self.inner
+            .store
+            .write_snapshot(
+                format!("data/continuations/{}.json", safe_component(&id)),
+                &record,
+            )
+            .map_err(|error| error.to_string())?;
+        drop(_continuation_guard);
+        self.queue_assignment_for_continuation(&assignment_id)
+            .await?;
+        self.dispatch_ready_assignments().await;
+        Ok(())
+    }
+
+    async fn queue_assignment_for_continuation(&self, assignment_id: &str) -> Result<(), String> {
+        let assignment = self
+            .inner
+            .orchestrator
+            .queue_assignment_resume(assignment_id)
+            .map_err(|error| error.to_string())?
+            .ok_or_else(|| format!("assignment {assignment_id} is no longer resumable"))?;
+        self.inner
+            .persist_orchestrator(json!({
+                "method":"assignment.continuation_queued",
+                "params":{"assignment_id":assignment_id},
+                "result":{"assignment":assignment},
+                "status":"done"
+            }))
+            .await
+            .map_err(|error| error.message)?;
+        let wire_assignment =
+            serde_json::to_value(&assignment).map_err(|error| error.to_string())?;
+        if let Ok(event) =
+            crate::adapter::append_assignment_updated_event(&self.inner.store, wire_assignment)
+        {
+            self.state
+                .publish_event(event.seq, &event.event, event.data)
+                .await;
+        }
+        Ok(())
+    }
+
+    async fn recover_continuations(&self) {
+        let records = match self.read_continuations() {
+            Ok(records) => records,
+            Err(error) => {
+                tracing::error!(%error, "cannot recover durable continuations");
+                return;
+            }
+        };
+        for mut record in records {
+            if record.state == "done" {
+                continue;
+            }
+            if record.state == "uncertain" {
+                let reason = if matches!(record.action, ContinuationAction::Approval { .. }) {
+                    "approval"
+                } else {
+                    "blocked"
+                };
+                self.suspend_uncertain_assignment(&record.assignment_id, reason)
+                    .await;
+                continue;
+            }
+            if record.state == "claimed" {
+                if self
+                    .active_runs
+                    .lock()
+                    .map(|runs| runs.contains(&record.assignment_id))
+                    .unwrap_or(false)
+                {
+                    continue;
+                }
+                // Repair the WAL-answer / inbox-append crash window before
+                // deciding whether this continuation was consumed. The
+                // stable inbox id makes this safe alongside an RPC retry.
+                if let ContinuationAction::Message {
+                    expected_message_id,
+                    ..
+                } = &record.action
+                {
+                    let snapshot = match self.inner.orchestrator.snapshot() {
+                        Ok(snapshot) => snapshot,
+                        Err(error) => {
+                            tracing::error!(continuation_id=%record.id, %error, "cannot inspect question answer during continuation recovery");
+                            continue;
+                        }
+                    };
+                    let answered =
+                        (|| -> Option<(String, String)> {
+                            let message = snapshot.get("messages")?.as_object()?.values().find(
+                                |message| {
+                                    message.get("id").and_then(Value::as_str)
+                                        == Some(expected_message_id.as_str())
+                                },
+                            )?;
+                            let question_id = message.get("question_id")?.as_str()?;
+                            let question = snapshot.get("questions")?.get(question_id)?;
+                            if question.get("state").and_then(Value::as_str) != Some("answered") {
+                                return None;
+                            }
+                            let answer = question.get("answer")?;
+                            let text = answer
+                                .get("text")
+                                .and_then(Value::as_str)
+                                .map(str::to_owned)
+                                .or_else(|| {
+                                    answer.get("option_index").and_then(Value::as_u64).and_then(
+                                        |index| {
+                                            question
+                                                .get("options")?
+                                                .as_array()?
+                                                .get(index as usize)?
+                                                .as_str()
+                                                .map(str::to_owned)
+                                        },
+                                    )
+                                })?;
+                            Some((question_id.to_owned(), text))
+                        })();
+                    if let Some((question_id, answer)) = answered {
+                        let _input_gate = self
+                            .runtime
+                            .state
+                            .assignment_input_gate(&record.assignment_id)
+                            .await;
+                        if let Err(error) = self
+                            .enqueue_late_question_answer(
+                                &record.assignment_id,
+                                &question_id,
+                                &answer,
+                            )
+                            .await
+                        {
+                            tracing::error!(continuation_id=%record.id, %error, "cannot repair answered question inbox during continuation recovery");
+                            continue;
+                        }
+                    }
+                }
+                let mut suspension_reason = "blocked";
+                match self.durable_job_for_run(&record.run_id).await {
+                    Some(job) if continuation_checkpoint_matches(&job.checkpoint, &record) => {
+                        let phase = job
+                            .checkpoint
+                            .pointer("/continuation/phase")
+                            .and_then(Value::as_str);
+                        let approval = matches!(record.action, ContinuationAction::Approval { .. });
+                        if matches!(phase, Some("input_committed" | "effect_result_committed"))
+                            || matches!(
+                                job.status,
+                                macbot_durable::JobStatus::Done
+                                    | macbot_durable::JobStatus::Failed
+                                    | macbot_durable::JobStatus::Cancelled
+                            )
+                        {
+                            record.state = "done".into();
+                        } else if approval
+                            && (phase == Some("effect_unknown")
+                                || job.status == macbot_durable::JobStatus::Suspended)
+                        {
+                            suspension_reason = "approval";
+                            record.state = "uncertain".into();
+                            tracing::error!(continuation_id=%record.id, run_id=%record.run_id, "approved side effect has no durable result; retaining suspended job without replay");
+                        } else {
+                            record.state = "uncertain".into();
+                            tracing::error!(continuation_id=%record.id, run_id=%record.run_id, ?phase, "continuation checkpoint does not prove input consumption; retaining run without replay");
+                        }
+                        if let Err(error) = self.persist_continuation(&record).await {
+                            tracing::error!(continuation_id=%record.id, %error, "cannot persist continuation consumption");
+                        }
+                        if record.state == "uncertain" {
+                            self.suspend_uncertain_assignment(
+                                &record.assignment_id,
+                                suspension_reason,
+                            )
+                            .await;
+                        }
+                        continue;
+                    }
+                    None => {
+                        record.state = "uncertain".into();
+                        tracing::error!(continuation_id=%record.id, run_id=%record.run_id, "claimed continuation has no durable run; refusing replay");
+                    }
+                    _ => {
+                        record.state = "uncertain".into();
+                        tracing::error!(continuation_id=%record.id, run_id=%record.run_id, "continuation checkpoint provenance does not match the claimed payload; refusing replay");
+                    }
+                }
+                if let Err(error) = self.persist_continuation(&record).await {
+                    tracing::error!(continuation_id=%record.id, %error, "cannot restore continuation queue state");
+                    continue;
+                }
+                if record.state == "uncertain" {
+                    let reason = if matches!(record.action, ContinuationAction::Approval { .. }) {
+                        "approval"
+                    } else {
+                        "blocked"
+                    };
+                    self.suspend_uncertain_assignment(&record.assignment_id, reason)
+                        .await;
+                    continue;
+                }
+            }
+            if let Err(error) = self
+                .queue_assignment_for_continuation(&record.assignment_id)
+                .await
+            {
+                tracing::warn!(continuation_id=%record.id, %error, "cannot restore queued continuation");
+            }
+        }
+    }
+
+    async fn suspend_uncertain_assignment(&self, assignment_id: &str, reason: &str) {
+        let assignment = match self
+            .inner
+            .orchestrator
+            .suspend_assignment_for_recovery(assignment_id, reason)
+        {
+            Ok(Some(assignment)) => assignment,
+            Ok(None) => return,
+            Err(error) => {
+                tracing::error!(%assignment_id, %error, "cannot suspend assignment with uncertain continuation");
+                return;
+            }
+        };
+        if let Err(error) = self
+            .inner
+            .persist_orchestrator(json!({
+                "method":"assignment.recovery_suspended",
+                "params":{"assignment_id":assignment_id,"reason":reason},
+                "result":{"assignment":assignment},
+                "status":"done"
+            }))
+            .await
+        {
+            tracing::error!(%assignment_id, %error, "cannot persist recovery suspension");
+            return;
+        }
+        let wire_assignment = match serde_json::to_value(&assignment) {
+            Ok(assignment) => assignment,
+            Err(error) => {
+                tracing::error!(%assignment_id, %error, "cannot serialize recovery suspension event");
+                return;
+            }
+        };
+        if let Ok(event) =
+            crate::adapter::append_assignment_updated_event(&self.inner.store, wire_assignment)
+        {
+            self.state
+                .publish_event(event.seq, &event.event, event.data)
+                .await;
+        }
+    }
+
+    fn spawn_reserved_continuation(
+        &self,
+        mut record: DurableContinuation,
+        mut request: ExecutionRequest,
+        active_key: String,
+    ) {
+        let _continuation_guard = match self.continuation_lock.lock() {
+            Ok(guard) => guard,
+            Err(_) => {
+                if let Ok(mut active) = self.active_runs.lock() {
+                    active.remove(&active_key);
+                }
+                tracing::error!(continuation_id=%record.id, "continuation state lock poisoned");
+                return;
+            }
+        };
+        let path = format!("data/continuations/{}.json", safe_component(&record.id));
+        let persisted = match self.inner.store.read_snapshot::<DurableContinuation>(&path) {
+            Ok(Some(persisted)) if persisted.state == "queued" => persisted,
+            Ok(_) => {
+                if let Ok(mut active) = self.active_runs.lock() {
+                    active.remove(&active_key);
+                }
+                return;
+            }
+            Err(error) => {
+                if let Ok(mut active) = self.active_runs.lock() {
+                    active.remove(&active_key);
+                }
+                tracing::error!(continuation_id=%record.id, %error, "cannot inspect continuation before claim");
+                return;
+            }
+        };
+        if persisted.assignment_id != record.assignment_id
+            || persisted.run_id != record.run_id
+            || persisted.action != record.action
+        {
+            if let Ok(mut active) = self.active_runs.lock() {
+                active.remove(&active_key);
+            }
+            tracing::error!(continuation_id=%record.id, "queued continuation changed before claim");
+            return;
+        }
+        request.continuation_id = Some(record.id.clone());
+        request.continuation_payload = serde_json::to_value(&record.action).ok();
+        if request.continuation_payload.is_none() {
+            tracing::error!(continuation_id=%record.id, "cannot serialize continuation payload");
+            if let Ok(mut active) = self.active_runs.lock() {
+                active.remove(&active_key);
+            }
+            return;
+        }
+        if let Err(error) = self.runtime.persist_request(&request) {
+            if let Ok(mut active) = self.active_runs.lock() {
+                active.remove(&active_key);
+            }
+            tracing::error!(continuation_id=%record.id, %error, "cannot persist continuation request marker");
+            return;
+        }
+        record.state = "claimed".into();
+        if let Err(error) = self.inner.store.write_snapshot(&path, &record) {
+            if let Ok(mut active) = self.active_runs.lock() {
+                active.remove(&active_key);
+            }
+            tracing::error!(continuation_id=%record.id, %error, "cannot claim durable continuation");
+            return;
+        }
+        drop(_continuation_guard);
+        let scheduler = self.clone();
+        tokio::spawn(async move {
+            // `question.answer` first commits the canonical answered state,
+            // then records a stable inbox item. A crash between those writes
+            // is repaired here before the original run resumes.
+            if let ContinuationAction::Message {
+                expected_message_id,
+                ..
+            } = &record.action
+            {
+                let snapshot = match scheduler.inner.orchestrator.snapshot() {
+                    Ok(snapshot) => snapshot,
+                    Err(error) => {
+                        tracing::error!(continuation_id=%record.id, %error, "cannot inspect answered question before continuation");
+                        if let Ok(mut active) = scheduler.active_runs.lock() {
+                            active.remove(&active_key);
+                        }
+                        return;
+                    }
+                };
+                let answered = (|| -> Option<(String, String)> {
+                    let message =
+                        snapshot
+                            .get("messages")?
+                            .as_object()?
+                            .values()
+                            .find(|message| {
+                                message.get("id").and_then(Value::as_str)
+                                    == Some(expected_message_id.as_str())
+                            })?;
+                    let question_id = message.get("question_id")?.as_str()?;
+                    let question = snapshot.get("questions")?.get(question_id)?;
+                    if question.get("state").and_then(Value::as_str) != Some("answered") {
+                        return None;
+                    }
+                    let text = answered_decision_answer(question)?;
+                    Some((question_id.to_owned(), text))
+                })();
+                if let Some((question_id, answer)) = answered {
+                    let _input_gate = scheduler
+                        .runtime
+                        .state
+                        .assignment_input_gate(&record.assignment_id)
+                        .await;
+                    if let Err(error) = scheduler
+                        .enqueue_late_question_answer(&record.assignment_id, &question_id, &answer)
+                        .await
+                    {
+                        tracing::error!(continuation_id=%record.id, %error, "cannot recover answered question input before continuation");
+                        if let Ok(mut active) = scheduler.active_runs.lock() {
+                            active.remove(&active_key);
+                        }
+                        return;
+                    }
+                }
+            }
+            let result = match &record.action {
+                ContinuationAction::Approval { approval_id } => {
+                    scheduler
+                        .runtime
+                        .resume_approved_waiting(approval_id, &record.run_id)
+                        .await
+                }
+                ContinuationAction::Decision {
+                    question_id,
+                    answer,
+                } => {
+                    scheduler
+                        .runtime
+                        .resume_question_for_run(question_id, answer.clone(), Some(&record.run_id))
+                        .await
+                }
+                ContinuationAction::ToolQuestion { marker_id, answer } => {
+                    scheduler
+                        .runtime
+                        .resume_waiting_assignment(
+                            marker_id,
+                            &["ask_user", "question"],
+                            WaitingContinuation::Question(answer.clone()),
+                            Some(&record.run_id),
+                        )
+                        .await
+                }
+                ContinuationAction::Takeover {
+                    assignment_id,
+                    note,
+                } => {
+                    scheduler
+                        .runtime
+                        .resume_takeover_for_run(assignment_id, note.clone(), Some(&record.run_id))
+                        .await
+                }
+                ContinuationAction::Message {
+                    assignment_id,
+                    expected_message_id,
+                    text,
+                    steer_message_id,
+                } => {
+                    scheduler
+                        .runtime
+                        .resume_message_for_decision_inner(
+                            assignment_id,
+                            Some(expected_message_id),
+                            text.clone(),
+                            steer_message_id.as_deref(),
+                            Some(&record.run_id),
+                        )
+                        .await
+                }
+            };
+            if let Ok(mut active) = scheduler.active_runs.lock() {
+                active.remove(&active_key);
+            }
+            match result {
+                Ok(Some((assignment_id, outcome))) => {
+                    scheduler.mark_waiting(
+                        assignment_id
+                            .as_deref()
+                            .or(Some(record.assignment_id.as_str())),
+                        &outcome.run_id,
+                        matches!(outcome.status.as_str(), "waiting" | "blocked" | "suspended"),
+                    );
+                    if outcome.status == "done" {
+                        scheduler
+                            .finish_assignment_and_resume_parent(
+                                record.assignment_id.clone(),
+                                outcome.text,
+                            )
+                            .await;
+                    } else if matches!(outcome.status.as_str(), "failed" | "cancelled") {
+                        fail_assignment(
+                            scheduler.inner.clone(),
+                            scheduler.state.clone(),
+                            record.assignment_id.clone(),
+                            &outcome.status,
+                        )
+                        .await;
+                    }
+                }
+                Err(error) => {
+                    tracing::error!(continuation_id=%record.id, %error, "durable continuation failed")
+                }
+                Ok(None) => {
+                    tracing::error!(continuation_id=%record.id, run_id=%record.run_id, "durable continuation found no matching run to resume")
+                }
+            }
+            let job = scheduler.durable_job_for_run(&record.run_id).await;
+            let phase = job.as_ref().and_then(|job| {
+                continuation_checkpoint_matches(&job.checkpoint, &record)
+                    .then(|| {
+                        job.checkpoint
+                            .pointer("/continuation/phase")
+                            .and_then(Value::as_str)
+                    })
+                    .flatten()
+            });
+            let terminal_job = job.as_ref().is_some_and(|job| {
+                matches!(
+                    job.status,
+                    macbot_durable::JobStatus::Done
+                        | macbot_durable::JobStatus::Failed
+                        | macbot_durable::JobStatus::Cancelled
+                )
+            });
+            if terminal_job || matches!(phase, Some("input_committed" | "effect_result_committed"))
+            {
+                record.state = "done".into();
+            } else {
+                record.state = "uncertain".into();
+                let reason = if matches!(record.action, ContinuationAction::Approval { .. }) {
+                    "approval"
+                } else {
+                    "blocked"
+                };
+                tracing::error!(continuation_id=%record.id, run_id=%record.run_id, ?phase, "continuation has no durable consumption/result proof; leaving it suspended instead of replaying");
+                scheduler
+                    .suspend_uncertain_assignment(&record.assignment_id, reason)
+                    .await;
+            }
+            if let Err(error) = scheduler.persist_continuation(&record).await {
+                tracing::error!(continuation_id=%record.id, %error, "cannot persist continuation completion state");
+                return;
+            }
+            scheduler.dispatch_ready_assignments().await;
+        });
+    }
+
     async fn finalize_project_before_confirmation(&self, project_id: &str) -> crate::RpcResult {
         self.runtime
             .finalize_project_summary_before_confirmation(project_id)
@@ -2203,6 +3438,30 @@ impl ComposedBackend {
             }) {
                 self.answer_parent_decision_question(&parent_id, &completed_text)
                     .await;
+            }
+            if let Some(wait_message_id) = parent_wait_message_id.as_deref() {
+                if let Ok(Some(run_id)) = self
+                    .waiting_run_for_assignment(&parent_id, Some(wait_message_id), &[], Some(false))
+                    .await
+                {
+                    if let Err(error) = self
+                        .enqueue_continuation(
+                            format!("child-{}-{parent_id}", completed_id),
+                            parent_id.clone(),
+                            run_id,
+                            ContinuationAction::Message {
+                                assignment_id: parent_id.clone(),
+                                expected_message_id: wait_message_id.to_owned(),
+                                text: completed_text,
+                                steer_message_id: None,
+                            },
+                        )
+                        .await
+                    {
+                        tracing::warn!(%parent_id, %error, "parent continuation could not be queued");
+                    }
+                    return;
+                }
             }
             match self
                 .runtime
@@ -2557,6 +3816,45 @@ impl ComposedBackend {
     }
 }
 
+fn is_root_request_for_assignment(request: &ExecutionRequest, assignment_id: &str) -> bool {
+    request.assignment_id.as_deref() == Some(assignment_id)
+        && !request.subagent
+        && request.parent_run_id.is_none()
+}
+
+fn waiting_checkpoint_safety_matches(
+    job: &macbot_durable::Job,
+    expected_unsafe_replay: Option<bool>,
+) -> bool {
+    let pending_name = job
+        .checkpoint
+        .pointer("/pending_tool/name")
+        .and_then(Value::as_str);
+    let legacy_safe_wait = matches!(
+        pending_name,
+        Some("ask_user" | "question" | "request_takeover")
+    ) || (pending_name.is_none()
+        && job.checkpoint.get("waiting_reason").and_then(Value::as_str) == Some("decision")
+        && job
+            .checkpoint
+            .get("pending_tool")
+            .is_none_or(Value::is_null)
+        && job
+            .checkpoint
+            .get("pending_tools")
+            .is_none_or(|tools| tools.is_null() || tools.as_array().is_some_and(Vec::is_empty)));
+    expected_unsafe_replay.is_none_or(|expected| job.unsafe_replay == expected || legacy_safe_wait)
+}
+
+fn continuation_checkpoint_matches(checkpoint: &Value, record: &DurableContinuation) -> bool {
+    let expected_payload = serde_json::to_value(&record.action).ok();
+    checkpoint
+        .pointer("/continuation/id")
+        .and_then(Value::as_str)
+        == Some(record.id.as_str())
+        && expected_payload.as_ref() == checkpoint.pointer("/continuation/payload")
+}
+
 async fn run_user_curator_tick(
     inner: Arc<ProductionBackend>,
     features: SharedFeatureService,
@@ -2881,13 +4179,14 @@ async fn finish_assignment_with_status(
         {
             tracing::warn!(%error, %assignment_id, "failed to persist execution finish");
         }
-        if let Ok(event) = inner
-            .store
-            .append_event("assignment.updated", json!({"assignment":assignment}))
-        {
-            state
-                .publish_event(event.seq, &event.event, event.data)
-                .await;
+        if let Ok(assignment) = serde_json::to_value(&assignment) {
+            if let Ok(event) =
+                crate::adapter::append_assignment_updated_event(&inner.store, assignment)
+            {
+                state
+                    .publish_event(event.seq, &event.event, event.data)
+                    .await;
+            }
         }
         if let Some(project_id) = assignment.project_id.as_deref() {
             if let Err(error) = inner.refresh_project_events(&state, project_id).await {
@@ -2956,9 +4255,8 @@ async fn reconcile_steers(
             .and_then(Value::as_object)
             .and_then(|items| items.get(assignment_id))
         {
-            if let Ok(event) = inner
-                .store
-                .append_event("assignment.updated", json!({"assignment":assignment}))
+            if let Ok(event) =
+                crate::adapter::append_assignment_updated_event(&inner.store, assignment.clone())
             {
                 state
                     .publish_event(event.seq, &event.event, event.data)
@@ -3007,10 +4305,20 @@ async fn cancel_project_assignments(
             "assignment_id": assignment_id,
             "client_request_id": format!("project-stop:{project_id}:{assignment_id}")
         });
+        let stop_gate = backend
+            .runtime
+            .state
+            .assignment_input_gate(&assignment_id)
+            .await;
         backend
             .inner
             .call("assignment.stop", stop_params, &backend.state)
             .await?;
+        drop(stop_gate);
+        backend
+            .runtime
+            .clear_assignment_cancellation(&assignment_id)
+            .await;
     }
     Ok(json!({}))
 }
@@ -3038,7 +4346,12 @@ async fn cancel_assignment_engine_with_runtime(
         .cancel_assignment(assignment_id)
         .await
         .map_err(|error| crate::rpc_error("internal", &error.to_string(), None))?;
-    if outcome.is_none() && status != "blocked" {
+    if outcome.is_none()
+        && status != "blocked"
+        && !runtime
+            .assignment_cancellation_in_progress(assignment_id)
+            .await
+    {
         return Err(crate::rpc_error(
             "conflict",
             "assignment has no running execution to cancel",
@@ -3115,6 +4428,92 @@ fn waiting_assignment_for_message(snapshot: &Value, message_id: &str) -> Option<
                 .flatten()
             })
         })
+}
+
+fn active_assignment_for_reply(snapshot: &Value, message_id: &str) -> Option<String> {
+    waiting_assignment_for_message(snapshot, message_id).or_else(|| {
+        let assignment_id = snapshot
+            .get("messages")
+            .and_then(Value::as_object)
+            .and_then(|messages| messages.get(message_id))
+            .and_then(|message| message.get("assignment_id"))
+            .and_then(Value::as_str)?;
+        let status = snapshot
+            .get("assignments")
+            .and_then(Value::as_object)
+            .and_then(|assignments| assignments.get(assignment_id))
+            .and_then(|assignment| assignment.get("status"))
+            .and_then(Value::as_str)?;
+        matches!(
+            status,
+            "working" | "queued" | "waiting_user" | "waiting_bot" | "blocked"
+        )
+        .then(|| assignment_id.to_owned())
+    })
+}
+
+fn directed_chat_delivery_assignments(
+    message: &Value,
+    deliveries: &[Value],
+    reply_to: Option<&str>,
+    snapshot: &Value,
+) -> std::collections::HashSet<String> {
+    let current_message_id = message.get("id").and_then(Value::as_str);
+    let mentioned_bots = message
+        .get("mentions")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|mention| {
+            mention.as_str().or_else(|| {
+                let kind = mention.get("kind").and_then(Value::as_str)?;
+                match kind {
+                    "main" => Some("main"),
+                    "bot" => mention.get("bot_id").and_then(Value::as_str),
+                    _ => mention.get("bot_id").and_then(Value::as_str),
+                }
+            })
+        })
+        .collect::<std::collections::HashSet<_>>();
+    let mut targets = deliveries
+        .iter()
+        .filter_map(|delivery| {
+            if delivery.get("state").and_then(Value::as_str) != Some("queued") {
+                return None;
+            }
+            let bot_id = delivery.get("bot_id").and_then(Value::as_str)?;
+            let assignment_id = delivery.get("assignment_id").and_then(Value::as_str)?;
+            let assignment = snapshot
+                .get("assignments")
+                .and_then(Value::as_object)
+                .and_then(|assignments| assignments.get(assignment_id))?;
+            let status = assignment.get("status").and_then(Value::as_str)?;
+            if !matches!(
+                status,
+                "working" | "queued" | "waiting_user" | "waiting_bot" | "blocked"
+            ) || assignment
+                .get("trigger_message_id")
+                .and_then(Value::as_str)
+                == current_message_id
+            {
+                return None;
+            }
+            mentioned_bots
+                .contains(bot_id)
+                .then(|| assignment_id.to_owned())
+        })
+        .collect::<std::collections::HashSet<_>>();
+    if let Some(reply_to) = reply_to {
+        if let Some(assignment_id) = active_assignment_for_reply(snapshot, reply_to) {
+            if deliveries.iter().any(|delivery| {
+                delivery.get("assignment_id").and_then(Value::as_str)
+                    == Some(assignment_id.as_str())
+            }) {
+                targets.insert(assignment_id);
+            }
+        }
+    }
+    targets
 }
 
 fn waiting_parent_for_child(snapshot: &Value, child_id: &str) -> Option<String> {
@@ -3235,26 +4634,43 @@ fn decision_checkpoint_matches_question(checkpoint: &Value, message_id: &str) ->
         && checkpoint.get("waiting_message_id").and_then(Value::as_str) == Some(message_id)
 }
 
-fn answered_decision_answer(question: &Value) -> Option<String> {
+pub(crate) fn answered_decision_answer(question: &Value) -> Option<String> {
     if question.get("state").and_then(Value::as_str) != Some("answered") {
         return None;
     }
     let answer = question.get("answer")?.as_object()?;
-    if let Some(text) = answer
+    let text = answer
         .get("text")
         .and_then(Value::as_str)
         .filter(|text| !text.trim().is_empty())
-    {
-        return Some(text.to_owned());
-    }
-    let index = answer.get("option_index").and_then(Value::as_u64)? as usize;
-    question
-        .get("options")
+        .map(str::to_owned);
+    let indexes = answer
+        .get("option_indexes")
         .and_then(Value::as_array)
-        .and_then(|options| options.get(index))
-        .and_then(Value::as_str)
-        .filter(|text| !text.trim().is_empty())
-        .map(str::to_owned)
+        .filter(|indexes| !indexes.is_empty())
+        .cloned()
+        .unwrap_or_else(|| {
+            answer
+                .get("option_index")
+                .and_then(Value::as_u64)
+                .map(|index| vec![json!(index)])
+                .unwrap_or_default()
+        });
+    let options = question.get("options").and_then(Value::as_array);
+    let selected = indexes
+        .iter()
+        .filter_map(Value::as_u64)
+        .filter_map(|index| options.and_then(|options| options.get(index as usize)))
+        .filter_map(Value::as_str)
+        .map(str::trim)
+        .filter(|text| !text.is_empty())
+        .collect::<Vec<_>>();
+    match (selected.is_empty(), text) {
+        (true, None) => None,
+        (true, Some(text)) => Some(text),
+        (false, None) => Some(selected.join("、")),
+        (false, Some(text)) => Some(format!("{}（补充：{}）", selected.join("、"), text)),
+    }
 }
 
 pub(crate) fn invalid_tool_approval_request_matches(
@@ -3298,12 +4714,11 @@ pub(crate) fn invalid_tool_approval_request_matches(
 
 fn answered_decision_checkpoint_is_safe(
     checkpoint: &Value,
-    unsafe_replay: bool,
+    _unsafe_replay: bool,
     status: &str,
     message_id: &str,
 ) -> bool {
     matches!(status, "waiting" | "suspended")
-        && !unsafe_replay
         && checkpoint.get("waiting_reason").and_then(Value::as_str) == Some("decision")
         && checkpoint.get("pending_tool").is_none_or(Value::is_null)
         && checkpoint
@@ -3595,6 +5010,118 @@ impl crate::RpcBackend for ComposedBackend {
     }
 
     async fn call(&self, method: &str, params: Value, state: &GatewayState) -> crate::RpcResult {
+        let _answer_gate = if method == "question.answer" {
+            let question_id = params
+                .get("question_id")
+                .and_then(Value::as_str)
+                .ok_or_else(|| {
+                    crate::rpc_error("invalid_params", "question_id is required", None)
+                })?;
+            let snapshot = self
+                .inner
+                .orchestrator
+                .snapshot()
+                .map_err(|error| crate::rpc_error("internal", &error.to_string(), None))?;
+            let assignment_id = snapshot
+                .get("questions")
+                .and_then(|items| items.get(question_id))
+                .and_then(|question| question.get("assignment_id"))
+                .and_then(Value::as_str)
+                .filter(|id| {
+                    snapshot
+                        .get("assignments")
+                        .and_then(|items| items.get(*id))
+                        .is_some()
+                });
+            if let Some(assignment_id) = assignment_id {
+                let gate = self
+                    .runtime
+                    .state
+                    .assignment_input_gate(assignment_id)
+                    .await;
+                if self
+                    .runtime
+                    .assignment_cancellation_in_progress(assignment_id)
+                    .await
+                {
+                    return Err(crate::rpc_error(
+                        "conflict",
+                        "assignment is being stopped",
+                        Some(json!({"assignment_id": assignment_id})),
+                    ));
+                }
+                let snapshot = self
+                    .inner
+                    .orchestrator
+                    .snapshot()
+                    .map_err(|error| crate::rpc_error("internal", &error.to_string(), None))?;
+                let current_question = snapshot
+                    .get("questions")
+                    .and_then(|items| items.get(question_id));
+                if current_question
+                    .and_then(|question| question.get("assignment_id"))
+                    .and_then(Value::as_str)
+                    != Some(assignment_id)
+                {
+                    return Err(crate::rpc_error(
+                        "conflict",
+                        "question assignment changed while acquiring its input gate",
+                        Some(json!({"question_id": question_id})),
+                    ));
+                }
+                let question_state = snapshot
+                    .get("questions")
+                    .and_then(|items| items.get(question_id))
+                    .and_then(|question| question.get("state"))
+                    .and_then(Value::as_str);
+                if question_state == Some("pending") {
+                    let marker = self
+                        .inner
+                        .store
+                        .read_snapshot::<Value>(format!(
+                            "data/waiting/{}.json",
+                            safe_component(question_id)
+                        ))
+                        .map_err(|error| crate::rpc_error("internal", &error.to_string(), None))?;
+                    if let Some(run_id) = marker
+                        .as_ref()
+                        .and_then(|marker| marker.get("run_id"))
+                        .and_then(Value::as_str)
+                    {
+                        let terminal = self
+                            .runtime
+                            .state
+                            .durable
+                            .lock()
+                            .await
+                            .jobs()
+                            .find(|job| {
+                                job.checkpoint.get("run_id").and_then(Value::as_str) == Some(run_id)
+                            })
+                            .is_some_and(|job| {
+                                matches!(
+                                    job.status,
+                                    macbot_durable::JobStatus::Done
+                                        | macbot_durable::JobStatus::Failed
+                                        | macbot_durable::JobStatus::Cancelled
+                                )
+                            });
+                        if terminal {
+                            return Err(crate::rpc_error(
+                                "conflict",
+                                "question belongs to a terminal execution",
+                                Some(json!({"question_id": question_id, "run_id": run_id})),
+                            ));
+                        }
+                    }
+                }
+                Some(gate)
+            } else {
+                None
+            }
+        } else {
+            None
+        };
         if method == "bootstrap" {
             let snapshot = self
                 .inner
@@ -3768,10 +5295,14 @@ impl crate::RpcBackend for ComposedBackend {
                     .and_then(|assignments| assignments.get(&assignment_id))
                     .cloned()
                     .unwrap_or(Value::Null);
+                self.runtime
+                    .clear_assignment_cancellation(&assignment_id)
+                    .await;
                 // A repeated stop must still reconcile persisted approval
                 // events, but never cancel or restart the engine a second time.
                 if status == "cancelled" {
-                    return self.inner.call(method, params, state).await;
+                    let result = self.inner.call(method, params, state).await;
+                    return result;
                 }
                 return Ok(json!({"assignment": assignment}));
             }
@@ -3806,6 +5337,7 @@ impl crate::RpcBackend for ComposedBackend {
             let (project_id, _) = validate_project_lifecycle(self, method, &params)?;
             cancel_project_assignments(self, &project_id, None).await?;
         }
+        let mut assignment_cancellation_to_clear: Option<String> = None;
         if method == "approval.decide"
             && matches!(
                 params.get("decision").and_then(Value::as_str),
@@ -3832,6 +5364,7 @@ impl crate::RpcBackend for ComposedBackend {
                     let status = assignment_status(self, &assignment_id)?;
                     if !matches!(status.as_str(), "done" | "failed" | "cancelled") {
                         cancel_assignment_engine(self, &assignment_id, &status).await?;
+                        assignment_cancellation_to_clear = Some(assignment_id);
                         // Keep the target approval pending until its explicit
                         // denial is recorded. A preliminary assignment.stop
                         // would expire it before approval.decide can run.
@@ -3862,7 +5395,7 @@ impl crate::RpcBackend for ComposedBackend {
                             .and_then(|questions| questions.get(question_id))
                             .and_then(|question| question.get("state"))
                             .and_then(Value::as_str)
-                            .map(|status| status == "pending")
+                            .map(|status| matches!(status, "pending" | "answered"))
                     })
                     .unwrap_or(false)
             })
@@ -3881,6 +5414,17 @@ impl crate::RpcBackend for ComposedBackend {
                 )
                 .await;
         }
+        let stop_gate = if method == "assignment.stop" {
+            let assignment_id = required_nonempty_param(&params, "assignment_id")?;
+            Some(
+                self.runtime
+                    .state
+                    .assignment_input_gate(&assignment_id)
+                    .await,
+            )
+        } else {
+            None
+        };
         let inner_result = if method == "takeover.start" {
             self.inner.execution_takeover_start(state, &params).await
         } else if method == "takeover.release" {
@@ -3888,6 +5432,7 @@ impl crate::RpcBackend for ComposedBackend {
         } else {
             self.inner.call(method, params.clone(), state).await
         };
+        drop(stop_gate);
         let mut result = match inner_result {
             Ok(result) => result,
             Err(error) if method == "question.answer" && error.code == "not_found" => {
@@ -3927,6 +5472,18 @@ impl crate::RpcBackend for ComposedBackend {
             }
             Err(error) => return Err(error),
         };
+        if method == "assignment.stop" {
+            if let Some(assignment_id) = params.get("assignment_id").and_then(Value::as_str) {
+                self.runtime
+                    .clear_assignment_cancellation(assignment_id)
+                    .await;
+            }
+        }
+        if let Some(assignment_id) = assignment_cancellation_to_clear {
+            self.runtime
+                .clear_assignment_cancellation(&assignment_id)
+                .await;
+        }
         if matches!(method, "takeover.start" | "takeover.release") {
             if let Some(request) = result.get("takeover_request") {
                 self.inner
@@ -3975,85 +5532,9 @@ impl crate::RpcBackend for ComposedBackend {
             let has_queued_deliveries = deliveries
                 .iter()
                 .any(|delivery| delivery.get("state").and_then(Value::as_str) == Some("queued"));
-            let delivery_key = result
-                .pointer("/message/id")
-                .and_then(Value::as_str)
-                .map(|id| format!("user-delivery:{id}"));
-            let fresh_delivery = match delivery_key {
-                Some(key) => self.scheduled.lock().await.insert(key),
-                None => false,
-            };
-            if fresh_delivery {
-                for delivery in deliveries {
-                    if delivery.get("state").and_then(Value::as_str) != Some("queued") {
-                        continue;
-                    }
-                    let Some(assignment_id) = delivery
-                        .get("assignment_id")
-                        .and_then(Value::as_str)
-                        .map(str::to_owned)
-                    else {
-                        continue;
-                    };
-                    let Some(message_id) = result
-                        .pointer("/message/id")
-                        .and_then(Value::as_str)
-                        .map(str::to_owned)
-                    else {
-                        continue;
-                    };
-                    let text = result
-                        .pointer("/message/fallback_text")
-                        .and_then(Value::as_str)
-                        .unwrap_or_default()
-                        .to_owned();
-                    let scheduler = self.clone();
-                    tokio::spawn(async move {
-                        match scheduler
-                            .runtime
-                            .resume_user_steer(&assignment_id, &message_id, text.clone())
-                            .await
-                        {
-                            Ok(Some((assignment, outcome))) => {
-                                scheduler.mark_waiting(
-                                    assignment.as_deref(),
-                                    &outcome.run_id,
-                                    matches!(
-                                        outcome.status.as_str(),
-                                        "waiting" | "blocked" | "suspended"
-                                    ),
-                                );
-                                if outcome.status == "done" {
-                                    if let Some(id) = assignment {
-                                        scheduler
-                                            .finish_assignment_and_resume_parent(id, outcome.text)
-                                            .await;
-                                    }
-                                } else if matches!(outcome.status.as_str(), "failed" | "cancelled")
-                                {
-                                    if let Some(id) = assignment {
-                                        fail_assignment(
-                                            scheduler.inner.clone(),
-                                            scheduler.state.clone(),
-                                            id,
-                                            &outcome.status,
-                                        )
-                                        .await;
-                                    }
-                                }
-                                scheduler.dispatch_ready_assignments().await;
-                            }
-                            Ok(None) => {
-                                enqueue_steer_runtime(scheduler.runtime.clone(),
-                                    &json!({"steer":{"message_id":message_id,"assignment_id":assignment_id}}), &json!({"text":text})).await;
-                            }
-                            Err(error) => {
-                                tracing::warn!(%error, %assignment_id, "user steer continuation failed")
-                            }
-                        }
-                    });
-                }
-            }
+            // Unmentioned queued chat delivery is only a reviewable user
+            // message. An explicit @Bot mention, reply, or message.steer can
+            // promote a targeted delivery into the same safe continuation path.
             let quote_mode = params
                 .get("quote_mode")
                 .and_then(Value::as_str)
@@ -4073,6 +5554,12 @@ impl crate::RpcBackend for ComposedBackend {
                             .and_then(Value::as_str)
                             .map(str::to_owned)
                     })
+                    .or_else(|| {
+                        result
+                            .pointer("/message/quote/message_id")
+                            .and_then(Value::as_str)
+                            .map(str::to_owned)
+                    })
             };
             let assignment_id = params
                 .get("assignment_id")
@@ -4080,15 +5567,66 @@ impl crate::RpcBackend for ComposedBackend {
                 .map(str::to_owned)
                 .or_else(|| {
                     reply_to.as_deref().and_then(|reply_to| {
-                        self.inner
-                            .orchestrator
-                            .snapshot()
-                            .ok()
-                            .and_then(|snapshot| {
-                                waiting_assignment_for_message(&snapshot, reply_to)
+                        self.inner.orchestrator.snapshot().ok().and_then(|snapshot| {
+                            waiting_assignment_for_message(&snapshot, reply_to).or_else(|| {
+                                let assignment_id = snapshot
+                                    .get("messages")
+                                    .and_then(Value::as_object)
+                                    .and_then(|messages| messages.get(reply_to))
+                                    .and_then(|message| message.get("assignment_id"))
+                                    .and_then(Value::as_str)?;
+                                let status = snapshot
+                                    .get("assignments")
+                                    .and_then(Value::as_object)
+                                    .and_then(|assignments| assignments.get(assignment_id))
+                                    .and_then(|assignment| assignment.get("status"))
+                                    .and_then(Value::as_str)?;
+                                matches!(
+                                    status,
+                                    "working" | "queued" | "waiting_user" | "waiting_bot" | "blocked"
+                                )
+                                .then(|| assignment_id.to_owned())
                             })
+                        })
                     })
                 });
+
+            // A queued delivery stays reviewable by default, but an explicit
+            // @Bot or reply to this assignment's waiting message is an
+            // intentional runtime input. Route only those canonical message
+            // deliveries into the execution inbox; ordinary unmentioned
+            // messages remain queued for review.
+            let snapshot = self.inner.orchestrator.snapshot().unwrap_or(Value::Null);
+            let targeted_assignments = directed_chat_delivery_assignments(
+                result.get("message").unwrap_or(&Value::Null),
+                &deliveries,
+                reply_to.as_deref(),
+                &snapshot,
+            );
+            if !targeted_assignments.is_empty() {
+                let message = result.get("message").cloned().unwrap_or(Value::Null);
+                let message_text = message
+                    .get("text")
+                    .and_then(Value::as_str)
+                    .or_else(|| message.get("fallback_text").and_then(Value::as_str))
+                    .unwrap_or_default()
+                    .to_owned();
+                for target_assignment in targeted_assignments {
+                    let scheduler = self.clone();
+                    let steer_result = json!({
+                        "assignment_id": target_assignment,
+                        "message": message
+                    });
+                    let steer_params = json!({
+                        "text": message_text
+                    });
+                    tokio::spawn(async move {
+                        scheduler
+                            .schedule_assignment_steer(&steer_result, &steer_params)
+                            .await;
+                    });
+                }
+            }
             if let (false, Some(assignment_id), Some(text)) = (
                 has_user_deliveries,
                 assignment_id,
@@ -4106,40 +5644,65 @@ impl crate::RpcBackend for ComposedBackend {
                             waiting_message_id_for_assignment(&snapshot, &assignment_id)
                         })
                 });
-                let runtime = self.runtime.clone();
-                let scheduler = self.clone();
-                self.mark_waiting(Some(&assignment_id), "", false);
-                resumed_waiting_message = runtime
-                    .resume_message_for_decision(
-                        &assignment_id,
-                        expected_wait_message_id.as_deref(),
-                        text,
+                let wait_id = expected_wait_message_id.as_deref();
+                if let Some(run_id) = self
+                    .waiting_run_for_assignment(&assignment_id, wait_id, &[], Some(false))
+                    .await
+                    .map_err(|error| crate::rpc_error("internal", &error, None))?
+                {
+                    let message_id = result
+                        .pointer("/message/id")
+                        .and_then(Value::as_str)
+                        .unwrap_or("chat-reply");
+                    self.enqueue_continuation(
+                        format!("message-{message_id}"),
+                        assignment_id.clone(),
+                        run_id,
+                        ContinuationAction::Message {
+                            assignment_id: assignment_id.clone(),
+                            expected_message_id: wait_id.unwrap_or_default().to_owned(),
+                            text,
+                            steer_message_id: None,
+                        },
                     )
                     .await
-                    .map_err(|error| crate::rpc_error("internal", &error.to_string(), None))?
-                    .map(|(assignment, outcome)| {
-                        scheduler.mark_waiting(
-                            assignment.as_deref(),
-                            &outcome.run_id,
-                            matches!(outcome.status.as_str(), "waiting" | "blocked" | "suspended"),
-                        );
-                        if outcome.status == "done" {
-                            if let Some(assignment) = assignment {
-                                let scheduler = scheduler.clone();
-                                tokio::spawn(async move {
-                                    scheduler
-                                        .finish_assignment_and_resume_parent(
-                                            assignment,
-                                            outcome.text,
-                                        )
-                                        .await;
-                                    scheduler.dispatch_ready_assignments().await;
-                                });
+                    .map_err(|error| crate::rpc_error("internal", &error, None))?;
+                    resumed_waiting_message = true;
+                } else {
+                    let runtime = self.runtime.clone();
+                    let scheduler = self.clone();
+                    self.mark_waiting(Some(&assignment_id), "", false);
+                    resumed_waiting_message = runtime
+                        .resume_message_for_decision(&assignment_id, wait_id, text)
+                        .await
+                        .map_err(|error| crate::rpc_error("internal", &error.to_string(), None))?
+                        .map(|(assignment, outcome)| {
+                            scheduler.mark_waiting(
+                                assignment.as_deref(),
+                                &outcome.run_id,
+                                matches!(
+                                    outcome.status.as_str(),
+                                    "waiting" | "blocked" | "suspended"
+                                ),
+                            );
+                            if outcome.status == "done" {
+                                if let Some(assignment) = assignment {
+                                    let scheduler = scheduler.clone();
+                                    tokio::spawn(async move {
+                                        scheduler
+                                            .finish_assignment_and_resume_parent(
+                                                assignment,
+                                                outcome.text,
+                                            )
+                                            .await;
+                                        scheduler.dispatch_ready_assignments().await;
+                                    });
+                                }
                             }
-                        }
-                        true
-                    })
-                    .unwrap_or(false);
+                            true
+                        })
+                        .unwrap_or(false);
+                }
             }
             let schedule_key = params
                 .get("client_request_id")
@@ -4241,11 +5804,20 @@ impl crate::RpcBackend for ComposedBackend {
             }
         }
         if matches!(method, "assignment.steer" | "steer" | "message.steer") {
-            let runtime = self.runtime.clone();
+            if Self::canonical_steer_text(&result, &params).is_none() {
+                return Err(crate::rpc_error(
+                    "internal",
+                    "steer result is missing canonical message text",
+                    None,
+                ));
+            }
+            let scheduler = self.clone();
             let params_for_task = params.clone();
             let result_for_task = result.clone();
             tokio::spawn(async move {
-                enqueue_steer_runtime(runtime, &result_for_task, &params_for_task).await;
+                scheduler
+                    .schedule_assignment_steer(&result_for_task, &params_for_task)
+                    .await;
             });
         }
         if method == "approval.decide"
@@ -4265,6 +5837,29 @@ impl crate::RpcBackend for ComposedBackend {
                 let state = self.state.clone();
                 let scheduler = self.clone();
                 tokio::spawn(async move {
+                    if let Some(assignment_id) = approval_assignment.as_deref() {
+                        if let Some(run_id) = scheduler.approved_run_for_assignment(&approval_id, assignment_id).await
+                            .map_err(|error| tracing::error!(%approval_id, %error, "approval continuation lookup failed"))
+                            .ok().flatten()
+                        {
+                            if let Err(error) = scheduler
+                                .enqueue_continuation(
+                                    format!("approval-{approval_id}"),
+                                    assignment_id.to_owned(),
+                                    run_id,
+                                    ContinuationAction::Approval {
+                                        approval_id: approval_id.clone(),
+                                    },
+                                )
+                                .await
+                            {
+                                tracing::error!(%approval_id, %error, "approval continuation could not be queued");
+                            }
+                        } else {
+                            tracing::warn!(%approval_id, "approved receipt has no exact waiting unsafe checkpoint");
+                        }
+                        return;
+                    }
                     if !scheduler.claim_approved_continuation(&approval_id) {
                         tracing::info!(%approval_id, "approval continuation already claimed");
                         return;
@@ -4344,31 +5939,34 @@ impl crate::RpcBackend for ComposedBackend {
                 }
             }
         }
+        let late_answer_queued = if method == "question.answer" && resume_answered_question {
+            let question = result.get("question");
+            let question_id = question
+                .and_then(|question| question.get("id"))
+                .and_then(Value::as_str);
+            let assignment_id = question
+                .and_then(|question| question.get("assignment_id"))
+                .and_then(Value::as_str);
+            let answer = question.and_then(answered_decision_answer);
+            if let (Some(question_id), Some(assignment_id), Some(answer)) =
+                (question_id, assignment_id, answer)
+            {
+                self.enqueue_late_question_answer(assignment_id, question_id, &answer)
+                    .await
+                    .map_err(|error| crate::rpc_error("internal", &error, None))?
+            } else {
+                false
+            }
+        } else {
+            false
+        };
         if method == "question.answer" && resume_answered_question {
             if let Some(question) = result.get("question") {
                 let question_id = question
                     .get("id")
                     .and_then(Value::as_str)
                     .map(str::to_owned);
-                let answer = question
-                    .get("answer")
-                    .and_then(|answer| answer.get("text"))
-                    .and_then(Value::as_str)
-                    .map(str::to_owned)
-                    .or_else(|| {
-                        question
-                            .get("answer")
-                            .and_then(|answer| answer.get("option_index"))
-                            .and_then(Value::as_u64)
-                            .and_then(|index| {
-                                question
-                                    .get("options")
-                                    .and_then(Value::as_array)
-                                    .and_then(|options| options.get(index as usize))
-                                    .and_then(Value::as_str)
-                                    .map(str::to_owned)
-                            })
-                    });
+                let answer = answered_decision_answer(question);
                 if let (Some(question_id), Some(answer)) = (question_id, answer) {
                     let question_assignment = question
                         .get("assignment_id")
@@ -4391,6 +5989,15 @@ impl crate::RpcBackend for ComposedBackend {
                                     .and_then(|assignment| assignment.get("project_id").cloned())
                                     .is_some_and(|project_id| project_id.is_string())
                             });
+                        let real_assignment = question_assignment.as_deref().filter(|id| {
+                            inner
+                                .orchestrator
+                                .snapshot()
+                                .ok()
+                                .and_then(|snapshot| snapshot.get("assignments").cloned())
+                                .and_then(|items| items.get(*id).cloned())
+                                .is_some()
+                        });
                         if is_group_assignment {
                             let question = &question_payload;
                             let Some(assignment_id) =
@@ -4406,7 +6013,7 @@ impl crate::RpcBackend for ComposedBackend {
                             else {
                                 return;
                             };
-                            let ack_text = format!("收到选择「{answer}」，继续处理。");
+                            let ack_text = "收到，继续处理。";
                             if let Err(error) = inner
                                 .execution_send_msg(
                                     &state,
@@ -4431,7 +6038,105 @@ impl crate::RpcBackend for ComposedBackend {
                                 return;
                             }
                         }
-                        match runtime.resume_question(&question_id, answer).await {
+                        if late_answer_queued {
+                            return;
+                        }
+                        if let Some(assignment_id) = real_assignment {
+                            let snapshot = inner.orchestrator.snapshot().ok();
+                            let message_id = snapshot.as_ref().and_then(|snapshot| {
+                                snapshot
+                                    .get("messages")
+                                    .and_then(Value::as_object)
+                                    .and_then(|messages| {
+                                        messages
+                                            .values()
+                                            .find(|message| {
+                                                message.get("question_id").and_then(Value::as_str)
+                                                    == Some(question_id.as_str())
+                                            })
+                                            .and_then(|message| message.get("id"))
+                                            .and_then(Value::as_str)
+                                            .map(str::to_owned)
+                                    })
+                            });
+                            let waiting = if let Some(message_id) = message_id.as_deref() {
+                                scheduler
+                                    .waiting_run_for_assignment(
+                                        assignment_id,
+                                        Some(message_id),
+                                        &[],
+                                        Some(false),
+                                    )
+                                    .await
+                            } else {
+                                Ok(None)
+                            };
+                            let waiting = match waiting {
+                                Ok(Some(run_id)) => Some(run_id),
+                                Ok(None) => match scheduler
+                                    .waiting_run_for_assignment(
+                                        assignment_id,
+                                        None,
+                                        &["ask_user", "question"],
+                                        Some(false),
+                                    )
+                                    .await
+                                {
+                                    Ok(run_id) => run_id,
+                                    Err(error) => {
+                                        tracing::error!(%question_id, %error, "question continuation lookup failed");
+                                        None
+                                    }
+                                },
+                                Err(error) => {
+                                    tracing::error!(%question_id, %error, "question continuation lookup failed");
+                                    None
+                                }
+                            };
+                            if let Some(run_id) = waiting {
+                                let queued = scheduler
+                                    .enqueue_continuation(
+                                        format!("question-{question_id}"),
+                                        assignment_id.to_owned(),
+                                        run_id,
+                                        ContinuationAction::Decision {
+                                            question_id: question_id.clone(),
+                                            answer: answer.clone(),
+                                        },
+                                    )
+                                    .await;
+                                if let Err(error) = queued {
+                                    tracing::error!(%question_id, %error, "question continuation could not be queued");
+                                }
+                                return;
+                            }
+                            if real_assignment.is_some() {
+                                tracing::error!(%question_id, "assignment question has no exact safe waiting run; keeping the answered assignment from bypassing scheduler admission");
+                                return;
+                            }
+                        }
+                        let expected_run_id = match inner.store.read_snapshot::<Value>(format!(
+                            "data/waiting/{}.json",
+                            safe_component(&question_id)
+                        )) {
+                            Ok(Some(marker)) => marker
+                                .get("run_id")
+                                .and_then(Value::as_str)
+                                .map(str::to_owned),
+                            Ok(None) => None,
+                            Err(error) => {
+                                tracing::error!(%question_id, %error, "cannot read private question run marker");
+                                return;
+                            }
+                        };
+                        match runtime
+                            .resume_question_for_run(
+                                &question_id,
+                                answer,
+                                expected_run_id.as_deref(),
+                            )
+                            .await
+                        {
                             Ok(Some((assignment_id, outcome))) => {
                                 let assignment_id = assignment_id.or(question_assignment.clone());
                                 scheduler.mark_waiting(
@@ -4464,7 +6169,7 @@ impl crate::RpcBackend for ComposedBackend {
                                     }
                                 }
                             }
-                            Ok(_) => {}
+                            Ok(None) => {}
                             Err(error) => {
                                 tracing::error!(%error, "question continuation failed");
                                 if let Some(assignment_id) = question_assignment {
@@ -4488,54 +6193,40 @@ impl crate::RpcBackend for ComposedBackend {
                     .and_then(Value::as_str)
                     .map(str::to_owned);
                 if let Some(assignment_id) = assignment_id {
-                    let runtime = self.runtime.clone();
-                    let inner = self.inner.clone();
-                    let state = self.state.clone();
                     let scheduler = self.clone();
                     tokio::spawn(async move {
-                        match runtime.resume_takeover(&assignment_id, note).await {
-                            Ok(Some((assignment_result, outcome))) => {
-                                let assignment_result =
-                                    assignment_result.or_else(|| Some(assignment_id.clone()));
-                                scheduler.mark_waiting(
-                                    assignment_result
-                                        .as_deref()
-                                        .or(Some(assignment_id.as_str())),
-                                    &outcome.run_id,
-                                    matches!(
-                                        outcome.status.as_str(),
-                                        "waiting" | "blocked" | "suspended"
-                                    ),
-                                );
-                                if outcome.status == "done" {
-                                    if let Some(assignment_id) = assignment_result {
-                                        scheduler
-                                            .finish_assignment_and_resume_parent(
-                                                assignment_id,
-                                                outcome.text,
-                                            )
-                                            .await;
-                                    }
-                                } else if matches!(outcome.status.as_str(), "failed" | "cancelled")
+                        let waiting = scheduler
+                            .waiting_run_for_assignment(
+                                &assignment_id,
+                                None,
+                                &["request_takeover"],
+                                Some(true),
+                            )
+                            .await;
+                        match waiting {
+                            Ok(Some(run_id)) => {
+                                if let Err(error) = scheduler
+                                    .enqueue_continuation(
+                                        format!("takeover-{assignment_id}"),
+                                        assignment_id.clone(),
+                                        run_id,
+                                        ContinuationAction::Takeover {
+                                            assignment_id: assignment_id.clone(),
+                                            note: note.clone(),
+                                        },
+                                    )
+                                    .await
                                 {
-                                    if let Some(assignment_id) = assignment_result {
-                                        fail_assignment(
-                                            inner,
-                                            state,
-                                            assignment_id,
-                                            &outcome.status,
-                                        )
-                                        .await;
-                                    }
+                                    tracing::error!(%assignment_id, %error, "takeover continuation could not be queued");
                                 }
                             }
-                            Ok(_) => {}
+                            Ok(None) => {
+                                tracing::error!(%assignment_id, "takeover release has no exact unsafe waiting run; bypass is forbidden");
+                            }
                             Err(error) => {
-                                tracing::error!(%error, "takeover continuation failed");
-                                fail_assignment(inner, state, assignment_id, "failed").await;
+                                tracing::error!(%assignment_id, %error, "takeover continuation lookup failed");
                             }
                         }
-                        scheduler.dispatch_ready_assignments().await;
                     });
                 }
             }
@@ -4679,15 +6370,14 @@ fn tool_approval_matches(
     job: &macbot_durable::Job,
     request: &ExecutionRequest,
     approval_states: &[&str],
-    allow_suspended: bool,
+    _allow_suspended: bool,
 ) -> bool {
     if !approval_states.contains(
         &approval
             .get("state")
             .and_then(Value::as_str)
             .unwrap_or_default(),
-    ) || (job.status != macbot_durable::JobStatus::Waiting
-        && (!allow_suspended || job.status != macbot_durable::JobStatus::Suspended))
+    ) || job.status != macbot_durable::JobStatus::Waiting
         || !job.unsafe_replay
     {
         return false;
@@ -5136,6 +6826,7 @@ impl RuntimeExecution {
             feature_service,
             backend,
             gateway_state,
+            cancelling_assignments: Arc::new(Mutex::new(HashSet::new())),
         })
     }
 
@@ -5220,7 +6911,46 @@ impl RuntimeExecution {
         self.configure_feature_runtime().await?;
         let mut request = request;
         self.tighten_request_tools(&mut request)?;
-        self.persist_request(&request)?;
+        let _admission = if let Some(assignment_id) = request.assignment_id.as_deref() {
+            let cancelling = self.cancelling_assignments.lock().await;
+            let snapshot = self
+                .backend
+                .orchestrator
+                .snapshot()
+                .map_err(|error| RuntimeError::Orchestrator(error.to_string()))?;
+            let status = snapshot
+                .get("assignments")
+                .and_then(Value::as_object)
+                .and_then(|assignments| assignments.get(assignment_id))
+                .and_then(|assignment| assignment.get("status"))
+                .and_then(Value::as_str);
+            if status.is_none() || matches!(status, Some("done" | "failed" | "cancelled")) {
+                return Ok(ExecutionOutcome {
+                    run_id: request.run_id,
+                    job_id: String::new(),
+                    status: status.unwrap_or("cancelled").to_owned(),
+                    text: String::new(),
+                    usage: TokenUsage::default(),
+                    turns: 0,
+                });
+            }
+            if cancelling.contains(assignment_id) {
+                return Ok(ExecutionOutcome {
+                    run_id: request.run_id,
+                    job_id: String::new(),
+                    status: "cancelled".into(),
+                    text: String::new(),
+                    usage: TokenUsage::default(),
+                    turns: 0,
+                });
+            }
+            self.persist_request(&request)?;
+            Some(cancelling)
+        } else {
+            self.persist_request(&request)?;
+            None
+        };
+        drop(_admission);
         Ok(self
             .configured_engine_for(&request)
             .await?
@@ -5251,12 +6981,56 @@ impl RuntimeExecution {
         &self,
         assignment_id: &str,
     ) -> Result<Option<ExecutionOutcome>, RuntimeError> {
-        let Some(request) =
-            self.find_request(|request| request.assignment_id.as_deref() == Some(assignment_id))
-        else {
+        {
+            let _input_gate = self.state.assignment_input_gate(assignment_id).await;
+            self.cancelling_assignments
+                .lock()
+                .await
+                .insert(assignment_id.to_owned());
+        }
+        let requests =
+            self.find_requests(|request| request.assignment_id.as_deref() == Some(assignment_id))?;
+        if requests.is_empty() {
             return Ok(None);
-        };
-        Ok(self.engine_for(&request, None)?.cancel(&request).await?)
+        }
+
+        // Parent runs and their subagent runs intentionally share one
+        // assignment_id. Cancel every persisted run so a filesystem iteration
+        // order can never leave a provider call running after assignment.stop.
+        // Try all runs even if one cancellation fails, then report the first
+        // error to the caller.
+        let mut outcome = None;
+        let mut first_error = None;
+        for request in requests {
+            let result = match self.engine_for(&request, None) {
+                Ok(engine) => engine.cancel(&request).await.map_err(RuntimeError::from),
+                Err(error) => Err(error),
+            };
+            match result {
+                Ok(Some(cancelled)) if outcome.is_none() => outcome = Some(cancelled),
+                Ok(_) => {}
+                Err(error) if first_error.is_none() => first_error = Some(error),
+                Err(_) => {}
+            }
+        }
+        if let Some(error) = first_error {
+            return Err(error);
+        }
+        Ok(outcome)
+    }
+
+    async fn clear_assignment_cancellation(&self, assignment_id: &str) {
+        self.cancelling_assignments
+            .lock()
+            .await
+            .remove(assignment_id);
+    }
+
+    async fn assignment_cancellation_in_progress(&self, assignment_id: &str) -> bool {
+        self.cancelling_assignments
+            .lock()
+            .await
+            .contains(assignment_id)
     }
 
     /// Cancel a denied private approval only when its approval map, waiting
@@ -5302,29 +7076,16 @@ impl RuntimeExecution {
         let Some(mapped_call_id) = mapped_call_id else {
             return Ok(None);
         };
-        let entries = match fs::read_dir(self.home.join("data/jobs")) {
-            Ok(entries) => entries,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-            Err(error) => {
-                return Err(RuntimeError::Execution(ExecutionError::Durable(
-                    error.into(),
-                )))
-            }
-        };
+        let jobs = self
+            .state
+            .durable
+            .lock()
+            .await
+            .jobs()
+            .cloned()
+            .collect::<Vec<_>>();
         let mut candidate = None;
-        for entry in entries {
-            let entry = entry
-                .map_err(|error| RuntimeError::Execution(ExecutionError::Durable(error.into())))?;
-            if entry.path().extension().and_then(|value| value.to_str()) != Some("json") {
-                continue;
-            }
-            let bytes = fs::read(entry.path())
-                .map_err(|error| RuntimeError::Execution(ExecutionError::Durable(error.into())))?;
-            let job: macbot_durable::Job = serde_json::from_slice(&bytes).map_err(|error| {
-                RuntimeError::Execution(ExecutionError::Durable(
-                    macbot_durable::DurableError::Invalid(error.to_string()),
-                ))
-            })?;
+        for job in jobs {
             if !matches!(job.status, macbot_durable::JobStatus::Waiting) {
                 continue;
             }
@@ -5408,12 +7169,9 @@ impl RuntimeExecution {
             })
     }
 
-    /// Complete a model-side finish_project through the same durable gateway
-    /// path as a client confirmation. The coordination assignment is marked
-    /// done first so the orchestrator's project transition cannot cancel the
-    /// run that is currently executing this tool; every other live assignment
-    /// is cancelled at the engine before its assignment is stopped.
-    pub(crate) async fn confirm_project_for_coordination(
+    /// Add the coordinator's final summary after a user has already confirmed
+    /// the project. This path never changes project status or cancels work.
+    pub(crate) async fn finalize_confirmed_project_for_coordination(
         &self,
         params: &Value,
         coordination_assignment_id: Option<&str>,
@@ -5433,51 +7191,15 @@ impl RuntimeExecution {
             .and_then(|projects| projects.get(project_id))
             .cloned()
             .ok_or_else(|| crate::rpc_error("not_found", "project not found", None))?;
-        if !matches!(
-            project.get("status").and_then(Value::as_str),
-            Some("active" | "review")
-        ) {
+        if project.get("status").and_then(Value::as_str) != Some("done") {
             return Err(crate::rpc_error(
                 "conflict",
-                "only active or review projects can be finished",
-                Some(json!({"project_id":project_id})),
+                "the user must confirm project completion before the main Bot summarizes it",
+                Some(json!({
+                    "project_id":project_id,
+                    "status":project.get("status")
+                })),
             ));
-        }
-        for (assignment_id, _initial_status) in
-            project_assignment_targets(&snapshot, project_id, None)
-        {
-            if coordination_assignment_id == Some(assignment_id.as_str()) {
-                continue;
-            }
-            let current = self
-                .backend
-                .orchestrator
-                .snapshot()
-                .map_err(|error| crate::rpc_error("internal", &error.to_string(), None))?;
-            let status = current
-                .get("assignments")
-                .and_then(Value::as_object)
-                .and_then(|assignments| assignments.get(&assignment_id))
-                .and_then(|assignment| assignment.get("status"))
-                .and_then(Value::as_str)
-                .unwrap_or("done");
-            if !matches!(
-                status,
-                "queued" | "working" | "waiting_user" | "waiting_bot" | "blocked"
-            ) {
-                continue;
-            }
-            cancel_assignment_engine_with_runtime(self, &assignment_id, status).await?;
-            self.backend
-                .call(
-                    "assignment.stop",
-                    json!({
-                        "assignment_id": assignment_id,
-                        "client_request_id": format!("project-stop:{project_id}:{assignment_id}")
-                    }),
-                    &self.gateway_state,
-                )
-                .await?;
         }
 
         self.finalize_project_summary_before_confirmation(project_id)
@@ -5512,13 +7234,11 @@ impl RuntimeExecution {
         }
         let result = self
             .backend
-            .call("project.confirm_done", params.clone(), &self.gateway_state)
-            .await?;
-        self.backend
-            .refresh_project_events(&self.gateway_state, project_id)
-            .await?;
-        self.backend
-            .refresh_project_attention(&self.gateway_state, Utc::now())
+            .call(
+                "project.get",
+                json!({"project_id":project_id}),
+                &self.gateway_state,
+            )
             .await?;
         Ok(result)
     }
@@ -5584,29 +7304,15 @@ impl RuntimeExecution {
                     .and_then(Value::as_str)
                     .map(str::to_owned)
             });
-        let jobs_dir = self.home.join("data/jobs");
-        let entries = match fs::read_dir(jobs_dir) {
-            Ok(entries) => entries,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-            Err(error) => {
-                return Err(RuntimeError::Execution(ExecutionError::Durable(
-                    error.into(),
-                )));
-            }
-        };
-        for entry in entries {
-            let entry = entry
-                .map_err(|error| RuntimeError::Execution(ExecutionError::Durable(error.into())))?;
-            if entry.path().extension().and_then(|value| value.to_str()) != Some("json") {
-                continue;
-            }
-            let bytes = fs::read(entry.path())
-                .map_err(|error| RuntimeError::Execution(ExecutionError::Durable(error.into())))?;
-            let job: macbot_durable::Job = serde_json::from_slice(&bytes).map_err(|error| {
-                RuntimeError::Execution(ExecutionError::Durable(
-                    macbot_durable::DurableError::Invalid(error.to_string()),
-                ))
-            })?;
+        let jobs = self
+            .state
+            .durable
+            .lock()
+            .await
+            .jobs()
+            .cloned()
+            .collect::<Vec<_>>();
+        for job in jobs {
             let Some(run_id) = job.checkpoint.get("run_id").and_then(Value::as_str) else {
                 continue;
             };
@@ -5632,15 +7338,27 @@ impl RuntimeExecution {
             ) {
                 continue;
             }
-            if let Some(expected_run_id) = expected_run_id {
+            {
                 let durable = self.state.durable.lock().await;
-                let still_waiting = durable.jobs().any(|current| {
-                    current.checkpoint.get("run_id").and_then(Value::as_str)
-                        == Some(expected_run_id)
-                        && current.status == macbot_durable::JobStatus::Waiting
-                        && current.unsafe_replay
+                let still_current = durable.jobs().any(|current| {
+                    current.id == job.id
+                        && current.status == job.status
+                        && current.unsafe_replay == job.unsafe_replay
+                        && current.checkpoint == job.checkpoint
+                        && expected_run_id.is_none_or(|expected| {
+                            current.checkpoint.get("run_id").and_then(Value::as_str)
+                                == Some(expected)
+                        })
+                        && allowed_tool_approval_matches(
+                            &snapshot,
+                            approval,
+                            mapped_call_id.as_deref(),
+                            current,
+                            &request,
+                            allow_suspended,
+                        )
                 });
-                if !still_waiting {
+                if !still_current {
                     return Ok(None);
                 }
             }
@@ -5665,13 +7383,27 @@ impl RuntimeExecution {
         question_id: &str,
         answer: String,
     ) -> Result<Option<(Option<String>, ExecutionOutcome)>, RuntimeError> {
-        if let Some(result) = self.resume_decision_question(question_id, &answer).await? {
+        self.resume_question_for_run(question_id, answer, None)
+            .await
+    }
+
+    async fn resume_question_for_run(
+        &self,
+        question_id: &str,
+        answer: String,
+        expected_run_id: Option<&str>,
+    ) -> Result<Option<(Option<String>, ExecutionOutcome)>, RuntimeError> {
+        if let Some(result) = self
+            .resume_decision_question(question_id, &answer, expected_run_id)
+            .await?
+        {
             return Ok(Some(result));
         }
         self.resume_waiting_assignment(
             question_id,
             &["ask_user", "question"],
             WaitingContinuation::Question(answer),
+            expected_run_id,
         )
         .await
     }
@@ -5680,6 +7412,7 @@ impl RuntimeExecution {
         &self,
         question_id: &str,
         answer: &str,
+        expected_run_id: Option<&str>,
     ) -> Result<Option<(Option<String>, ExecutionOutcome)>, RuntimeError> {
         self.configure_feature_runtime().await?;
         let Some(snapshot) = self.backend.orchestrator.snapshot().ok() else {
@@ -5717,32 +7450,19 @@ impl RuntimeExecution {
                 .and_then(Value::as_object)
                 .is_some_and(|assignments| assignments.contains_key(id))
         });
-        let entries = match fs::read_dir(self.home.join("data/jobs")) {
-            Ok(entries) => entries,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-            Err(error) => {
-                return Err(RuntimeError::Execution(ExecutionError::Durable(
-                    error.into(),
-                )));
-            }
-        };
-        for entry in entries {
-            let entry = entry
-                .map_err(|error| RuntimeError::Execution(ExecutionError::Durable(error.into())))?;
-            if entry.path().extension().and_then(|value| value.to_str()) != Some("json") {
-                continue;
-            }
-            let bytes = fs::read(entry.path())
-                .map_err(|error| RuntimeError::Execution(ExecutionError::Durable(error.into())))?;
-            let job: macbot_durable::Job = serde_json::from_slice(&bytes).map_err(|error| {
-                RuntimeError::Execution(ExecutionError::Durable(
-                    macbot_durable::DurableError::Invalid(error.to_string()),
-                ))
-            })?;
+        let jobs = self
+            .state
+            .durable
+            .lock()
+            .await
+            .jobs()
+            .cloned()
+            .collect::<Vec<_>>();
+        for job in jobs {
             if !matches!(
                 job.status,
                 macbot_durable::JobStatus::Waiting | macbot_durable::JobStatus::Suspended
-            ) || job.unsafe_replay
+            ) || !waiting_checkpoint_safety_matches(&job, Some(false))
                 || !decision_checkpoint_matches_question(&job.checkpoint, &message_id)
             {
                 continue;
@@ -5750,6 +7470,9 @@ impl RuntimeExecution {
             let Some(run_id) = job.checkpoint.get("run_id").and_then(Value::as_str) else {
                 continue;
             };
+            if expected_run_id.is_some_and(|expected| expected != run_id) {
+                continue;
+            }
             let Some(mut request) = self
                 .store
                 .read_snapshot::<ExecutionRequest>(format!("data/run_requests/{run_id}.json"))
@@ -5771,6 +7494,16 @@ impl RuntimeExecution {
             {
                 continue;
             }
+            if !self.state.durable.lock().await.jobs().any(|current| {
+                current.id == job.id
+                    && current.status == job.status
+                    && current.unsafe_replay == job.unsafe_replay
+                    && current.checkpoint == job.checkpoint
+                    && waiting_checkpoint_safety_matches(current, Some(false))
+                    && decision_checkpoint_matches_question(&current.checkpoint, &message_id)
+            }) {
+                continue;
+            }
             let assignment = request.assignment_id.clone();
             let outcome = self
                 .configured_engine_for(&request)
@@ -5790,56 +7523,21 @@ impl RuntimeExecution {
         assignment_id: &str,
         note: Option<String>,
     ) -> Result<Option<(Option<String>, ExecutionOutcome)>, RuntimeError> {
+        self.resume_takeover_for_run(assignment_id, note, None)
+            .await
+    }
+
+    async fn resume_takeover_for_run(
+        &self,
+        assignment_id: &str,
+        note: Option<String>,
+        expected_run_id: Option<&str>,
+    ) -> Result<Option<(Option<String>, ExecutionOutcome)>, RuntimeError> {
         self.resume_waiting_assignment(
             assignment_id,
             &["request_takeover"],
             WaitingContinuation::Takeover(note),
-        )
-        .await
-    }
-
-    async fn resume_user_steer(
-        &self,
-        assignment_id: &str,
-        message_id: &str,
-        text: String,
-    ) -> Result<Option<(Option<String>, ExecutionOutcome)>, RuntimeError> {
-        let Some(mut request) =
-            self.find_request(|request| request.assignment_id.as_deref() == Some(assignment_id))
-        else {
-            return Ok(None);
-        };
-        self.tighten_request_tools(&mut request)?;
-        let expected = {
-            let durable = self.state.durable.lock().await;
-            let message_id = durable
-                .jobs()
-                .find(|job| {
-                    job.checkpoint.get("run_id").and_then(Value::as_str) == Some(&request.run_id)
-                        && matches!(
-                            job.status,
-                            macbot_durable::JobStatus::Waiting
-                                | macbot_durable::JobStatus::Suspended
-                        )
-                        && !job.unsafe_replay
-                        && matches!(
-                            job.checkpoint.get("waiting_reason").and_then(Value::as_str),
-                            Some("decision" | "blocked")
-                        )
-                })
-                .and_then(|job| {
-                    job.checkpoint
-                        .get("waiting_message_id")
-                        .and_then(Value::as_str)
-                })
-                .map(str::to_owned);
-            message_id
-        };
-        self.resume_message_for_decision_inner(
-            assignment_id,
-            expected.as_deref(),
-            text,
-            Some(message_id),
+            expected_run_id,
         )
         .await
     }
@@ -5865,8 +7563,14 @@ impl RuntimeExecution {
         expected_message_id: Option<&str>,
         message: String,
     ) -> Result<Option<(Option<String>, ExecutionOutcome)>, RuntimeError> {
-        self.resume_message_for_decision_inner(assignment_id, expected_message_id, message, None)
-            .await
+        self.resume_message_for_decision_inner(
+            assignment_id,
+            expected_message_id,
+            message,
+            None,
+            None,
+        )
+        .await
     }
 
     async fn resume_message_for_decision_inner(
@@ -5875,37 +7579,25 @@ impl RuntimeExecution {
         expected_message_id: Option<&str>,
         message: String,
         steer_message_id: Option<&str>,
+        expected_run_id: Option<&str>,
     ) -> Result<Option<(Option<String>, ExecutionOutcome)>, RuntimeError> {
         let Some(expected_message_id) = expected_message_id.filter(|id| !id.is_empty()) else {
             return Ok(None);
         };
         self.configure_feature_runtime().await?;
-        let entries = match fs::read_dir(self.home.join("data/jobs")) {
-            Ok(entries) => entries,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-            Err(error) => {
-                return Err(RuntimeError::Execution(ExecutionError::Durable(
-                    error.into(),
-                )));
-            }
-        };
-        for entry in entries {
-            let entry = entry
-                .map_err(|error| RuntimeError::Execution(ExecutionError::Durable(error.into())))?;
-            if entry.path().extension().and_then(|value| value.to_str()) != Some("json") {
-                continue;
-            }
-            let bytes = fs::read(entry.path())
-                .map_err(|error| RuntimeError::Execution(ExecutionError::Durable(error.into())))?;
-            let job: macbot_durable::Job = serde_json::from_slice(&bytes).map_err(|error| {
-                RuntimeError::Execution(ExecutionError::Durable(
-                    macbot_durable::DurableError::Invalid(error.to_string()),
-                ))
-            })?;
+        let jobs = self
+            .state
+            .durable
+            .lock()
+            .await
+            .jobs()
+            .cloned()
+            .collect::<Vec<_>>();
+        for job in jobs {
             if !matches!(
                 job.status,
                 macbot_durable::JobStatus::Waiting | macbot_durable::JobStatus::Suspended
-            ) || job.unsafe_replay
+            ) || !waiting_checkpoint_safety_matches(&job, Some(false))
                 || !waiting_checkpoint_matches_message(&job.checkpoint, expected_message_id)
             {
                 continue;
@@ -5913,6 +7605,9 @@ impl RuntimeExecution {
             let Some(run_id) = job.checkpoint.get("run_id").and_then(Value::as_str) else {
                 continue;
             };
+            if expected_run_id.is_some_and(|expected| expected != run_id) {
+                continue;
+            }
             let Some(mut request) = self
                 .store
                 .read_snapshot::<ExecutionRequest>(format!("data/run_requests/{run_id}.json"))
@@ -5922,6 +7617,16 @@ impl RuntimeExecution {
             };
             self.tighten_request_tools(&mut request)?;
             if request.assignment_id.as_deref() != Some(assignment_id) {
+                continue;
+            }
+            if !self.state.durable.lock().await.jobs().any(|current| {
+                current.id == job.id
+                    && current.status == job.status
+                    && current.unsafe_replay == job.unsafe_replay
+                    && current.checkpoint == job.checkpoint
+                    && waiting_checkpoint_safety_matches(current, Some(false))
+                    && waiting_checkpoint_matches_message(&current.checkpoint, expected_message_id)
+            }) {
                 continue;
             }
             let assignment = request.assignment_id.clone();
@@ -5953,9 +7658,9 @@ impl RuntimeExecution {
         marker_or_assignment: &str,
         pending_tools: &[&str],
         continuation: WaitingContinuation,
+        expected_run_id: Option<&str>,
     ) -> Result<Option<(Option<String>, ExecutionOutcome)>, RuntimeError> {
         self.configure_feature_runtime().await?;
-        let jobs_dir = self.home.join("data/jobs");
         // The execution card initially carries the provider call id, while
         // the orchestrator assigns the public question id. Resolve that id
         // back to its assignment so older cards still continue the same job.
@@ -5973,28 +7678,15 @@ impl RuntimeExecution {
                     .and_then(Value::as_str)
                     .map(str::to_owned)
             });
-        let entries = match fs::read_dir(jobs_dir) {
-            Ok(entries) => entries,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-            Err(error) => {
-                return Err(RuntimeError::Execution(ExecutionError::Durable(
-                    error.into(),
-                )));
-            }
-        };
-        for entry in entries {
-            let entry = entry
-                .map_err(|error| RuntimeError::Execution(ExecutionError::Durable(error.into())))?;
-            if entry.path().extension().and_then(|value| value.to_str()) != Some("json") {
-                continue;
-            }
-            let bytes = fs::read(entry.path())
-                .map_err(|error| RuntimeError::Execution(ExecutionError::Durable(error.into())))?;
-            let job: macbot_durable::Job = serde_json::from_slice(&bytes).map_err(|error| {
-                RuntimeError::Execution(ExecutionError::Durable(
-                    macbot_durable::DurableError::Invalid(error.to_string()),
-                ))
-            })?;
+        let jobs = self
+            .state
+            .durable
+            .lock()
+            .await
+            .jobs()
+            .cloned()
+            .collect::<Vec<_>>();
+        for job in jobs {
             if !matches!(
                 job.status,
                 macbot_durable::JobStatus::Waiting | macbot_durable::JobStatus::Suspended
@@ -6015,6 +7707,9 @@ impl RuntimeExecution {
             let Some(run_id) = job.checkpoint.get("run_id").and_then(Value::as_str) else {
                 continue;
             };
+            if expected_run_id.is_some_and(|expected| expected != run_id) {
+                continue;
+            }
             let Some(mut request) = self
                 .store
                 .read_snapshot::<ExecutionRequest>(format!("data/run_requests/{run_id}.json"))
@@ -6027,20 +7722,33 @@ impl RuntimeExecution {
                 || question_assignment.as_deref() == request.assignment_id.as_deref()
                 || (request.assignment_id.is_none()
                     && format!("dm_{}", safe_component(&request.chat_id)) == marker_or_assignment);
-            let marker_matches = self
+            let marker = self
                 .store
                 .read_snapshot::<Value>(format!(
                     "data/waiting/{}.json",
                     safe_component(marker_or_assignment)
                 ))
-                .ok()
-                .flatten()
-                .is_some_and(|marker| {
-                    marker.get("run_id").and_then(Value::as_str) == Some(run_id)
-                        || marker.get("assignment_id").and_then(Value::as_str)
-                            == request.assignment_id.as_deref()
-                });
+                .map_err(|error| RuntimeError::Execution(error.into()))?;
+            let marker_matches = marker.is_some_and(|marker| {
+                marker.get("run_id").and_then(Value::as_str) == Some(run_id)
+                    || marker.get("assignment_id").and_then(Value::as_str)
+                        == request.assignment_id.as_deref()
+            });
             if !assignment_matches && !marker_matches {
+                continue;
+            }
+            if !self.state.durable.lock().await.jobs().any(|current| {
+                current.id == job.id
+                    && current.status == job.status
+                    && current.unsafe_replay == job.unsafe_replay
+                    && current.checkpoint == job.checkpoint
+                    && current
+                        .checkpoint
+                        .get("pending_tool")
+                        .and_then(|tool| tool.get("name"))
+                        .and_then(Value::as_str)
+                        .is_some_and(|name| pending_tools.contains(&name))
+            }) {
                 continue;
             }
             let assignment = request.assignment_id.clone();
@@ -6783,6 +8491,27 @@ impl RuntimeExecution {
         durable.enqueue_steer(&job.id, message_id, text).is_ok()
     }
 
+    async fn enqueue_input_for_run(&self, run_id: &str, message_id: &str, text: &str) -> bool {
+        let execution_state = self.engine.state();
+        let mut durable = execution_state.durable.lock().await;
+        let Some(job) = durable
+            .jobs()
+            .find(|job| {
+                job.checkpoint.get("run_id").and_then(Value::as_str) == Some(run_id)
+                    && !matches!(
+                        job.status,
+                        macbot_durable::JobStatus::Done
+                            | macbot_durable::JobStatus::Failed
+                            | macbot_durable::JobStatus::Cancelled
+                    )
+            })
+            .cloned()
+        else {
+            return false;
+        };
+        durable.enqueue_steer(&job.id, message_id, text).is_ok()
+    }
+
     async fn applied_steers(&self, assignment_id: &str) -> Vec<String> {
         let Some(request) =
             self.find_request(|request| request.assignment_id.as_deref() == Some(assignment_id))
@@ -6819,6 +8548,515 @@ impl RuntimeExecution {
             let request = serde_json::from_slice::<ExecutionRequest>(&bytes).ok()?;
             predicate(&request).then_some(request)
         })
+    }
+
+    fn find_requests<F>(&self, predicate: F) -> Result<Vec<ExecutionRequest>, RuntimeError>
+    where
+        F: Fn(&ExecutionRequest) -> bool,
+    {
+        read_matching_requests(&self.home, predicate)
+    }
+}
+
+fn read_matching_requests<F>(
+    home: &std::path::Path,
+    predicate: F,
+) -> Result<Vec<ExecutionRequest>, RuntimeError>
+where
+    F: Fn(&ExecutionRequest) -> bool,
+{
+    let dir = home.join("data/run_requests");
+    let entries = match fs::read_dir(dir) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(error) => {
+            return Err(RuntimeError::Execution(ExecutionError::Durable(
+                error.into(),
+            )))
+        }
+    };
+    let mut requests = Vec::new();
+    for entry in entries {
+        let entry = entry
+            .map_err(|error| RuntimeError::Execution(ExecutionError::Durable(error.into())))?;
+        if entry
+            .path()
+            .extension()
+            .and_then(|extension| extension.to_str())
+            != Some("json")
+        {
+            continue;
+        }
+        let bytes = fs::read(entry.path())
+            .map_err(|error| RuntimeError::Execution(ExecutionError::Durable(error.into())))?;
+        let request = serde_json::from_slice::<ExecutionRequest>(&bytes).map_err(|error| {
+            RuntimeError::Execution(ExecutionError::Durable(
+                macbot_durable::DurableError::Invalid(error.to_string()),
+            ))
+        })?;
+        if predicate(&request) {
+            requests.push(request);
+        }
+    }
+    // Stop parent runs first to prevent them from dispatching another child;
+    // the assignment admission barrier blocks new family runs while this
+    // persisted family snapshot is cancelled.
+    requests.sort_by(|left, right| {
+        left.subagent
+            .cmp(&right.subagent)
+            .then_with(|| left.run_id.cmp(&right.run_id))
+    });
+    Ok(requests)
+}
+
+#[cfg(test)]
+mod assignment_run_request_tests {
+    use super::{read_matching_requests, ComposedBackend, ProductionBackend};
+    use crate::execution::ExecutionRequest;
+    use crate::{Gateway, GatewayConfig, RpcBackend};
+    use axum::routing::post;
+    use axum::Json;
+    use serde_json::{json, Value};
+    use std::fs;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
+    use tempfile::tempdir;
+    use tokio::sync::{Notify, Semaphore};
+
+    fn request(run_id: &str, assignment_id: Option<&str>, subagent: bool) -> ExecutionRequest {
+        ExecutionRequest {
+            run_id: run_id.into(),
+            assignment_id: assignment_id.map(str::to_owned),
+            source_message_id: None,
+            chat_id: "chat-test".into(),
+            bot_id: "bot-test".into(),
+            model: "mock/model".into(),
+            provider_id: "mock".into(),
+            project_id: None,
+            instruction: "test".into(),
+            messages: Vec::new(),
+            max_turns: 1,
+            private: false,
+            allow_unsafe: false,
+            cwd: None,
+            routine: false,
+            price: None,
+            resume_approved: false,
+            continuation_id: None,
+            continuation_payload: None,
+            subagent,
+            tools: None,
+            phase: None,
+            parent_run_id: None,
+            subagent_task: None,
+            save_full_requests: false,
+            resume_message: None,
+            client_locale: None,
+        }
+    }
+
+    #[test]
+    fn assignment_run_lookup_returns_parent_and_children_only_for_that_assignment() {
+        let home = tempdir().unwrap();
+        let dir = home.path().join("data/run_requests");
+        fs::create_dir_all(&dir).unwrap();
+        for request in [
+            request("parent", Some("asg-target"), false),
+            request("child-b", Some("asg-target"), true),
+            request("child-a", Some("asg-target"), true),
+            request("other-assignment", Some("asg-other"), true),
+        ] {
+            fs::write(
+                dir.join(format!("{}.json", request.run_id)),
+                serde_json::to_vec(&request).unwrap(),
+            )
+            .unwrap();
+        }
+
+        let matches = read_matching_requests(home.path(), |request| {
+            request.assignment_id.as_deref() == Some("asg-target")
+        })
+        .unwrap();
+        assert_eq!(
+            matches
+                .iter()
+                .map(|request| request.run_id.as_str())
+                .collect::<Vec<_>>(),
+            ["parent", "child-a", "child-b"]
+        );
+    }
+
+    #[test]
+    fn assignment_run_lookup_propagates_corrupt_request_files() {
+        let home = tempdir().unwrap();
+        let dir = home.path().join("data/run_requests");
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join("broken.json"), b"not-json").unwrap();
+
+        assert!(read_matching_requests(home.path(), |_| true).is_err());
+    }
+
+    #[tokio::test]
+    async fn assignment_cancel_stops_parent_and_subagent_provider_runs_before_late_results() {
+        let home = tempdir().unwrap();
+        let gateway = Gateway::new(GatewayConfig {
+            home: home.path().to_path_buf(),
+            ..Default::default()
+        });
+        let backend = Arc::new(ProductionBackend::open(home.path()).unwrap());
+        let bot = backend
+            .call(
+                "bot.create",
+                json!({"name":"cancel family worker"}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        let bot_id = bot["bot"]["id"].as_str().unwrap().to_owned();
+        let chat_id = bot["bot"]["dm_chat_id"].as_str().unwrap().to_owned();
+        let provider_calls = Arc::new(AtomicUsize::new(0));
+        let calls_for_provider = provider_calls.clone();
+        let all_provider_calls_started = Arc::new(Notify::new());
+        let notify_provider_calls = all_provider_calls_started.clone();
+        let release_provider = Arc::new(Semaphore::new(0));
+        let release_for_provider = release_provider.clone();
+        let app = axum::Router::new().route(
+            "/v1/chat/completions",
+            post(move |Json(body): Json<Value>| {
+                let calls = calls_for_provider.clone();
+                let notify = notify_provider_calls.clone();
+                let release = release_for_provider.clone();
+                async move {
+                    let response = if body.to_string().contains("unrelated assignment run") {
+                        "unrelated provider result"
+                    } else {
+                        "late provider result"
+                    };
+                    if calls.fetch_add(1, Ordering::SeqCst) + 1 >= 2 {
+                        notify.notify_one();
+                    }
+                    release.acquire().await.unwrap().forget();
+                    (
+                        [("content-type", "text/event-stream")],
+                        format!("data: {{\"choices\":[{{\"delta\":{{\"content\":\"{response}\"}},\"finish_reason\":null}}]}}\n\ndata: {{\"choices\":[{{\"delta\":{{}},\"finish_reason\":\"stop\"}}],\"usage\":{{\"prompt_tokens\":1,\"completion_tokens\":1}}}}\n\ndata: [DONE]\n\n"),
+                    )
+                }
+            }),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let provider_server = tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+        let provider = backend
+            .call(
+                "provider.create",
+                json!({
+                    "name":"assignment cancellation provider",
+                    "api_kind":"openai-completions",
+                    "base_url":format!("http://{address}/v1"),
+                    "client_request_id":"assignment-cancel-provider"
+                }),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        let provider_id = provider["provider"]["id"].as_str().unwrap().to_owned();
+        let model = backend
+            .call(
+                "model.upsert",
+                json!({
+                    "provider_id":provider_id,
+                    "model_id":"assignment-cancel-model",
+                    "client_request_id":"assignment-cancel-model"
+                }),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        let model_ref = model["model"]["ref"].as_str().unwrap().to_owned();
+        let project = backend
+            .call(
+                "project.create",
+                json!({
+                    "name":"cancel family project",
+                    "goal":"exercise assignment family cancellation",
+                    "member_bot_ids":[bot_id]
+                }),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        let assignment = backend
+            .call(
+                "assignment.create",
+                json!({
+                    "project_id":project["project"]["id"],
+                    "origin_chat_id":project["chat"]["id"],
+                    "bot_id":bot_id,
+                    "title":"cancel parent and child",
+                    "instruction":"wait for cancellation",
+                    "from":"user"
+                }),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        let assignment_id = assignment["id"].as_str().unwrap().to_owned();
+        let other_assignment = backend
+            .call(
+                "assignment.create",
+                json!({
+                    "project_id":project["project"]["id"],
+                    "origin_chat_id":project["chat"]["id"],
+                    "bot_id":bot_id,
+                    "title":"unrelated assignment",
+                    "instruction":"unrelated",
+                    "from":"user"
+                }),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        let other_assignment_id = other_assignment["id"].as_str().unwrap().to_owned();
+        let not_started_assignment = backend
+            .call(
+                "assignment.create",
+                json!({
+                    "project_id":project["project"]["id"],
+                    "origin_chat_id":project["chat"]["id"],
+                    "bot_id":bot_id,
+                    "title":"not started assignment",
+                    "instruction":"cancel before run request",
+                    "from":"user"
+                }),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        let not_started_assignment_id = not_started_assignment["id"].as_str().unwrap().to_owned();
+        let mut snapshot = backend.orchestrator.snapshot().unwrap();
+        snapshot["assignments"][&assignment_id]["status"] = json!("working");
+        snapshot["assignments"][&other_assignment_id]["status"] = json!("working");
+        snapshot["assignments"][&not_started_assignment_id]["status"] = json!("working");
+        backend.orchestrator.restore(snapshot).unwrap();
+        let dispatch_gate = Arc::new(Notify::new());
+        let composed = ComposedBackend::open_with_dispatch_gate(
+            backend.clone(),
+            gateway.state.clone(),
+            home.path(),
+            dispatch_gate,
+        )
+        .unwrap();
+        let runtime = Arc::new(composed.runtime.clone());
+        let make_request = |run_id: &str, subagent: bool| ExecutionRequest {
+            run_id: run_id.into(),
+            assignment_id: Some(assignment_id.clone()),
+            source_message_id: None,
+            chat_id: chat_id.clone(),
+            bot_id: bot_id.clone(),
+            model: model_ref.clone(),
+            provider_id: provider_id.clone(),
+            project_id: None,
+            instruction: "wait for cancellation".into(),
+            messages: Vec::new(),
+            max_turns: 1,
+            private: false,
+            allow_unsafe: false,
+            cwd: None,
+            routine: false,
+            price: None,
+            resume_approved: false,
+            continuation_id: None,
+            continuation_payload: None,
+            subagent,
+            tools: None,
+            phase: None,
+            parent_run_id: subagent.then(|| "run-parent".into()),
+            subagent_task: subagent.then(|| "child task".into()),
+            save_full_requests: false,
+            resume_message: None,
+            client_locale: None,
+        };
+        let not_started_stop = composed
+            .call(
+                "assignment.stop",
+                json!({
+                    "assignment_id":not_started_assignment_id,
+                    "client_request_id":"cancel-before-run-request"
+                }),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        assert_eq!(not_started_stop["assignment"]["status"], "cancelled");
+        let mut racing_request = make_request("run-cancelled-before-admission", false);
+        racing_request.assignment_id = Some(not_started_assignment_id.clone());
+        assert_eq!(
+            runtime.run(racing_request).await.unwrap().status,
+            "cancelled"
+        );
+        assert_eq!(provider_calls.load(Ordering::SeqCst), 0);
+        assert!(!home
+            .path()
+            .join("data/run_requests/run-cancelled-before-admission.json")
+            .exists());
+        let parent_request = make_request("run-parent", false);
+        let child_request = make_request("run-child", true);
+        let parent_runtime = runtime.clone();
+        let mut parent = tokio::spawn(async move { parent_runtime.run(parent_request).await });
+        let child_runtime = runtime.clone();
+        let mut child = tokio::spawn(async move { child_runtime.run(child_request).await });
+
+        let provider_started = tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            while provider_calls.load(Ordering::SeqCst) < 2 {
+                all_provider_calls_started.notified().await;
+            }
+        })
+        .await;
+        if provider_started.is_err() {
+            let parent_error = tokio::time::timeout(std::time::Duration::from_secs(1), &mut parent)
+                .await
+                .ok()
+                .and_then(Result::ok)
+                .and_then(Result::err);
+            let child_error = tokio::time::timeout(std::time::Duration::from_secs(1), &mut child)
+                .await
+                .ok()
+                .and_then(Result::ok)
+                .and_then(Result::err);
+            panic!("provider calls did not start; parent={parent_error:?}, child={child_error:?}");
+        }
+        let parent_job_id = runtime
+            .state
+            .durable
+            .lock()
+            .await
+            .jobs()
+            .find(|job| job.checkpoint.get("run_id").and_then(Value::as_str) == Some("run-parent"))
+            .expect("parent durable job")
+            .id
+            .clone();
+        let parent_snapshot = home.path().join(format!("data/jobs/{parent_job_id}.json"));
+        fs::remove_file(&parent_snapshot).unwrap();
+        fs::create_dir(&parent_snapshot).unwrap();
+        let stop_params = json!({
+            "assignment_id":assignment_id,
+            "client_request_id":"cancel-family-stop"
+        });
+        let first_stop_error = composed
+            .call("assignment.stop", stop_params.clone(), &gateway.state)
+            .await
+            .unwrap_err();
+        assert!(
+            first_stop_error.message.contains("snapshot"),
+            "{first_stop_error}"
+        );
+        assert!(
+            runtime
+                .assignment_cancellation_in_progress(&assignment_id)
+                .await
+        );
+        assert_ne!(
+            backend.orchestrator.snapshot().unwrap()["assignments"][&assignment_id]["status"],
+            "cancelled",
+            "a durable snapshot error must leave assignment.stop retryable"
+        );
+        assert_eq!(provider_calls.load(Ordering::SeqCst), 2);
+        let blocked_late_child = make_request("run-failed-stop-late-child", true);
+        assert_eq!(
+            runtime.run(blocked_late_child).await.unwrap().status,
+            "cancelled",
+            "the retained barrier must fail closed until stop retry succeeds"
+        );
+        assert!(!home
+            .path()
+            .join("data/run_requests/run-failed-stop-late-child.json")
+            .exists());
+        assert_eq!(provider_calls.load(Ordering::SeqCst), 2);
+        let parent_outcome = tokio::time::timeout(std::time::Duration::from_secs(5), parent)
+            .await
+            .expect("parent must settle after the failed stop attempt")
+            .unwrap()
+            .unwrap();
+        let child_outcome = tokio::time::timeout(std::time::Duration::from_secs(5), child)
+            .await
+            .expect("child must settle after the failed stop attempt")
+            .unwrap()
+            .unwrap();
+        assert_eq!(parent_outcome.status, "cancelled");
+        assert_eq!(child_outcome.status, "cancelled");
+        fs::remove_dir(&parent_snapshot).unwrap();
+        let stopped = composed
+            .call("assignment.stop", stop_params, &gateway.state)
+            .await
+            .unwrap();
+        assert_eq!(stopped["assignment"]["status"], "cancelled");
+        assert!(
+            !runtime
+                .assignment_cancellation_in_progress(&assignment_id)
+                .await
+        );
+        let mut other_request = make_request("run-other-assignment", false);
+        other_request.assignment_id = Some(other_assignment_id);
+        other_request.instruction = "unrelated assignment run".into();
+        let other_runtime = runtime.clone();
+        let mut other = tokio::spawn(async move { other_runtime.run(other_request).await });
+        tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            while provider_calls.load(Ordering::SeqCst) < 3 {
+                all_provider_calls_started.notified().await;
+            }
+        })
+        .await
+        .expect("unrelated assignment must still reach the provider");
+        assert_eq!(provider_calls.load(Ordering::SeqCst), 3);
+        release_provider.add_permits(3);
+
+        let other_outcome = tokio::time::timeout(std::time::Duration::from_secs(5), &mut other)
+            .await
+            .expect("unrelated assignment should settle")
+            .unwrap()
+            .unwrap();
+        assert_eq!(parent_outcome.status, "cancelled");
+        assert_eq!(child_outcome.status, "cancelled");
+        assert_ne!(other_outcome.status, "cancelled");
+        assert_eq!(provider_calls.load(Ordering::SeqCst), 3);
+        let late_child = runtime.run(make_request("run-late-child", true)).await;
+        assert_eq!(late_child.unwrap().status, "cancelled");
+        assert_eq!(provider_calls.load(Ordering::SeqCst), 3);
+        let request_dir = home.path().join("data/run_requests");
+        assert!(!request_dir.join("run-late-child.json").exists());
+        let request_count = fs::read_dir(request_dir)
+            .unwrap()
+            .filter_map(Result::ok)
+            .filter(|entry| entry.path().extension().and_then(|ext| ext.to_str()) == Some("json"))
+            .count();
+        assert_eq!(request_count, 3, "stop must not admit a late child run");
+        let durable = runtime.state.durable.lock().await;
+        for run_id in ["run-parent", "run-child"] {
+            let job = durable
+                .jobs()
+                .find(|job| job.checkpoint.get("run_id").and_then(Value::as_str) == Some(run_id))
+                .expect("durable run job");
+            assert_eq!(job.status, macbot_durable::JobStatus::Cancelled, "{run_id}");
+            assert!(!job.checkpoint.to_string().contains("late provider result"));
+        }
+        drop(durable);
+        let late_provider_events = backend
+            .store
+            .events_since(0)
+            .unwrap()
+            .into_iter()
+            // Message events carry their payload under `/message` and do not
+            // include a run_id, so inspect the full event envelope for this
+            // unique provider response across trace and chat projections.
+            .filter(|event| event.data.to_string().contains("late provider result"))
+            .collect::<Vec<_>>();
+        assert!(
+            late_provider_events.is_empty(),
+            "cancelled provider text must not be published into the run trace"
+        );
+        provider_server.abort();
     }
 }
 
@@ -6954,6 +9192,8 @@ impl SubagentDispatchBridge for RuntimeSubagentDispatch {
             routine: false,
             price,
             resume_approved: false,
+            continuation_id: None,
+            continuation_payload: None,
             subagent: true,
             tools: Some(if request.assignment_id.is_none() {
                 MAIN_ANALYSIS_SUBAGENT_TOOLS
@@ -7481,6 +9721,7 @@ pub(crate) fn takeover_message_scope_matches(
 #[async_trait]
 impl ExecutionSink for OrchestratorSink {
     async fn emit(&self, mut event: ExecutionEvent) {
+        crate::adapter::normalize_event_data(&event.event, &mut event.data);
         let refresh_status = is_run_status_boundary(&event);
         if event.event == "message.updated" {
             if let Some(message) = event.data.get("message") {
@@ -7681,6 +9922,58 @@ impl ModelProvider for UnavailableProvider {
 #[cfg(test)]
 mod model_resolution_tests {
     #[test]
+    fn legacy_safe_question_marker_overrides_old_unsafe_flag_only_for_known_wait_tools() {
+        let job = |name: &str, unsafe_replay| macbot_durable::Job {
+            id: format!("job-{name}"),
+            owner: "bot-1".into(),
+            kind: "model_run".into(),
+            status: macbot_durable::JobStatus::Waiting,
+            checkpoint: serde_json::json!({
+                "run_id":"run-1",
+                "pending_tool":{"name":name,"call_id":"call-1"},
+                "pending_tools":[{"name":name,"call_id":"call-1"}]
+            }),
+            unsafe_replay,
+            updated_at: 1,
+            commit_seq: 1,
+        };
+
+        assert!(super::waiting_checkpoint_safety_matches(
+            &job("ask_user", true),
+            Some(false)
+        ));
+        assert!(super::waiting_checkpoint_safety_matches(
+            &job("request_takeover", false),
+            Some(true)
+        ));
+        assert!(!super::waiting_checkpoint_safety_matches(
+            &job("bash", false),
+            Some(true)
+        ));
+    }
+
+    #[test]
+    fn assignment_recovery_selects_root_when_child_shares_assignment_id() {
+        let root: super::ExecutionRequest = serde_json::from_value(serde_json::json!({
+            "run_id":"root-run", "assignment_id":"assignment-1", "chat_id":"chat-1",
+            "bot_id":"bot-1", "model":"mock/model", "instruction":"root"
+        }))
+        .unwrap();
+        let child: super::ExecutionRequest = serde_json::from_value(serde_json::json!({
+            "run_id":"child-run", "assignment_id":"assignment-1", "chat_id":"chat-1",
+            "bot_id":"bot-1", "model":"mock/model", "instruction":"child",
+            "subagent":true, "parent_run_id":"root-run"
+        }))
+        .unwrap();
+
+        assert!(super::is_root_request_for_assignment(&root, "assignment-1"));
+        assert!(!super::is_root_request_for_assignment(
+            &child,
+            "assignment-1"
+        ));
+    }
+
+    #[test]
     fn allowed_approval_recovery_requires_exact_waiting_checkpoint() {
         let snapshot = serde_json::json!({
             "bots": {"bot-1": {"dm_chat_id": "dm-bot-1"}},
@@ -7776,7 +10069,7 @@ mod model_resolution_tests {
             &request,
             false
         ));
-        assert!(super::allowed_tool_approval_matches(
+        assert!(!super::allowed_tool_approval_matches(
             &snapshot,
             &approval,
             Some("call-1"),
@@ -8195,7 +10488,8 @@ mod model_resolution_tests {
         answered_decision_answer, answered_decision_checkpoint_is_safe,
         answered_decision_request_matches, assignment_result_text,
         decision_checkpoint_matches_question, is_run_status_boundary,
-        missing_model_bot_from_snapshot, pending_decision_question_id, project_assignment_targets,
+        directed_chat_delivery_assignments, missing_model_bot_from_snapshot,
+        pending_decision_question_id, project_assignment_targets,
         project_summary, resolve_model, routable_missing_model_chat_from_snapshot,
         waiting_assignment_for_message, waiting_checkpoint_matches_message,
         waiting_message_id_for_assignment, waiting_parent_for_child, ComposedBackend,
@@ -8222,7 +10516,16 @@ mod model_resolution_tests {
                 "answer":{"option_index":0,"text":"用户自定义"}
             }))
             .as_deref(),
-            Some("用户自定义")
+            Some("继续（补充：用户自定义）")
+        );
+        assert_eq!(
+            answered_decision_answer(&json!({
+                "state":"answered",
+                "options":["红","蓝","绿"],
+                "answer":{"option_index":0,"option_indexes":[0,2],"text":"低饱和"}
+            }))
+            .as_deref(),
+            Some("红、绿（补充：低饱和）")
         );
         assert_eq!(
             answered_decision_answer(&json!({
@@ -8253,7 +10556,7 @@ mod model_resolution_tests {
         assert!(answered_decision_checkpoint_is_safe(
             &safe, false, "waiting", "message"
         ));
-        assert!(!answered_decision_checkpoint_is_safe(
+        assert!(answered_decision_checkpoint_is_safe(
             &safe, true, "waiting", "message"
         ));
         assert!(!answered_decision_checkpoint_is_safe(
@@ -8424,6 +10727,78 @@ mod model_resolution_tests {
         assert_eq!(
             waiting_assignment_for_message(&snapshot, "decision-message").as_deref(),
             Some("assignment")
+        );
+    }
+
+    #[test]
+    fn chat_delivery_promotion_requires_explicit_mention_or_reply_target() {
+        let deliveries = vec![
+            json!({"assignment_id":"assignment-worker","bot_id":"worker","state":"queued"}),
+            json!({"assignment_id":"assignment-main","bot_id":"main","state":"queued"}),
+        ];
+        let snapshot = json!({
+            "messages":{
+                "active-bot-message":{"id":"active-bot-message","assignment_id":"assignment-worker"}
+            },
+            "assignments":{
+                "assignment-worker":{"id":"assignment-worker","status":"working",
+                    "trigger_message_id":"initial-worker-task"},
+                "assignment-main":{"id":"assignment-main","status":"waiting_user",
+                    "trigger_message_id":"initial-main-task",
+                    "wait":{"reason":"decision","message_id":"decision-main"}}
+            }
+        });
+        let empty = json!({"mentions":[]});
+        assert!(
+            directed_chat_delivery_assignments(&empty, &deliveries, None, &snapshot).is_empty(),
+            "ordinary queued messages remain reviewable"
+        );
+
+        let explicit_bot = json!({"mentions":[{"kind":"bot","bot_id":"worker"}]});
+        assert_eq!(
+            directed_chat_delivery_assignments(&explicit_bot, &deliveries, None, &snapshot),
+            ["assignment-worker".to_owned()].into_iter().collect()
+        );
+        let explicit_main = json!({"mentions":[{"kind":"main"}]});
+        assert_eq!(
+            directed_chat_delivery_assignments(&explicit_main, &deliveries, None, &snapshot),
+            ["assignment-main".to_owned()].into_iter().collect()
+        );
+        let everyone_expanded = json!({
+            "mentions":[{"kind":"bot","bot_id":"worker"},{"kind":"main"}]
+        });
+        assert_eq!(
+            directed_chat_delivery_assignments(&everyone_expanded, &deliveries, None, &snapshot),
+            ["assignment-worker".to_owned(), "assignment-main".to_owned()]
+                .into_iter()
+                .collect()
+        );
+        assert_eq!(
+            directed_chat_delivery_assignments(&empty, &deliveries, Some("active-bot-message"), &snapshot),
+            ["assignment-worker".to_owned()].into_iter().collect(),
+            "reply to an active Bot message targets that assignment"
+        );
+        assert!(
+            directed_chat_delivery_assignments(&empty, &deliveries, None, &snapshot).is_empty(),
+            "a reference quote has no reply target and must not promote delivery"
+        );
+        let mixed = vec![
+            json!({"assignment_id":"assignment-worker","bot_id":"worker","state":"queued"}),
+            json!({"assignment_id":"assignment-idle","bot_id":"idle","state":"delivered"}),
+        ];
+        let mixed_snapshot = json!({
+            "assignments":{
+                "assignment-worker":{"status":"working","trigger_message_id":"older"},
+                "assignment-idle":{"status":"working","trigger_message_id":"current-message"}
+            }
+        });
+        let everyone = json!({"id":"current-message","mentions":[
+            {"kind":"bot","bot_id":"worker"},{"kind":"bot","bot_id":"idle"}
+        ]});
+        assert_eq!(
+            directed_chat_delivery_assignments(&everyone, &mixed, None, &mixed_snapshot),
+            ["assignment-worker".to_owned()].into_iter().collect(),
+            "an @everyone batch must not re-inject the message that started an idle task"
         );
     }
 
@@ -8742,6 +11117,32 @@ mod model_resolution_tests {
             &[queued, working],
             &assignment
         ));
+    }
+
+    #[test]
+    fn continuation_queue_and_promotion_events_decode_as_protocol_frames() {
+        for status in ["queued", "working"] {
+            let mut assignment = json!({
+                "id":"assignment-2", "project_id":null, "origin_chat_id":"chat-1",
+                "bot_id":"bot-1", "title":"work", "instruction":"do it",
+                "from":"main", "trigger_message_id":null, "parent_assignment_id":null,
+                "status":status, "queue_reason":null, "wait":null,
+                "created_at":"2026-10-15T00:00:00Z", "started_at":null,
+                "finished_at":null, "recovered_at":null,
+                "usage":{"input_tokens":0,"output_tokens":0,"cache_read_tokens":0,
+                    "cache_write_tokens":0,"requests":0,"cost":null},
+                "subagents_active":0, "pending_messages":0, "steers":[],
+                "result_message_id":null, "model":""
+            });
+            crate::adapter::normalize_assignment(&mut assignment);
+            let frame = json!({
+                "v":1,"kind":"evt","seq":1,"event":"assignment.updated",
+                "data":{"assignment":assignment}
+            });
+            let decoded: macbot_protocol::EventFrame = serde_json::from_value(frame)
+                .expect("assignment.updated must remain protocol-decodable");
+            assert_eq!(decoded.event, macbot_protocol::EventName::AssignmentUpdated);
+        }
     }
 
     #[test]
@@ -9282,13 +11683,21 @@ mod persistence_tests {
         assert_eq!(answered["question"]["id"], question_id);
         assert_eq!(answered["question"]["state"], "answered");
         wait_for_job_status(&backend, &suspended.job_id, macbot_durable::JobStatus::Done).await;
-        let provider_requests = requests.lock().unwrap();
-        assert_eq!(
-            provider_requests.len(),
-            1,
-            "answer should resume the model turn"
-        );
-        assert!(provider_requests[0].to_string().contains("生产环境"));
+        {
+            let provider_requests = requests.lock().unwrap();
+            assert_eq!(
+                provider_requests.len(),
+                1,
+                "answer should resume the model turn"
+            );
+            let messages = provider_requests[0]["messages"].as_array().unwrap();
+            assert!(
+                messages.iter().any(|message| {
+                    message["role"] == "tool" && message["content"] == "生产环境"
+                }),
+                "the canonical question answer must remain in the tool result: {messages:?}"
+            );
+        }
         let resumed_job = backend
             .durable
             .lock()
@@ -9362,6 +11771,8 @@ mod persistence_tests {
             routine: false,
             price: None,
             resume_approved: false,
+            continuation_id: None,
+            continuation_payload: None,
             subagent: false,
             tools: None,
             phase: None,
@@ -11053,7 +13464,7 @@ mod persistence_tests {
     }
 
     #[tokio::test]
-    async fn model_finish_project_finalizes_summary_and_current_assignment() {
+    async fn model_finish_project_requires_user_confirmation_before_summary() {
         let home = tempdir().unwrap();
         let path = home.path().to_path_buf();
         let gateway = Gateway::new(GatewayConfig {
@@ -11114,26 +13525,22 @@ mod persistence_tests {
         let queued_worker_id = queued_worker["id"].as_str().unwrap().to_owned();
         assert_eq!(working_worker["status"], "working");
         assert_eq!(queued_worker["status"], "queued");
+        assert!(backend
+            .orchestrator
+            .mark_project_review(&project_id)
+            .is_err());
+        backend
+            .orchestrator
+            .finish_assignment(&working_worker_id, "done")
+            .unwrap();
+        backend
+            .orchestrator
+            .finish_assignment(&queued_worker_id, "done")
+            .unwrap();
         backend
             .orchestrator
             .mark_project_review(&project_id)
             .unwrap();
-        let assignment = backend
-            .orchestrator
-            .rpc(
-                "assignment.create",
-                json!({
-                    "project_id":project_id,
-                    "origin_chat_id":chat_id,
-                    "bot_id":"main",
-                    "title":"模型确认",
-                    "instruction":"确认项目",
-                    "from":"main"
-                }),
-            )
-            .await
-            .unwrap();
-        let assignment_id = assignment["id"].as_str().unwrap().to_owned();
         let feature_service = Arc::new(
             FeatureService::with_store(
                 backend.store.clone(),
@@ -11151,26 +13558,43 @@ mod persistence_tests {
             feature_service.clone(),
         )
         .unwrap();
-        let worker_run_id = format!("run_{working_worker_id}");
-        let worker_request: ExecutionRequest = serde_json::from_value(json!({
-            "run_id":worker_run_id,
-            "assignment_id":working_worker_id,
-            "chat_id":chat_id,
-            "bot_id":worker_id,
-            "model":"mock/worker",
-            "instruction":"等待取消"
-        }))
-        .unwrap();
-        runtime.persist_request(&worker_request).unwrap();
-        runtime
-            .state
-            .durable
-            .lock()
+        assert!(runtime
+            .finalize_confirmed_project_for_coordination(
+                &json!({"project_id":project_id,"summary":"过早总结"}),
+                None,
+            )
             .await
-            .create_job("worker", "dm", json!({"run_id":worker_request.run_id}))
+            .is_err());
+        assert_eq!(
+            backend.orchestrator.snapshot().unwrap()["projects"][&project_id]["status"],
+            "review"
+        );
+        backend
+            .call(
+                "project.confirm_done",
+                json!({"project_id":project_id,"client_request_id":"user-confirm-model-finish"}),
+                &gateway.state,
+            )
+            .await
             .unwrap();
+        let assignment = backend
+            .call(
+                "assignment.create",
+                json!({
+                    "project_id":project_id,
+                    "origin_chat_id":chat_id,
+                    "bot_id":"main",
+                    "title":"用户确认后的总结",
+                    "instruction":"补充确认后的总结",
+                    "from":"user"
+                }),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        let assignment_id = assignment["id"].as_str().unwrap().to_owned();
         runtime
-            .confirm_project_for_coordination(
+            .finalize_confirmed_project_for_coordination(
                 &json!({
                     "project_id":project_id,
                     "summary":"模型确认摘要",
@@ -11185,12 +13609,9 @@ mod persistence_tests {
         assert_eq!(snapshot["assignments"][&assignment_id]["status"], "done");
         assert_eq!(
             snapshot["assignments"][&working_worker_id]["status"],
-            "cancelled"
+            "done"
         );
-        assert_eq!(
-            snapshot["assignments"][&queued_worker_id]["status"],
-            "cancelled"
-        );
+        assert_eq!(snapshot["assignments"][&queued_worker_id]["status"], "done");
         let entries = feature_service.shared_memory.entries().unwrap();
         assert!(entries
             .iter()

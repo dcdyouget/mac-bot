@@ -1104,21 +1104,15 @@ async fn ws_session(socket: axum::extract::ws::WebSocket, gw: Gateway) {
                         } else if request.method == "trace.unsubscribe" {
                             if let Some(stream_id) = request.params.get("stream").and_then(Value::as_str) { trace_streams.remove(stream_id); }
                         }
+                        let sync_seq = res.get("replay_seq").and_then(Value::as_u64);
                         let mut wire_result = res;
-                        if let Some(object) = wire_result.as_object_mut() { object.remove("replay_events"); }
+                        if let Some(object) = wire_result.as_object_mut() {
+                            object.remove("replay_events");
+                            object.remove("replay_seq");
+                        }
                         if sink.send(text_frame(&json!({"v":1,"kind":"res","id":request.id,"ok":true,"result":wire_result}))).await.is_err() { break; }
-                        for event in replay { if sink.send(text_frame(&event)).await.is_err() { break; } }
-                        if request.method == "session.resume" {
-                            let last = request.params.get("last_seq").and_then(Value::as_u64).unwrap_or(0);
-                            let mode = wire_result.get("mode").and_then(Value::as_str).unwrap_or("reset");
-                            if mode == "replay" {
-                                let events = {
-                                    let state = gw.state.inner.read().await;
-                                    state.events.iter().filter(|event| event.get("seq").and_then(Value::as_u64).unwrap_or(0) > last).cloned().collect::<Vec<_>>()
-                                };
-                                for event in events { if sink.send(text_frame(&global_event_frame(&event))).await.is_err() { return; } }
-                            }
-                            let seq = gw.state.inner.read().await.seq;
+                        for event in replay { if sink.send(text_frame(&event)).await.is_err() { return; } }
+                        if let Some(seq) = sync_seq {
                             if sink.send(text_frame(&json!({"v":1,"kind":"evt","event":"sync.done","data":{"seq":seq}}))).await.is_err() { break; }
                         }
                     }
@@ -1191,7 +1185,7 @@ async fn ws_session(socket: axum::extract::ws::WebSocket, gw: Gateway) {
                             for frame in frames {
                                 if sink.send(text_frame(&frame)).await.is_err() { break; }
                             }
-                        } else if sink.send(text_frame(&event)).await.is_err() { break; }
+                        } else if sink.send(text_frame(&global_event_frame(&event))).await.is_err() { break; }
                     }
                     Err(broadcast::error::RecvError::Lagged(_)) => {
                         // Do not silently drop persisted events.  Reconnect and
@@ -1220,7 +1214,13 @@ fn global_event_frame(event: &Value) -> Value {
             return json!({"v":1,"kind":"evt","seq":seq,"event":"sync.cursor","data":{"seq":seq}});
         }
     }
-    event.clone()
+    let mut frame = event.clone();
+    if let Some(event_name) = event.get("event").and_then(Value::as_str) {
+        if let Some(data) = frame.get_mut("data") {
+            crate::adapter::normalize_event_data(event_name, data);
+        }
+    }
+    frame
 }
 
 fn text_frame(value: &Value) -> axum::extract::ws::Message {
@@ -1244,7 +1244,30 @@ async fn handle_ws_request(gw: &Gateway, request: &WsReq) -> RpcResult {
             .filter_map(|event| event.get("seq").and_then(Value::as_u64))
             .min()
             .unwrap_or(state.seq.saturating_add(1));
-        return Ok(json!({"mode": if last > 0 && last + 1 >= oldest {"replay"} else {"reset"}}));
+        // Mode, replay contents and acknowledgment must describe one snapshot.
+        // New events can arrive while the socket is sending this snapshot; they
+        // remain in the live queue and must not advance sync.done prematurely.
+        let can_replay = last > 0 && last <= state.seq && last.saturating_add(1) >= oldest;
+        let events: Vec<_> = if can_replay {
+            state
+                .events
+                .iter()
+                .filter(|event| {
+                    event
+                        .get("seq")
+                        .and_then(Value::as_u64)
+                        .is_some_and(|seq| seq > last)
+                })
+                .map(global_event_frame)
+                .collect()
+        } else {
+            Vec::new()
+        };
+        return Ok(json!({
+            "mode": if can_replay { "replay" } else { "reset" },
+            "replay_events": events,
+            "replay_seq": state.seq
+        }));
     }
     if request.method == "trace.unsubscribe" {
         if request
@@ -4837,9 +4860,282 @@ mod tests {
         }).await.expect("websocket cursor regression timed out");
     }
 
+    async fn next_resume_test_frame(
+        socket: &mut tokio_tungstenite::WebSocketStream<
+            tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
+        >,
+    ) -> Value {
+        use tokio_tungstenite::tungstenite::Message;
+        loop {
+            match socket.next().await.unwrap().unwrap() {
+                Message::Text(text) => return serde_json::from_str(&text).unwrap(),
+                Message::Ping(payload) => socket.send(Message::Pong(payload)).await.unwrap(),
+                Message::Pong(_) => {}
+                frame => panic!("unexpected websocket frame: {frame:?}"),
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn websocket_resume_normalizes_legacy_assignment_before_wire_decode() {
+        use tokio_tungstenite::tungstenite::{client::IntoClientRequest, Message};
+        tokio::time::timeout(std::time::Duration::from_secs(10), async {
+            let dir = tempfile::tempdir().unwrap();
+            let gw = Gateway::new(GatewayConfig {
+                home: dir.path().into(),
+                password: Some("dev".into()),
+                mock: true,
+                ..Default::default()
+            });
+            let base = gw.state.inner.read().await.seq;
+            let raw_assignment = json!({
+                "id":"assignment-legacy-wire",
+                "project_id":null,
+                "origin_chat_id":"chat_main",
+                "bot_id":"bot_main",
+                "title":"legacy replay",
+                "instruction":"legacy replay",
+                "from":"user",
+                "status":"working",
+                "queue_reason":null,
+                "wait":null,
+                "created_at":"2026-10-16T00:00:00Z",
+                "started_at":null,
+                "finished_at":null,
+                "subagents_active":0,
+                "pending_messages":0,
+                "steers":[],
+                "result_message_id":null,
+                "model":"provider/model",
+                "usage":{"input_tokens":0,"output_tokens":0,"cache_read_tokens":0,
+                    "cache_write_tokens":0,"requests":0,"cost":null}
+            });
+            {
+                let mut state = gw.state.inner.write().await;
+                state.restore_event(
+                    base + 1,
+                    "assignment.updated",
+                    json!({"assignment":raw_assignment}),
+                );
+            }
+
+            let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let addr = listener.local_addr().unwrap();
+            let app = gw
+                .router()
+                .into_make_service_with_connect_info::<SocketAddr>();
+            let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+            let mut request = format!("ws://{addr}/ws").into_client_request().unwrap();
+            request
+                .headers_mut()
+                .insert("Authorization", "Bearer dev".parse().unwrap());
+            let (mut socket, _) = tokio_tungstenite::connect_async(request).await.unwrap();
+            next_resume_test_frame(&mut socket).await; // hello
+            socket
+                .send(Message::Text(
+                    json!({"v":1,"kind":"req","id":"resume-legacy-assignment",
+                        "method":"session.resume","params":{"last_seq":base}
+                    })
+                    .to_string()
+                    .into(),
+                ))
+                .await
+                .unwrap();
+            let response = next_resume_test_frame(&mut socket).await;
+            assert_eq!(response["result"]["mode"], "replay");
+            let replay = next_resume_test_frame(&mut socket).await;
+            assert_eq!(replay["seq"], base + 1);
+            assert_eq!(replay["event"], "assignment.updated");
+            assert_eq!(replay["data"]["assignment"]["from"], json!({"kind":"user"}));
+            let decoded: macbot_protocol::EventFrame = serde_json::from_value(replay.clone())
+                .expect("resumed legacy assignment must decode as a protocol EventFrame");
+            assert_eq!(decoded.event, macbot_protocol::EventName::AssignmentUpdated);
+            assert_eq!(
+                gw.state.inner.read().await.events.back().unwrap()["data"]["assignment"]["from"],
+                "user",
+                "wire projection must not rewrite the restored historical event"
+            );
+            let done = next_resume_test_frame(&mut socket).await;
+            assert_eq!(done["event"], "sync.done");
+            assert_eq!(done["data"]["seq"], base + 1);
+
+            // Live broadcasts use the same wire projection as replay. Keep the
+            // source event raw to verify normalization happens only at the boundary.
+            let live_raw = json!({
+                "v":1,"kind":"evt","seq":base + 2,
+                "event":"assignment.updated",
+                "data":{"assignment":raw_assignment}
+            });
+            gw.state.events.send(live_raw.clone()).unwrap();
+            let live = next_resume_test_frame(&mut socket).await;
+            assert_eq!(live["seq"], base + 2);
+            assert_eq!(live["data"]["assignment"]["from"], json!({"kind":"user"}));
+            let decoded: macbot_protocol::EventFrame = serde_json::from_value(live.clone())
+                .expect("live legacy assignment must decode as a protocol EventFrame");
+            assert_eq!(decoded.event, macbot_protocol::EventName::AssignmentUpdated);
+            assert_eq!(live_raw["data"]["assignment"]["from"], "user");
+            assert_eq!(
+                gw.state.inner.read().await.events.back().unwrap()["data"]["assignment"]["from"],
+                "user",
+                "wire projection must not rewrite the stored event"
+            );
+            socket.close(None).await.unwrap();
+            server.abort();
+        })
+        .await
+        .expect("legacy assignment resume regression timed out");
+    }
+
+    #[tokio::test]
+    async fn resume_rejects_future_cursors_without_overflow() {
+        use tokio_tungstenite::tungstenite::{client::IntoClientRequest, Message};
+        tokio::time::timeout(std::time::Duration::from_secs(10), async {
+            let dir = tempfile::tempdir().unwrap();
+            let gw = Gateway::new(GatewayConfig {
+                home: dir.path().into(),
+                password: Some("dev".into()),
+                mock: true,
+                ..Default::default()
+            });
+            let base = gw.state.inner.read().await.seq;
+            let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let addr = listener.local_addr().unwrap();
+            let app = gw
+                .router()
+                .into_make_service_with_connect_info::<SocketAddr>();
+            let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+            let mut request = format!("ws://{addr}/ws").into_client_request().unwrap();
+            request
+                .headers_mut()
+                .insert("Authorization", "Bearer dev".parse().unwrap());
+            let (mut socket, _) = tokio_tungstenite::connect_async(request).await.unwrap();
+            next_resume_test_frame(&mut socket).await;
+            for (cursor, mode) in [
+                (base + 1, "reset"),
+                (u64::MAX, "reset"),
+                (0, "reset"),
+                (base, "replay"),
+            ] {
+                socket
+                    .send(Message::Text(
+                        json!({"v":1,"kind":"req","id":"resume",
+                            "method":"session.resume","params":{"last_seq":cursor}
+                        })
+                        .to_string()
+                        .into(),
+                    ))
+                    .await
+                    .unwrap();
+                let response = next_resume_test_frame(&mut socket).await;
+                assert_eq!(response["result"], json!({"mode":mode}));
+                let done = next_resume_test_frame(&mut socket).await;
+                assert_eq!(done["event"], "sync.done");
+                assert_eq!(done["data"]["seq"], base);
+            }
+            socket.close(None).await.unwrap();
+            server.abort();
+        })
+        .await
+        .expect("resume cursor regression timed out");
+    }
+
+    #[tokio::test]
+    async fn resume_done_never_advances_past_replayed_events() {
+        use tokio_tungstenite::tungstenite::{client::IntoClientRequest, Message};
+        tokio::time::timeout(std::time::Duration::from_secs(20), async {
+            let dir = tempfile::tempdir().unwrap();
+            let gw = Gateway::new(GatewayConfig {
+                home: dir.path().into(),
+                password: Some("dev".into()),
+                mock: true,
+                ..Default::default()
+            });
+            let base = gw.state.inner.read().await.seq;
+            // Exceed the transport buffers so the producer can publish while
+            // the server is still sending the fixed replay snapshot.
+            for offset in 1..=128 {
+                gw.state
+                    .publish_event(
+                        base + offset,
+                        "project.updated",
+                        json!({
+                            "project":{"id":"replay", "text":"x".repeat(128 * 1024)}
+                        }),
+                    )
+                    .await;
+            }
+            let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let addr = listener.local_addr().unwrap();
+            let app = gw
+                .router()
+                .into_make_service_with_connect_info::<SocketAddr>();
+            let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+            let mut request = format!("ws://{addr}/ws").into_client_request().unwrap();
+            request
+                .headers_mut()
+                .insert("Authorization", "Bearer dev".parse().unwrap());
+            let (mut socket, _) = tokio_tungstenite::connect_async(request).await.unwrap();
+            next_resume_test_frame(&mut socket).await; // hello
+            socket
+                .send(Message::Text(
+                    json!({"v":1,"kind":"req","id":"resume",
+                        "method":"session.resume","params":{"last_seq":base}
+                    })
+                    .to_string()
+                    .into(),
+                ))
+                .await
+                .unwrap();
+            let mut replayed = base;
+            let mut published = false;
+            loop {
+                let Message::Text(text) = socket.next().await.unwrap().unwrap() else {
+                    continue;
+                };
+                let frame: Value = serde_json::from_str(&text).unwrap();
+                if frame["event"] == "sync.done" {
+                    assert_eq!(
+                        frame["data"]["seq"], replayed,
+                        "sync.done must acknowledge only events sent before it"
+                    );
+                    assert!(published);
+                    break;
+                }
+                if let Some(seq) = frame["seq"].as_u64() {
+                    assert_eq!(seq, replayed + 1);
+                    replayed = seq;
+                    if !published {
+                        gw.state
+                            .publish_event(
+                                base + 129,
+                                "project.updated",
+                                json!({"project":{"id":"after-snapshot"}}),
+                            )
+                            .await;
+                        published = true;
+                    }
+                }
+            }
+            let live = next_resume_test_frame(&mut socket).await;
+            assert_eq!(live["seq"], base + 129);
+            socket.close(None).await.unwrap();
+            server.abort();
+        })
+        .await
+        .expect("concurrent replay timed out");
+    }
+
     #[test]
     fn global_trace_projection_preserves_cursor_without_disclosing_payload() {
         let assignment = json!({"v":1,"kind":"evt","seq":43,"event":"assignment.updated","data":{"assignment":{"id":"a","status":"done"}}});
+        let normalized_assignment = json!({
+            "v":1,"kind":"evt","seq":43,"event":"assignment.updated",
+            "data":{"assignment":{
+                "id":"a","status":"done","model":"",
+                "usage":{"input_tokens":0,"output_tokens":0,"cache_read_tokens":0,
+                    "cache_write_tokens":0,"requests":0,"cost":null}
+            }}
+        });
         let events = [
             json!({"v":1,"kind":"evt","seq":41,"event":"trace.item","data":{"item":{"aseq":1,"data":{"text":"private trace"}}}}),
             json!({"v":1,"kind":"evt","seq":42,"event":"trace.item","data":{"item":{"aseq":2,"data":{"text":"private output"}}}}),
@@ -4859,11 +5155,19 @@ mod tests {
             frames[2],
             json!({"v":1,"kind":"evt","seq":43,"event":"sync.cursor","data":{"seq":43}})
         );
-        assert_eq!(frames[3], assignment);
+        assert_eq!(frames[3], normalized_assignment);
+        assert_eq!(
+            frames
+                .iter()
+                .map(|frame| frame["seq"].as_u64().unwrap())
+                .collect::<Vec<_>>(),
+            vec![41, 42, 43, 43]
+        );
         assert!(!serde_json::to_string(&frames).unwrap().contains("private"));
         // Projection must not alter the internal replay source used to
         // reconstruct assignment-scoped trace subscriptions after restart.
         assert_eq!(events[0]["data"]["item"]["aseq"], 1);
+        assert_eq!(events[3], assignment);
     }
 
     #[tokio::test]

@@ -75,6 +75,7 @@ struct Inner {
     announcement_text: HashMap<Id, AnnouncementText>,
     assignments: HashMap<Id, Assignment>,
     assignment_retry_requests: HashMap<String, Id>,
+    assignment_retry_sources: HashMap<Id, Id>,
     messages: HashMap<Id, Message>,
     artifacts: HashMap<Id, Artifact>,
     approvals: HashMap<Id, Approval>,
@@ -281,6 +282,7 @@ impl Orchestrator {
                 announcement_text: HashMap::new(),
                 assignments: HashMap::new(),
                 assignment_retry_requests: HashMap::new(),
+                assignment_retry_sources: HashMap::new(),
                 messages: HashMap::new(),
                 artifacts: HashMap::new(),
                 approvals: HashMap::new(),
@@ -338,6 +340,7 @@ impl Orchestrator {
             "announcement_text": i.announcement_text.clone(),
             "assignments": i.assignments.clone(),
             "assignment_retry_requests": i.assignment_retry_requests.clone(),
+            "assignment_retry_sources": i.assignment_retry_sources.clone(),
             "messages": i.messages.clone(),
             "artifacts": i.artifacts.clone(),
             "approvals": i.approvals.clone(),
@@ -462,6 +465,23 @@ impl Orchestrator {
             &mut i.assignment_retry_requests,
             value.get("assignment_retry_requests"),
         )?;
+        restore_map(
+            &mut i.assignment_retry_sources,
+            value.get("assignment_retry_sources"),
+        )?;
+        let legacy_retry_sources = i
+            .assignment_retry_requests
+            .iter()
+            .filter_map(|(key, retry_id)| {
+                key.split_once(':')
+                    .map(|(source_id, _)| (retry_id.clone(), source_id.to_owned()))
+            })
+            .collect::<Vec<_>>();
+        for (retry_id, source_id) in legacy_retry_sources {
+            i.assignment_retry_sources
+                .entry(retry_id)
+                .or_insert(source_id);
+        }
         restore_map(&mut i.messages, value.get("messages"))?;
         let pending_messages = i
             .assignments
@@ -639,6 +659,44 @@ impl Orchestrator {
         }
         assignment.recovered_at = Some(recovered_at);
         Ok(Some(assignment.clone()))
+    }
+
+    /// Put an existing suspended assignment back through the normal queue.
+    /// This preserves its identity while making the usual global, Bot, and
+    /// same-project admission rules authoritative for continuations too.
+    pub fn queue_assignment_resume(&self, assignment_id: &str) -> Result<Option<Assignment>> {
+        let mut i = self.lock()?;
+        Ok(i.queue_assignment_resume(assignment_id))
+    }
+
+    /// Release an assignment slot when restart recovery cannot prove whether
+    /// an external effect completed. Keep the task visible as blocked until
+    /// the user decides how to proceed.
+    pub fn suspend_assignment_for_recovery(
+        &self,
+        assignment_id: &str,
+        reason: &str,
+    ) -> Result<Option<Assignment>> {
+        if !matches!(reason, "approval" | "blocked") {
+            return Err(OrchestratorError::Invalid(
+                "recovery suspension reason must be approval or blocked".into(),
+            ));
+        }
+        let mut inner = self.lock()?;
+        let Some(assignment) = inner.assignments.get_mut(assignment_id) else {
+            return Ok(None);
+        };
+        if matches!(assignment.status.as_str(), "done" | "failed" | "cancelled") {
+            return Ok(None);
+        }
+        assignment.status = "blocked".into();
+        assignment.queue_reason = None;
+        assignment.wait = Some(WaitState {
+            reason: reason.into(),
+            message_id: None,
+        });
+        inner.pump_queue();
+        Ok(inner.assignments.get(assignment_id).cloned())
     }
 
     pub fn retry_assignment(
@@ -2656,6 +2714,21 @@ impl Inner {
                 "cannot move a completed or archived project to review".into(),
             ));
         }
+        let unfinished = self.assignments.values().any(|assignment| {
+            if assignment.project_id.as_deref() != Some(id) || assignment.bot_id == "main" {
+                return false;
+            }
+            match assignment.status.as_str() {
+                "queued" | "working" | "waiting_user" | "waiting_bot" | "blocked" => true,
+                "failed" => !self.has_retry_replacement(&assignment.id),
+                _ => false,
+            }
+        });
+        if unfinished {
+            return Err(OrchestratorError::Conflict(
+                "project has queued, running, waiting, blocked, or unresolved failed work; resolve it before requesting review".into(),
+            ));
+        }
         if current.status == "review" {
             return Ok(current);
         }
@@ -2730,17 +2803,6 @@ impl Inner {
         let Some(project_id) = project_id else {
             return Ok(());
         };
-        let already_active = self.assignments.values().any(|assignment| {
-            assignment.bot_id == "main"
-                && assignment.project_id.as_deref() == Some(project_id)
-                && matches!(
-                    assignment.status.as_str(),
-                    "queued" | "working" | "waiting_user" | "waiting_bot" | "blocked"
-                )
-        });
-        if already_active {
-            return Ok(());
-        }
         let mut instruction = format!("{title}：{}", message.text);
         if !message.artifacts.is_empty() {
             let artifacts = message
@@ -2750,6 +2812,32 @@ impl Inner {
                 .collect::<Vec<_>>()
                 .join(", ");
             instruction.push_str(&format!("\n产物：{artifacts}"));
+        }
+        let active_main = self
+            .assignments
+            .values()
+            .filter(|assignment| {
+                assignment.bot_id == "main"
+                    && assignment.project_id.as_deref() == Some(project_id)
+                    && matches!(
+                        assignment.status.as_str(),
+                        "queued" | "working" | "waiting_user" | "waiting_bot" | "blocked"
+                    )
+            })
+            .max_by_key(|assignment| assignment.created_at.clone())
+            .map(|assignment| assignment.id.clone());
+        if let Some(assignment_id) = active_main {
+            self.queue_steer_for_assignment(
+                SteerRequest {
+                    bot_id: "main".into(),
+                    project_id: Some(project_id.into()),
+                    chat_id: message.chat_id.clone(),
+                    text: instruction,
+                    message_id: Some(message.id.clone()),
+                },
+                Some(&assignment_id),
+            )?;
+            return Ok(());
         }
         if parent_hops >= self.settings.loop_hops {
             self.loop_states
@@ -3200,6 +3288,7 @@ impl Inner {
             }
         }
 
+        let retry_source_id = source.id.clone();
         let retry = self.create_assignment(AssignmentRequest {
             project_id: source.project_id,
             origin_chat_id: source.origin_chat_id,
@@ -3208,7 +3297,7 @@ impl Inner {
             instruction: source.instruction,
             from: source.from,
             trigger_message_id: source.trigger_message_id,
-            parent_assignment_id: Some(source.id),
+            parent_assignment_id: Some(retry_source_id.clone()),
             priority: source.priority,
             root_message_id: source.root_message_id,
             loop_hops: source.loop_hops,
@@ -3216,7 +3305,15 @@ impl Inner {
         if let Some(key) = idempotency_key {
             self.assignment_retry_requests.insert(key, retry.id.clone());
         }
+        self.assignment_retry_sources
+            .insert(retry.id.clone(), retry_source_id);
         Ok(retry)
+    }
+
+    fn has_retry_replacement(&self, assignment_id: &str) -> bool {
+        self.assignment_retry_sources
+            .values()
+            .any(|source_id| source_id == assignment_id)
     }
 
     fn pump_queue(&mut self) {
@@ -3262,6 +3359,66 @@ impl Inner {
                 a.started_at = Some(now());
             }
         }
+        let queued_ids = self
+            .assignments
+            .values()
+            .filter(|assignment| assignment.status == "queued")
+            .map(|assignment| assignment.id.clone())
+            .collect::<Vec<_>>();
+        for id in queued_ids {
+            let Some(assignment) = self.assignments.get(&id).cloned() else {
+                continue;
+            };
+            let bot_running = self
+                .assignments
+                .values()
+                .filter(|other| other.bot_id == assignment.bot_id && other.status == "working")
+                .count();
+            let global_running = self
+                .assignments
+                .values()
+                .filter(|other| other.status == "working" && other.bot_id != "main")
+                .count();
+            let same_project_running = self.assignments.values().any(|other| {
+                other.id != id
+                    && other.project_id == assignment.project_id
+                    && other.bot_id == assignment.bot_id
+                    && other.status == "working"
+            });
+            let reason = if assignment.bot_id != "main"
+                && bot_running
+                    >= self
+                        .bots
+                        .get(&assignment.bot_id)
+                        .map(|bot| bot.max_parallel)
+                        .unwrap_or(self.settings.bot_default_limit)
+            {
+                Some("bot_parallel_limit")
+            } else if assignment.bot_id != "main" && global_running >= self.settings.global_limit {
+                Some("global_limit")
+            } else if same_project_running {
+                Some("serial_in_project")
+            } else {
+                None
+            };
+            if let Some(assignment) = self.assignments.get_mut(&id) {
+                assignment.queue_reason = reason.map(str::to_owned);
+            }
+        }
+    }
+
+    fn queue_assignment_resume(&mut self, assignment_id: &str) -> Option<Assignment> {
+        let assignment = self.assignments.get_mut(assignment_id)?;
+        if matches!(assignment.status.as_str(), "done" | "failed" | "cancelled") {
+            return None;
+        }
+        if assignment.status != "working" {
+            assignment.status = "queued".into();
+            assignment.queue_reason = None;
+            assignment.wait = None;
+            self.pump_queue();
+        }
+        self.assignments.get(assignment_id).cloned()
     }
 
     fn send_msg(&mut self, req: SendMessageRequest) -> Result<Message> {
@@ -3651,15 +3808,10 @@ impl Inner {
             )?;
         }
         let mut seen = HashSet::new();
-        // Group completion is already delivered to the user with a durable
-        // main-chat project card by the gateway. Preserve the visible @main
-        // mention, but do not turn a terminal worker report into another
-        // model assignment that can itself finish without a report.
-        let terminal_completion = req.intent == "done";
         for mention in msg.mentions.clone() {
             match mention {
                 Mention::Main => {
-                    if seen.insert("main".into()) && !terminal_completion {
+                    if seen.insert("main".into()) && req.bot_id != "main" {
                         self.wake_main_for_message(
                             project_id.as_deref(),
                             &msg,
@@ -3695,7 +3847,7 @@ impl Inner {
                         continue;
                     }
                     if bot_id == "main" {
-                        if !terminal_completion {
+                        if req.bot_id != "main" {
                             self.wake_main_for_message(
                                 project_id.as_deref(),
                                 &msg,
@@ -3931,7 +4083,7 @@ impl Inner {
                     && selected_assignment.is_none_or(|selected| selected == a.id)
                     && matches!(
                         a.status.as_str(),
-                        "working" | "waiting_user" | "waiting_bot" | "blocked"
+                        "queued" | "working" | "waiting_user" | "waiting_bot" | "blocked"
                     )
             })
             .max_by_key(|a| a.created_at.clone())
@@ -3969,20 +4121,50 @@ impl Inner {
                 at: ts.clone(),
                 applied_at: None,
             };
+            let wait_state = self
+                .assignments
+                .get(&id)
+                .and_then(|assignment| assignment.wait.as_ref())
+                .cloned();
+            let wait_reason = wait_state.as_ref().map(|wait| wait.reason.as_str());
+            // A blocked wait tied to a concrete message is the safe send_msg
+            // handoff. A recovery suspension has no message and must remain
+            // blocked until its explicit recovery path is used.
+            let safe_blocked_message = wait_reason == Some("blocked")
+                && wait_state
+                    .as_ref()
+                    .is_some_and(|wait| wait.message_id.is_some());
+            let blocked_requires_authorization = wait_reason == Some("approval")
+                || (wait_reason == Some("blocked") && !safe_blocked_message);
+            let can_resume_waiting = (wait_reason == Some("decision")
+                && wait_state
+                    .as_ref()
+                    .is_some_and(|wait| wait.message_id.is_some()))
+                || safe_blocked_message;
             let resumed_from_blocked = self
                 .assignments
                 .get(&id)
-                .is_some_and(|assignment| assignment.status == "blocked");
+                .is_some_and(|assignment| assignment.status == "blocked")
+                && !blocked_requires_authorization;
+            let resumed = self.assignments.get(&id).is_some_and(|assignment| {
+                (matches!(assignment.status.as_str(), "waiting_user" | "waiting_bot")
+                    && can_resume_waiting)
+                    || (assignment.status == "blocked" && !blocked_requires_authorization)
+            });
             let a = self.assignment_mut(&id)?;
-            if matches!(
-                a.status.as_str(),
-                "waiting_user" | "waiting_bot" | "blocked"
-            ) {
-                a.status = "working".into();
+            if (matches!(a.status.as_str(), "waiting_user" | "waiting_bot") && can_resume_waiting)
+                || (a.status == "blocked" && !blocked_requires_authorization)
+            {
+                a.status = "queued".into();
+                a.queue_reason = None;
+                a.wait = None;
             }
             a.steers.push(steer.clone());
             if resumed_from_blocked {
                 self.clear_attention_markers(&id);
+            }
+            if resumed {
+                self.pump_queue();
             }
             (Some(id), "queued", steer)
         } else {
@@ -4067,9 +4249,12 @@ impl Inner {
             let message = self.messages.get(message_id).cloned().unwrap_or(message);
             return Ok(json!({"assignment":assignment,"message":message}));
         }
-        if assignment.status != "working" {
+        if !matches!(
+            assignment.status.as_str(),
+            "queued" | "working" | "waiting_user" | "waiting_bot" | "blocked"
+        ) {
             return Err(OrchestratorError::Conflict(
-                "Bot task is no longer working".into(),
+                "Bot task is no longer active".into(),
             ));
         }
         let queued = message.delivery.iter().any(|delivery| {
@@ -4339,9 +4524,8 @@ impl Inner {
         if let Some(assignment_id) = assignment_id.as_deref() {
             if state == "denied" {
                 self.finish_assignment(assignment_id, "failed")?;
-            } else if let Some(asn) = self.assignments.get_mut(assignment_id) {
-                asn.wait = None;
-                asn.status = "working".into();
+            } else {
+                self.queue_assignment_resume(assignment_id);
             }
         }
         Ok(out)
@@ -4670,8 +4854,10 @@ impl Inner {
             }
         }
         let parent = self.assignment_mut(parent_assignment_id)?;
-        parent.status = "working".into();
+        parent.status = "queued".into();
+        parent.queue_reason = None;
         parent.wait = None;
+        self.pump_queue();
         Ok(answered)
     }
 
@@ -4682,6 +4868,25 @@ impl Inner {
         mut options: Vec<usize>,
         text: Option<String>,
     ) -> Result<Question> {
+        let assignment_id = self
+            .questions
+            .get(&id)
+            .map(|question| question.assignment_id.as_str());
+        if assignment_id.is_some_and(|assignment_id| {
+            self.questions
+                .get(&id)
+                .is_some_and(|question| question.state == "pending")
+                && self
+                    .assignments
+                    .get(assignment_id)
+                    .is_some_and(|assignment| {
+                        matches!(assignment.status.as_str(), "done" | "failed" | "cancelled")
+                    })
+        }) {
+            return Err(OrchestratorError::Conflict(
+                "cannot answer a question after its assignment has finished".into(),
+            ));
+        }
         let q = self
             .questions
             .get_mut(&id)
@@ -4760,10 +4965,7 @@ impl Inner {
         q.state = "answered".into();
         let out = q.clone();
         if !self.question_scopes.contains_key(&out.id) {
-            if let Some(a) = self.assignments.get_mut(&out.assignment_id) {
-                a.status = "working".into();
-                a.wait = None;
-            }
+            self.queue_assignment_resume(&out.assignment_id);
         }
         Ok(out)
     }
@@ -5115,7 +5317,15 @@ impl Inner {
         run.error = error;
         let output = run.clone();
         if let Some(routine) = self.routines.get_mut(&routine_id) {
-            routine.last_run = Some(output.clone());
+            // Completion order may differ from trigger order. Keep the latest
+            // triggered run visible while still updating every history row.
+            if routine
+                .last_run
+                .as_ref()
+                .is_some_and(|last| last.id == output.id)
+            {
+                routine.last_run = Some(output.clone());
+            }
         }
         Ok(Some(output))
     }
@@ -5988,6 +6198,83 @@ mod tests {
     }
 
     #[test]
+    fn terminal_assignment_allows_only_exact_replay_of_a_committed_answer() {
+        let o = Orchestrator::default();
+        let worker = bot(&o, "terminal answer worker");
+        let project = o
+            .inner
+            .lock()
+            .unwrap()
+            .rpc(
+                "project.create",
+                json!({"name":"terminal answer","goal":"test","member_bot_ids":[worker]}),
+            )
+            .unwrap();
+        let project_id = project["project"]["id"].as_str().unwrap().to_owned();
+        let chat_id = project["chat"]["id"].as_str().unwrap().to_owned();
+        let assignment = o
+            .create_assignment(AssignmentRequest {
+                project_id: Some(project_id),
+                origin_chat_id: chat_id.clone(),
+                bot_id: worker.clone(),
+                title: "terminal answer".into(),
+                instruction: "test".into(),
+                from: "user".into(),
+                trigger_message_id: None,
+                parent_assignment_id: None,
+                priority: 1,
+                root_message_id: None,
+                loop_hops: 0,
+            })
+            .unwrap();
+        let create_question = |text: &str| {
+            o.create_question(QuestionRequest {
+                bot_id: worker.clone(),
+                assignment_id: Some(assignment.id.clone()),
+                chat_id: chat_id.clone(),
+                text: text.into(),
+                options: vec!["continue".into()],
+                allow_free_text: true,
+            })
+            .unwrap()
+            .id
+        };
+        let answered_id = create_question("already answered");
+        let pending_id = create_question("still pending");
+        let answer = json!({"question_id":answered_id,"option_index":0});
+        o.inner
+            .lock()
+            .unwrap()
+            .rpc("question.answer", answer.clone())
+            .unwrap();
+        o.inner
+            .lock()
+            .unwrap()
+            .assignments
+            .get_mut(&assignment.id)
+            .unwrap()
+            .status = "done".into();
+
+        assert!(o
+            .inner
+            .lock()
+            .unwrap()
+            .rpc("question.answer", answer)
+            .is_ok());
+        assert!(matches!(
+            o.inner.lock().unwrap().rpc(
+                "question.answer",
+                json!({"question_id":pending_id,"option_index":0})
+            ),
+            Err(OrchestratorError::Conflict(_))
+        ));
+        assert_eq!(
+            o.snapshot().unwrap()["questions"][pending_id]["state"],
+            "pending"
+        );
+    }
+
+    #[test]
     fn private_question_scope_rejects_non_dm_chat() {
         let o = Orchestrator::default();
         let rt = tokio::runtime::Runtime::new().unwrap();
@@ -6554,7 +6841,7 @@ mod tests {
             o.snapshot().unwrap()["assignments"][&assignment.id]["status"],
             "working"
         );
-        assert!(o.snapshot().unwrap()["assignments"][&assignment.id]["wait"].is_object());
+        assert!(o.snapshot().unwrap()["assignments"][&assignment.id]["wait"].is_null());
         let message_id = response["id"].as_str().unwrap();
         assert_eq!(
             o.snapshot().unwrap()["messages"][message_id]["delivery"][0]["state"],
@@ -6628,6 +6915,77 @@ mod tests {
         assert_eq!(fresh_response["delivery"][0]["bot_id"], fresh);
         assert_eq!(fresh_response["delivery"][0]["state"], "delivered");
         assert!(fresh_response["delivery"][0]["assignment_id"].is_string());
+    }
+
+    #[test]
+    fn steering_does_not_clear_a_question_tool_wait_without_a_message_checkpoint() {
+        let o = Orchestrator::default();
+        let worker = bot(&o, "question wait steer worker");
+        let project = o
+            .inner
+            .lock()
+            .unwrap()
+            .rpc(
+                "project.create",
+                json!({"name":"question wait","goal":"test","member_bot_ids":[worker]}),
+            )
+            .unwrap();
+        let project_id = project["project"]["id"].as_str().unwrap().to_owned();
+        let chat_id = project["chat"]["id"].as_str().unwrap().to_owned();
+        let assignment = o
+            .create_assignment(AssignmentRequest {
+                project_id: Some(project_id),
+                origin_chat_id: chat_id.clone(),
+                bot_id: worker.clone(),
+                title: "ask user".into(),
+                instruction: "ask user".into(),
+                from: "user".into(),
+                trigger_message_id: None,
+                parent_assignment_id: None,
+                priority: 1,
+                root_message_id: None,
+                loop_hops: 0,
+            })
+            .unwrap();
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let message = rt
+            .block_on(o.rpc(
+                "send_msg",
+                json!({"bot_id":"user","chat_id":chat_id,"text":"extra context","intent":"ack","mentions":[]}),
+            ))
+            .unwrap();
+        let message_id = message["id"].as_str().unwrap().to_owned();
+        assert_eq!(message["delivery"][0]["state"], "queued");
+        o.create_question(QuestionRequest {
+            bot_id: worker.clone(),
+            assignment_id: Some(assignment.id.clone()),
+            chat_id: chat_id.clone(),
+            text: "Need an answer".into(),
+            options: vec![],
+            allow_free_text: true,
+        })
+        .unwrap();
+        let steer = rt
+            .block_on(o.rpc(
+                "message.steer",
+                json!({"message_id":message_id,"bot_id":worker,"assignment_id":assignment.id}),
+            ))
+            .unwrap();
+        assert_eq!(steer["message"]["delivery"][0]["state"], "queued");
+        let snapshot = o.snapshot().unwrap();
+        assert_eq!(
+            snapshot["assignments"][&assignment.id]["status"],
+            "waiting_user"
+        );
+        assert_eq!(
+            snapshot["assignments"][&assignment.id]["wait"]["reason"],
+            "decision"
+        );
+        assert!(snapshot["assignments"][&assignment.id]["wait"]["message_id"].is_null());
+        assert_eq!(
+            snapshot["messages"][&message_id]["delivery"][0]["state"],
+            "queued"
+        );
     }
 
     #[test]
@@ -6858,7 +7216,7 @@ mod tests {
     }
 
     #[test]
-    fn worker_done_keeps_main_mention_without_creating_redundant_summary_assignment() {
+    fn worker_done_wakes_main_without_marking_project_ready_for_review() {
         let o = Orchestrator::default();
         let worker = bot(&o, "汇报 worker");
         let project = tokio::runtime::Runtime::new()
@@ -6887,7 +7245,7 @@ mod tests {
             .unwrap();
         let report = o
             .send_msg(SendMessageRequest {
-                bot_id: worker,
+                bot_id: worker.clone(),
                 chat_id: chat_id.clone(),
                 assignment_id: Some(source.id.clone()),
                 run_id: None,
@@ -6917,10 +7275,62 @@ mod tests {
                     && assignment["trigger_message_id"] == report.id
             })
             .count();
-        assert_eq!(
-            main_assignments, 0,
-            "terminal completion uses the durable main-chat notification"
-        );
+        assert_eq!(main_assignments, 1);
+        let main = snapshot["assignments"]
+            .as_object()
+            .unwrap()
+            .values()
+            .find(|assignment| {
+                assignment["bot_id"] == "main"
+                    && assignment["project_id"] == project_id
+                    && assignment["trigger_message_id"] == report.id
+            })
+            .expect("done @main wakes the project coordinator");
+        assert!(main["instruction"].as_str().unwrap().contains("实现完成"));
+        let second_worker_task = o
+            .create_assignment(AssignmentRequest {
+                project_id: Some(project_id.clone()),
+                origin_chat_id: chat_id.clone(),
+                bot_id: worker.clone(),
+                title: "后续发现".into(),
+                instruction: "补充发现并汇报".into(),
+                from: "main".into(),
+                trigger_message_id: None,
+                parent_assignment_id: None,
+                priority: 1,
+                root_message_id: None,
+                loop_hops: 0,
+            })
+            .unwrap();
+        let second_report = o
+            .send_msg(SendMessageRequest {
+                bot_id: worker,
+                chat_id,
+                assignment_id: Some(second_worker_task.id),
+                run_id: None,
+                call_id: None,
+                text: "补充发现，需要主 Bot 协调".into(),
+                intent: "done".into(),
+                mentions: vec![MentionInput::Main("main".into())],
+                artifacts: vec![],
+                options: vec![],
+            })
+            .unwrap();
+        let after_second = o.snapshot().unwrap();
+        let project_main = after_second["assignments"]
+            .as_object()
+            .unwrap()
+            .values()
+            .filter(|assignment| {
+                assignment["bot_id"] == "main" && assignment["project_id"] == project_id
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(project_main.len(), 1, "active Main work is reused");
+        assert!(project_main[0]["steers"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|steer| steer["message_id"] == second_report.id));
         assert!(report.mentions.iter().any(|mention| matches!(
             mention,
             Mention::Bot { bot_id, .. } if bot_id == "main"
@@ -6933,6 +7343,84 @@ mod tests {
                 artifact["assignment_id"] == source.id
                     && artifact["path_or_url"] == "code/report.md"
             }));
+    }
+
+    #[test]
+    fn project_review_requires_resolved_work_and_recognizes_explicit_retry_chain() {
+        let o = Orchestrator::default();
+        let worker = bot(&o, "验收门控 worker");
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let project = rt
+            .block_on(o.rpc(
+                "project.create",
+                json!({"name":"验收门控","goal":"未解决工作不能验收","member_bot_ids":[worker]}),
+            ))
+            .unwrap();
+        let project_id = project["project"]["id"].as_str().unwrap().to_owned();
+        let chat_id = project["chat"]["id"].as_str().unwrap().to_owned();
+        let assignment = |title: &str| {
+            o.create_assignment(AssignmentRequest {
+                project_id: Some(project_id.clone()),
+                origin_chat_id: chat_id.clone(),
+                bot_id: worker.clone(),
+                title: title.into(),
+                instruction: title.into(),
+                from: "main".into(),
+                trigger_message_id: None,
+                parent_assignment_id: None,
+                priority: 1,
+                root_message_id: None,
+                loop_hops: 0,
+            })
+            .unwrap()
+        };
+
+        let failed = assignment("失败后重试");
+        o.finish_assignment(&failed.id, "failed").unwrap();
+        assert!(matches!(
+            o.mark_project_review(&project_id),
+            Err(OrchestratorError::Conflict(_))
+        ));
+        let retry_id = o.retry_assignment(&failed.id, None).unwrap().id;
+        assert!(matches!(
+            o.mark_project_review(&project_id),
+            Err(OrchestratorError::Conflict(_))
+        ));
+        let recovered = Orchestrator::default();
+        recovered.restore(o.snapshot().unwrap()).unwrap();
+        recovered.finish_assignment(&retry_id, "done").unwrap();
+        recovered.mark_project_review(&project_id).unwrap();
+
+        let second = rt
+            .block_on(o.rpc(
+                "project.create",
+                json!({"name":"阻塞门控","goal":"阻塞不能验收","member_bot_ids":[worker]}),
+            ))
+            .unwrap();
+        let second_id = second["project"]["id"].as_str().unwrap().to_owned();
+        let blocked = o
+            .create_assignment(AssignmentRequest {
+                project_id: Some(second_id.clone()),
+                origin_chat_id: second["chat"]["id"].as_str().unwrap().into(),
+                bot_id: worker,
+                title: "阻塞工作".into(),
+                instruction: "等待处理".into(),
+                from: "main".into(),
+                trigger_message_id: None,
+                parent_assignment_id: None,
+                priority: 1,
+                root_message_id: None,
+                loop_hops: 0,
+            })
+            .unwrap();
+        o.finish_assignment(&blocked.id, "blocked").unwrap();
+        assert!(matches!(
+            o.mark_project_review(&second_id),
+            Err(OrchestratorError::Conflict(_))
+        ));
+        o.finish_assignment(&blocked.id, "cancelled").unwrap();
+        o.mark_project_review(&second_id)
+            .expect("an explicitly cancelled task does not permanently block review");
     }
 
     #[test]
@@ -7412,8 +7900,12 @@ mod tests {
     }
 
     #[test]
-    fn decision_steer_resumes_waiting_assignment() {
-        let o = Orchestrator::default();
+    fn answering_waiting_assignment_obeys_existing_assignment_admission() {
+        let o = Orchestrator::new(OrchestratorSettings {
+            global_limit: 1,
+            bot_default_limit: 1,
+            ..Default::default()
+        });
         let b = bot(&o, "编码");
         let worker_dm = dm_chat(&o, &b);
         let a = o
@@ -7421,7 +7913,7 @@ mod tests {
                 project_id: None,
                 origin_chat_id: "chat_main".into(),
                 bot_id: b.clone(),
-                title: "决策".into(),
+                title: "决策 A".into(),
                 instruction: "询问".into(),
                 from: "main".into(),
                 trigger_message_id: None,
@@ -7434,7 +7926,7 @@ mod tests {
         let message = o
             .send_msg(SendMessageRequest {
                 bot_id: b.clone(),
-                chat_id: worker_dm.clone(),
+                chat_id: worker_dm,
                 assignment_id: Some(a.id.clone()),
                 run_id: None,
                 call_id: None,
@@ -7445,33 +7937,46 @@ mod tests {
                 options: vec!["A".into(), "B".into()],
             })
             .unwrap();
-        let snapshot = o.snapshot().unwrap();
-        let question_id = message.question_id.clone().expect("decision question");
-        assert_eq!(
-            snapshot["assignments"][&a.id]["wait"]["message_id"],
-            message.id
-        );
-        assert_eq!(snapshot["questions"][&question_id]["assignment_id"], a.id);
-        let waiting = tokio::runtime::Runtime::new()
-            .unwrap()
-            .block_on(o.rpc("assignment.get", json!({"assignment_id":a.id})))
-            .unwrap();
-        assert_eq!(waiting["assignment"]["status"], "waiting_user");
-        let steer = o
-            .queue_steer(SteerRequest {
-                bot_id: b,
+        let question_id = message.question_id.expect("decision question");
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        let status = |id: &str| {
+            runtime
+                .block_on(o.rpc("assignment.get", json!({"assignment_id":id})))
+                .unwrap()["assignment"]["status"]
+                .as_str()
+                .unwrap()
+                .to_owned()
+        };
+        assert_eq!(status(&a.id), "waiting_user");
+
+        let blocker = o
+            .create_assignment(AssignmentRequest {
                 project_id: None,
-                chat_id: "chat_main".into(),
-                text: "选 A".into(),
-                message_id: None,
+                origin_chat_id: "chat_main".into(),
+                bot_id: b,
+                title: "占用并发额度".into(),
+                instruction: "运行中".into(),
+                from: "main".into(),
+                trigger_message_id: None,
+                parent_assignment_id: None,
+                priority: 1,
+                root_message_id: None,
+                loop_hops: 0,
             })
             .unwrap();
-        assert_eq!(steer.state, "queued");
-        let resumed = tokio::runtime::Runtime::new()
-            .unwrap()
-            .block_on(o.rpc("assignment.get", json!({"assignment_id":a.id})))
+        assert_eq!(blocker.status, "working");
+
+        runtime
+            .block_on(o.rpc(
+                "question.answer",
+                json!({"question_id":question_id,"option_index":0}),
+            ))
             .unwrap();
-        assert_eq!(resumed["assignment"]["status"], "working");
+        assert_eq!(status(&a.id), "queued");
+        assert_eq!(status(&blocker.id), "working");
+
+        o.finish_assignment(&blocker.id, "done").unwrap();
+        assert_eq!(status(&a.id), "working");
     }
 
     #[test]
@@ -9110,6 +9615,52 @@ mod tests {
             ))
             .unwrap();
         assert!(updated["bot"]["model"].is_null());
+    }
+
+    #[test]
+    fn routine_last_run_tracks_trigger_order_when_completions_overlap() {
+        for newest_finishes_first in [false, true] {
+            let o = Orchestrator::default();
+            let worker = bot(&o, "routine worker");
+            let rt = tokio::runtime::Runtime::new().unwrap();
+            let routine = rt
+                .block_on(o.rpc(
+                    "routine.create",
+                    json!({
+                        "bot_id":worker,"name":"overlap","instructions":"run",
+                        "schedules":[{"cron":"*/5 * * * *","label":"five"}]
+                    }),
+                ))
+                .unwrap();
+            let id = routine["routine"]["id"].as_str().unwrap();
+            let first = rt
+                .block_on(o.rpc("routine.test_run", json!({"routine_id":id})))
+                .unwrap();
+            let second = rt
+                .block_on(o.rpc("routine.test_run", json!({"routine_id":id})))
+                .unwrap();
+            let older = first["run"]["id"].as_str().unwrap();
+            let newer = second["run"]["id"].as_str().unwrap();
+            let order = if newest_finishes_first {
+                [newer, older]
+            } else {
+                [older, newer]
+            };
+            for run_id in order {
+                o.finish_routine_run(run_id, "done", None).unwrap();
+                assert_eq!(
+                    o.snapshot().unwrap()["routines"][id]["last_run"]["id"],
+                    newer
+                );
+            }
+            let snapshot = o.snapshot().unwrap();
+            assert_eq!(snapshot["routines"][id]["last_run"]["status"], "done");
+            assert!(snapshot["routine_runs"][id]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|run| run["status"] == "done"));
+        }
     }
 
     #[test]

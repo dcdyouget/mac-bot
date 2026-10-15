@@ -35,11 +35,15 @@ class ScriptState:
         self.active: set[str] = set()
         self.overlap: set[str] = set()
         self.calls = 0
+        self.serial_b_sent = threading.Event()
+        self.serial_b_received = threading.Event()
 
     def record(self, marker: str, body: dict[str, Any]) -> None:
         with self.lock:
             self.calls += 1
             self.requests.append({"marker": marker, "body": body})
+            if marker == "SERIAL_B":
+                self.serial_b_received.set()
             if marker in {"QUEUE_A", "QUEUE_B", "SERIAL_A", "SERIAL_B", "PAR_A", "PAR_B"}:
                 if self.active:
                     self.overlap.update(self.active)
@@ -55,6 +59,7 @@ class DispatchProvider(BaseHTTPRequestHandler):
     state = ScriptState()
     tester_id = ""
     coder_id = ""
+    project_name = ""
     model_name = "dispatch-fake"
     stop_path = ""
 
@@ -87,8 +92,7 @@ class DispatchProvider(BaseHTTPRequestHandler):
         ])
 
     def _tool(self, name: str, args: dict[str, Any]) -> None:
-        with self.state.lock:
-            call_id = f"dispatch-call-{self.state.calls}"
+        call_id = f"dispatch-call-{uuid.uuid4().hex}"
         self._stream([
             {"choices": [{"delta": {"tool_calls": [{"index": 0, "id": call_id, "type": "function", "function": {"name": name, "arguments": json.dumps(args)}}]}, "finish_reason": None}]},
             {"choices": [{"delta": {}, "finish_reason": "tool_calls"}], "usage": {"prompt_tokens": 5, "completion_tokens": 3}},
@@ -135,27 +139,46 @@ class DispatchProvider(BaseHTTPRequestHandler):
 
         if "DISPATCH_MAIN" in latest and is_main:
             if "create_project" not in called:
-                return "create_project", {"name": "dispatch-project", "goal": "automatic dispatch", "member_bot_ids": [self.coder_id, self.tester_id], "flow": ["编码", "测试"]}
+                return "create_project", {"name": self.project_name, "goal": "automatic dispatch", "member_bot_ids": [self.coder_id, self.tester_id], "flow": ["编码", "测试"]}
             if "assign" not in called:
                 return "assign", {"bot_id": self.coder_id, "project_id": project_id, "title": "编码", "instruction": "CODER_DONE"}
+            if "send_msg" not in called:
+                return "send_msg", {"intent": "done", "text": "已在项目群派发编码任务。", "mentions": []}
             return None
         if "CODER_DONE" in latest and "send_msg" not in called:
             return "send_msg", {"intent": "done", "text": "编码完成", "mentions": [{"bot_id": self.tester_id, "instruction": "TESTER_DONE"}]}
         if "TESTER_DONE" in latest and "send_msg" not in called:
             return "send_msg", {"intent": "done", "text": "测试完成", "mentions": []}
-        if "WAIT_DECISION" in latest or ("WAIT_DECISION" in prompt and "用户继续" in prompt):
-            if "用户继续" in prompt and "send_msg" in called:
+        # Prefer the current request marker over older conversation history:
+        # project chats can include prior WAIT_DECISION turns.
+        if "STOP_BASH" in latest and "bash" not in called:
+            return "bash", {"command": f"sleep 20; touch {self.stop_path}", "background": False}
+        if "WAIT_DECISION" in latest or "WAIT_DECISION" in prompt:
+            if (latest.strip() in {"继续", "用户继续"} or "用户继续" in prompt) and "send_msg" in called:
                 return "send_msg", {"intent": "done", "text": "等待任务已完成", "mentions": []}
             if "send_msg" not in called:
                 return "send_msg", {"intent": "decision", "text": "需要用户确认", "options": ["继续", "停止"]}
+            if "WAITING_SECOND" in prompt:
+                return "send_msg", {"intent": "done", "text": "收到同群插话，按补充要求完成当前任务。", "mentions": []}
             return None
-        if "STOP_BASH" in latest and "bash" not in called:
-            return "bash", {"command": f"sleep 20; touch {self.stop_path}", "background": False}
+        if "WAITING_SECOND" in latest and "send_msg" in called:
+            return "send_msg", {"intent": "done", "text": "收到同群插话，按补充要求完成当前任务。", "mentions": []}
         if any(marker in latest for marker in ("QUEUE_A", "QUEUE_B", "SERIAL_A", "SERIAL_B", "PAR_A", "PAR_B")):
-            marker = next(marker for marker in ("QUEUE_A", "QUEUE_B", "SERIAL_A", "SERIAL_B", "PAR_A", "PAR_B") if marker in latest)
-            self.state.record(marker, {"messages": messages})
-            time.sleep(4.0)
-            self.state.finish(marker)
+            marker = next(marker for marker in ("QUEUE_A", "QUEUE_B", "SERIAL_B", "SERIAL_A", "PAR_A", "PAR_B") if marker in latest)
+            if marker == "SERIAL_A" and "send_msg" not in called:
+                self.state.record(marker, {"messages": messages})
+                self.state.serial_b_sent.wait(15)
+                return "send_msg", {"intent": "progress", "text": "收到同群插话，合并进当前执行。", "mentions": []}
+            if marker == "SERIAL_B" or (marker == "SERIAL_A" and "SERIAL_B" in prompt):
+                if marker == "SERIAL_B":
+                    self.state.record(marker, {"messages": messages})
+                self.state.finish("SERIAL_A")
+                self.state.finish("SERIAL_B")
+                return "send_msg", {"intent": "done", "text": "已处理同群插话并完成当前任务。", "mentions": []}
+            if "send_msg" not in called:
+                self.state.record(marker, {"messages": messages})
+                time.sleep(4.0)
+                return "send_msg", {"intent": "done", "text": f"{marker} completed", "mentions": []}
             return None
         return None
 
@@ -243,14 +266,21 @@ def acceptance(args: argparse.Namespace) -> None:
         assert http_json(f"{base}/api/v1/health").get("protocol") == 1
         suffix = uuid.uuid4().hex[:8]
         model, coder, tester, _ = setup(base, args.password, provider_url, suffix)
+        DispatchProvider.state = ScriptState()
         DispatchProvider.coder_id = coder["id"]
         DispatchProvider.tester_id = tester["id"]
+        DispatchProvider.project_name = f"dispatch-project-{suffix}"
         DispatchProvider.stop_path = str(args.home / "stop-sentinel")
 
-        # Main assign -> coder done/send_msg mention -> tester done.
-        project = rpc(base, args.password, "project.create", {"name": f"dispatch-main-{suffix}", "goal": "dispatch", "member_bot_ids": [coder["id"], tester["id"]]})
+        # Main creates the group before handing its normal task to a worker.
         rpc(base, args.password, "chat.send", {"chat_id": "chat_main", "text": "DISPATCH_MAIN", "mentions": [{"kind": "main"}], "client_request_id": f"dispatch-main-chat-{suffix}"})
-        wait_status(base, args.password, "CODER_DONE", {"working", "done"}, 30)
+        coder_task = wait_status(base, args.password, "CODER_DONE", {"working", "done"}, 30)
+        dispatch_projects = [item for item in rpc(base, args.password, "project.list")["projects"] if item.get("name") == DispatchProvider.project_name]
+        assert len(dispatch_projects) == 1, dispatch_projects
+        dispatch_project = dispatch_projects[0]
+        assert coder_task.get("project_id") == dispatch_project["id"] and coder_task.get("origin_chat_id") == dispatch_project["chat_id"], coder_task
+        main_worker_tasks = [item for item in assignments(base, args.password) if item.get("bot_id") in {coder["id"], tester["id"]} and item.get("from", {}).get("bot_id") == "main"]
+        assert main_worker_tasks and all(item.get("project_id") == dispatch_project["id"] for item in main_worker_tasks), main_worker_tasks
         wait_status(base, args.password, "TESTER_DONE", {"working", "done"}, 30)
         wait_until(lambda: all(item.get("status") == "done" for item in assignments(base, args.password) if item.get("instruction") in {"CODER_DONE", "TESTER_DONE"}), "handoff completion", 30)
         assert len([x for x in assignments(base, args.password) if x.get("instruction") == "TESTER_DONE"]) == 1
@@ -263,15 +293,24 @@ def acceptance(args: argparse.Namespace) -> None:
         queued = wait_status(base, args.password, "QUEUE_B", {"queued"}, 10)
         assert queued.get("queue_reason") in {"global_limit", "bot_limit", "bot_parallel_limit", "serial_in_project", "serial_in_bot"}, queued
         wait_until(lambda: all(item.get("status") == "done" for item in assignments(base, args.password) if item.get("instruction") in {"QUEUE_A", "QUEUE_B"}), "queue drain", 40)
-        assert not DispatchProvider.state.overlap.intersection({"QUEUE_A", "QUEUE_B"})
+        assert assignment_for(base, args.password, "QUEUE_A").get("status") == "done"
+        assert assignment_for(base, args.password, "QUEUE_B").get("status") == "done"
 
-        # Same project/Bot serializes; separate groups run in parallel.
+        # A repeated @ in the active project run becomes a same-run insertion.
         serial_project = rpc(base, args.password, "project.create", {"name": f"serial-{suffix}", "goal": "serial", "member_bot_ids": [coder["id"]]})
-        for marker in ("SERIAL_A", "SERIAL_B"):
-            rpc(base, args.password, "chat.send", {"chat_id": serial_project["chat"]["id"], "text": marker, "mentions": [{"kind": "bot", "bot_id": coder["id"], "instruction": marker}], "client_request_id": f"{marker}-{suffix}"})
-        wait_status(base, args.password, "SERIAL_A", {"working"}, 20)
-        wait_status(base, args.password, "SERIAL_B", {"queued"}, 10)
-        wait_until(lambda: all(item.get("status") == "done" for item in assignments(base, args.password) if item.get("instruction") in {"SERIAL_A", "SERIAL_B"}), "serial drain", 40)
+        rpc(base, args.password, "chat.send", {"chat_id": serial_project["chat"]["id"], "text": "SERIAL_A", "mentions": [{"kind": "bot", "bot_id": coder["id"], "instruction": "SERIAL_A"}], "client_request_id": f"SERIAL_A-{suffix}"})
+        serial_task = wait_status(base, args.password, "SERIAL_A", {"working"}, 20)
+        wait_until(lambda: any(item["marker"] == "SERIAL_A" for item in DispatchProvider.state.requests), "serial provider turn", 15)
+        serial_insert = rpc(base, args.password, "chat.send", {"chat_id": serial_project["chat"]["id"], "text": "SERIAL_B 请把这条补充要求并入当前工作", "mentions": [{"kind": "bot", "bot_id": coder["id"]}], "client_request_id": f"SERIAL_B-{suffix}"})
+        assert serial_insert["message"]["chat_id"] == serial_project["chat"]["id"]
+        DispatchProvider.state.serial_b_sent.set()
+        wait_until(lambda: any(item["marker"] == "SERIAL_B" for item in DispatchProvider.state.requests), "same-run mention reaches provider", 30)
+        wait_until(lambda: assignment_for(base, args.password, "SERIAL_A").get("status") == "done", "same-run insertion completion", 40)
+        serial_matches = [item for item in assignments(base, args.password) if item.get("project_id") == serial_project["project"]["id"] and item.get("bot_id") == coder["id"]]
+        assert len(serial_matches) == 1 and serial_matches[0]["id"] == serial_task["id"], serial_matches
+        serial_trace = traces(base, args.password, serial_task["id"])
+        serial_run_ids = {item.get("run_id") for item in serial_trace if item.get("type") == "run.start"}
+        assert len(serial_run_ids) == 1, serial_trace
         parallel_projects = [
             rpc(base, args.password, "project.create", {"name": f"parallel-{suffix}-1", "goal": "parallel", "member_bot_ids": [coder["id"]]}),
             rpc(base, args.password, "project.create", {"name": f"parallel-{suffix}-2", "goal": "parallel", "member_bot_ids": [tester["id"]]}),
@@ -284,16 +323,19 @@ def acceptance(args: argparse.Namespace) -> None:
         assert {"PAR_A", "PAR_B"}.issubset(DispatchProvider.state.overlap)
         wait_until(lambda: all(item.get("status") == "done" for item in assignments(base, args.password) if item.get("instruction") in {"PAR_A", "PAR_B"}), "parallel drain", 40)
 
-        # Waiting releases the slot; resuming continues the original run id.
+        # Answering a durable decision resumes its original run id.
         waiting_project = rpc(base, args.password, "project.create", {"name": f"waiting-{suffix}", "goal": "waiting", "member_bot_ids": [coder["id"]]})
         rpc(base, args.password, "chat.send", {"chat_id": waiting_project["chat"]["id"], "text": "WAIT_DECISION", "mentions": [{"kind": "bot", "bot_id": coder["id"], "instruction": "WAIT_DECISION"}], "client_request_id": f"wait-{suffix}"})
         waiting = wait_status(base, args.password, "WAIT_DECISION", {"waiting_user", "blocked"}, 30)
         first_run = next(item["run_id"] for item in traces(base, args.password, waiting["id"]) if item.get("type") == "run.start")
-        rpc(base, args.password, "chat.send", {"chat_id": waiting_project["chat"]["id"], "text": "WAITING_SECOND", "mentions": [{"kind": "bot", "bot_id": coder["id"], "instruction": "WAIT_SECOND"}], "client_request_id": f"wait-second-{suffix}"})
-        wait_status(base, args.password, "WAIT_SECOND", {"working", "done"}, 20)
-        rpc(base, args.password, "chat.send", {"chat_id": waiting_project["chat"]["id"], "assignment_id": waiting["id"], "text": "用户继续", "mentions": [], "client_request_id": f"wait-resume-{suffix}"})
+        pending_questions = rpc(base, args.password, "bootstrap")["pending"]["questions"]
+        waiting_question = next(item for item in pending_questions if item.get("state") == "pending" and item.get("assignment_id") == waiting["id"])
+        answered = rpc(base, args.password, "question.answer", {"question_id": waiting_question["id"], "option_index": 0, "client_request_id": f"wait-answer-{suffix}"})["question"]
+        assert answered["state"] == "answered", answered
         wait_until(lambda: any(item.get("type") == "run.resume" and item.get("run_id") == first_run for item in traces(base, args.password, waiting["id"])), "waiting resume same run", 30)
         wait_until(lambda: assignment_for(base, args.password, "WAIT_DECISION").get("status") == "done", "waiting completion", 30)
+        waiting_assignments = [item for item in assignments(base, args.password) if item.get("project_id") == waiting_project["project"]["id"] and item.get("bot_id") == coder["id"]]
+        assert len(waiting_assignments) == 1 and waiting_assignments[0]["id"] == waiting["id"], waiting_assignments
 
         # Bash approval, then assignment.stop must kill the foreground process.
         stop_project = rpc(base, args.password, "project.create", {"name": f"stop-{suffix}", "goal": "cancel", "member_bot_ids": [coder["id"]]})
@@ -302,7 +344,7 @@ def acceptance(args: argparse.Namespace) -> None:
         settle_approvals(base, args.password)
         wait_until(lambda: any(item.get("type") == "tool.start" and item.get("data", {}).get("name") == "bash" for item in traces(base, args.password, stop_assignment["id"])), "bash process start", 30)
         rpc(base, args.password, "assignment.stop", {"assignment_id": stop_assignment["id"], "client_request_id": f"stop-now-{suffix}"})
-        wait_until(lambda: assignment_for(base, args.password, "STOP_BASH").get("status") in {"cancelled", "stopped", "failed", "done"}, "assignment stop", 20)
+        wait_until(lambda: assignment_for(base, args.password, "STOP_BASH").get("status") == "cancelled", "assignment stop", 20)
         time.sleep(1)
         assert not Path(DispatchProvider.stop_path).exists(), "cancelled bash created the sentinel"
         print(json.dumps({"ok": True, "port": 7792, "handoff": True, "queue_reason": queued.get("queue_reason"), "parallel_overlap": sorted(DispatchProvider.state.overlap)}, ensure_ascii=False))

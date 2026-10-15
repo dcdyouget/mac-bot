@@ -11,10 +11,12 @@
 ```sh
 cargo build --manifest-path server/Cargo.toml -p macbotd
 
-# mock：不调用真实模型，供客户端联调
-MACBOT_HOME=/tmp/macbot-mock \
-  cargo run --manifest-path server/Cargo.toml -p macbotd -- \
-  --mock --port 7789 --password dev
+# mock：不调用真实模型，供客户端联调；临时 config/home/端口与正式服务隔离
+test_root="$(mktemp -d /tmp/macbot-mock.XXXXXX)"
+: > "$test_root/config.toml"
+cargo run --manifest-path server/Cargo.toml -p macbotd -- \
+  --mock --config "$test_root/config.toml" --home "$test_root/home" \
+  --port 27889 --password dev
 
 # 正式服务：provider.create 之后才连接真实模型
 cargo run --manifest-path server/Cargo.toml -p macbotd -- --port 28789
@@ -27,6 +29,8 @@ port = 28789
 data_home = "~/MacBot"
 host_name = "Mac Bot"
 ```
+
+`MACBOT_HOME` 仍可覆盖数据目录；上面的临时启动示例显式传入 `--home` 和空测试 `--config`，避免复用正式数据或读取默认用户配置。若示例端口已被占用，请换一个空闲端口后重试，不要终止占用该端口的旧服务。
 
 相对 `data_home` 路径按配置文件所在目录解析；`~` 指当前用户目录。配置优先级为命令行参数（例如 `--port`、`--home`、`--config`）> 对应环境变量（`MACBOT_PORT`、`MACBOT_HOME`、`MACBOT_CONFIG`）> `config.toml` > 旧版 `data/settings.json` > 默认值。旧版数据中仅保存了原默认端口 `7788` 时，只迁移一次到 `28789`，并在 settings 中写入迁移标记；迁移后用户通过管理页或 CLI 明确保存的 `7788` 不会再被改写。命令行、环境变量和 TOML 中显式设置的 `7788` 始终优先保留。管理页状态会显示端口来源；由启动参数、`MACBOT_PORT` 或 TOML 管理的端口不可在管理页保存，配置冲突返回 `409 port_managed_by_startup`，同一次请求中的其他设置仍会保存。非整数或越界端口明确返回 `400 invalid_port`，不会被静默忽略。`--password` 只在 `data/auth.json` 不存在时初始化，不覆盖已有密码。已有密码可用 `macbotd passwd --password <password>` 重置；密码只保存为 Argon2 哈希，文件权限为 0600。首次设置密码必须通过 loopback 的管理页面完成；健康检查公开，未完成设置时管理页仅向 loopback 返回设置状态，其他受保护接口拒绝访问。`/api/v1/health` 无需鉴权。
 
@@ -44,6 +48,8 @@ host_name = "Mac Bot"
 管理页可修改主机名称和监听端口；端口变更写入 `data/settings.json`，重启 LaunchAgent 后生效。配置文件若明确设置同一字段，会覆盖管理页写入的旧版 setting。客户端继续使用既有 `/ws`、`/ws/screen` 和 `/api/v1/*` 路径；服务端只监听一个端口，不额外拆分管理端口或添加 `/client` 前缀。
 
 正式模式的 provider 配置通过 `provider.create` 写入，API key 由 Mac Bot 自行使用 AES-256-GCM 加密，保存到 `data/provider-secrets/`；同目录的 `.provider-secrets-key` 为随机 256 位密钥。目录权限为 0700、文件权限为 0600，凭据文件采用原子替换；存储后端拒绝 Git checkout 内的目录，不使用 macOS Keychain。旧版 Keychain 凭据不会自动迁移，升级后需要重新输入 API key；备份和恢复时必须同时保留 `.provider-secrets-key` 与密文文件。`MACBOT_SECRET_BACKEND=file` 保留为测试/开发配置，仍使用同一加密格式；可用 `MACBOT_SECRET_DIR` 指定隔离目录。provider 响应、事件、运行日志和配置快照均不包含密钥值。
+
+请求幂等收据使用 `data/idempotency-signing.key` 中的随机 256 位密钥生成 HMAC-SHA256，密钥文件为 0600，创建时原子落盘；WAL 只保存签名，不保存请求中的敏感值。备份和恢复时必须保留该文件。若密钥丢失，旧签名会导致同一请求返回 `conflict`，服务不会把它当成新请求重新执行。旧版没有签名的 WAL 收据只能按已有 method/params 尽力兼容；其中被 redaction 隐藏的设置 secret 无法核实，相关旧请求会返回 `conflict`，需要使用新的 `client_request_id` 重试。
 
 首次打开 `/admin` 设置访问密码后，登录页会显示「模型接入」。选择 DeepSeek、OpenAI API、智谱 GLM、阶跃星辰 StepFun、Anthropic Claude、MiniMax 或 Google Gemini，输入该服务商的 API key 与模型 ID，即可添加 provider/model 并设为 Main Bot 与普通 Bot 的默认模型。OpenAI Codex 与 OpenCode 是客户端/编排器，不是独立模型 API provider；OpenAI preset 使用 API key，不接受 ChatGPT 订阅登录。
 
@@ -119,7 +125,14 @@ cargo test --manifest-path protocol/rust/Cargo.toml
 python3 server/macbotd/tests/smoke_packaging.py --pkg target/MacBot-Server.pkg
 ```
 
-`server/macbotd/tests/smoke_mock.py` 验证隔离 mock 的协议、事件补发、轨迹游标和画面 ACK。正式模式的 `smoke_runtime.py`、`smoke_collaboration.py`、`smoke_features.py`、`smoke_screen.py` 使用本机 fake provider 与独立数据目录；运行参数见各脚本 `--help`。开发测试必须显式选择 file secrets 的临时目录，使用不同端口，不连接真实模型。
+`server/macbotd/tests/smoke_mock.py` 验证隔离 mock 的协议、事件补发、轨迹游标和画面 ACK。正式模式的 `smoke_runtime.py`、`smoke_collaboration.py`、`smoke_dispatch.py`、`smoke_features.py`、`smoke_screen.py` 使用本机 fake provider 与独立数据目录；运行参数见各脚本 `--help`。开发测试必须显式选择 file secrets 的临时目录，使用不同端口，不连接真实模型。
+
+`smoke_routine_queue.py` 使用本机可控 provider 和随机端口，验证并发上限下的 routine 排队、原 run 身份、真实投递会话、用量归属及重启后的末次运行摘要。`smoke_routine_recovery.py` 在已批准 bash 产生隔离副作用后 kill9，验证原 run 保持 unsafe/suspended、不创建替代 run、不重复调用 provider。两者自行启动服务，必须给一个尚不存在的 `--home`，例如：
+
+```sh
+python3 server/macbotd/tests/smoke_routine_queue.py --home /tmp/macbot-routine-queue-check
+python3 server/macbotd/tests/smoke_routine_recovery.py --home /tmp/macbot-routine-recovery-check
+```
 
 `smoke_conversation.py` 验证连续多轮 provider 请求、known text Markdown 与重启后的事件正文、共享消息序号及 `after_seq`、混合 write/read/bash 审批、私聊待处理工作台和已读状态。`smoke_recovery.py` 验证安全私聊 kill9 后以同一 run 自动恢复，并确认不安全工具暂停等待审批、不会自动重放。
 
@@ -156,7 +169,49 @@ python3 server/macbotd/tests/smoke_screen_input.py \
 
 主 Bot 协调与私聊的模型调用按每个 Bot、每种模式每分钟 60 次限速，不占任务并发名额。滑动窗口保存于 `data/limits/model-calls.json`；达到上限时等待，已有 durable checkpoint 和 run ID 保留，停止请求可取消等待。
 
-生产协作路径会生成项目、任务、委派和待验收卡片。项目任务投递到该项目群；不建群的委派在主 Bot 私聊报告结果。Bot 间私信写入独立的只读 `bot_dm` 会话，在源群显示引用。worker 完成后通知主 Bot，由主 Bot 汇总产物请求验收；用户提出修改意见后重新唤醒主 Bot。确认完成会保存群总结及项目记忆。
+生产协作路径会生成项目、任务和待验收卡片。主 Bot 先建立或复用项目群，再通过 `assign` 将普通任务投递到该群；Bot 间通过群消息交接，同群活跃任务收到再次 `@` 时将消息交给当前 run 处理。worker 完成后唤醒主 Bot，由主 Bot 汇总产物并请求验收；用户提出修改意见后重新唤醒主 Bot。项目只能由用户显式调用 `project.confirm_done` 完成，确认后保存群总结及项目记忆。
+
+`smoke_collaboration.py` 验证真实 provider 工具链的项目群交接、审批/问答、产物写入、修改后复审及显式用户验收；`smoke_dispatch.py` 验证并发上限下排队、跨群并行、同群插话并入当前 run、问答恢复和停止任务。两个脚本都使用本机 fake provider，但通过正式服务执行工具；请传入新的 `--home`、独立 `--config`、唯一端口和测试凭据，不预写待验收产物。
+
+`smoke_product_closure.py` 是 Main-Bot 产品闭环场景，使用 `--help` 查看参数；传入独立 `--temp-root` 和已构建的 `--daemon-binary`，脚本会创建隔离 config、home 和临时 provider，要求 worker 通过生产 `write` 工具生成待验收文件。
+
+以下 admission 回归均使用本机可控 provider、自动选择的 loopback 端口和独立 `--home`；home 必须是不存在的新路径，脚本会在其中写入测试 config 并启动/关闭自己的 daemon。先构建 `server/target/debug/macbotd`，再运行：
+
+```sh
+test_root="$(mktemp -d /tmp/macbot-admission.XXXXXX)"
+daemon_bin="$PWD/server/target/debug/macbotd"
+
+# 回答 A 时 Bot 容量仍被 B 占用：A 应排队；在答案已持久化的恢复窗口重启后，沿原 run 恢复且只注入一次答案。
+python3 server/macbotd/tests/smoke_admission_answer.py --home "$test_root/answer" --binary "$daemon_bin"
+
+# 分别覆盖 Bot 并发上限、全局并发上限、同项目串行、跨项目并行。
+python3 server/macbotd/tests/smoke_admission_matrix.py --home "$test_root/bot-cap" --binary "$daemon_bin" --case bot_cap
+python3 server/macbotd/tests/smoke_admission_matrix.py --home "$test_root/global-cap" --binary "$daemon_bin" --case global_cap
+python3 server/macbotd/tests/smoke_admission_matrix.py --home "$test_root/serial-project" --binary "$daemon_bin" --case serial_project
+python3 server/macbotd/tests/smoke_admission_matrix.py --home "$test_root/cross-project" --binary "$daemon_bin" --case cross_project_parallel
+
+# unsafe Bash 已获准并造成副作用后崩溃；重启后重复同一 approval.decide 不会再次执行副作用。
+python3 server/macbotd/tests/smoke_approval_uncertain_replay.py --home "$test_root/approval-replay" --binary "$daemon_bin"
+
+# 验证安全 decision/blocked 等待可通过 message.steer 续接原 run，unsafe approval 等待仍需审批且不会执行工具。
+python3 server/macbotd/tests/smoke_message_steer_waiting.py --home "$test_root/message-steer" --binary "$daemon_bin"
+
+# 这些 smoke 的短路径降低 macOS Unix socket 路径超限风险。
+steer_root="$(mktemp -d /tmp/mbs.XXXXXX)"
+
+# 同一个 waiting run 上并发 question.answer 与 message.steer；验证原消息文本和答案均被原 run 消费一次。
+python3 server/macbotd/tests/smoke_answer_steer_race.py --home "$steer_root/race" --binary "$daemon_bin" --case answer_steer_race
+
+# 已 claimed 的 message continuation 遇到迟到答案和旧 done 响应；分别覆盖纯文本、多选无补充文本、多选带补充文本。
+python3 server/macbotd/tests/smoke_claimed_answer_steer.py --home "$steer_root/text" --binary "$daemon_bin"
+python3 server/macbotd/tests/smoke_claimed_answer_steer.py --home "$steer_root/multi" --binary "$daemon_bin" --multi-select
+python3 server/macbotd/tests/smoke_claimed_answer_steer.py --home "$steer_root/multi-text" --binary "$daemon_bin" --multi-select-with-text
+
+# 模拟 question.answer canonical 状态已提交、inbox WAL append 因 EISDIR 失败后进程崩溃；重启应沿原 run 将答案作为 role=user 输入恰好消费一次。
+python3 server/macbotd/tests/smoke_answer_inbox_append_recovery.py --home "$steer_root/answer-inbox-recovery" --binary "$daemon_bin"
+```
+
+上述各 `--home` 子目录每次运行都必须是新路径；脚本自行选择临时 daemon/provider 端口，并使用本机可控的真实 provider，不使用 `--mock`。独立的 `/tmp/mbs.XXXXXX` 根目录让 Unix socket 路径保持较短，避免 macOS socket 路径长度限制。若端口分配失败或本机 provider 端口不可用，请重新运行，不要停止其他服务。
 
 `send_msg.chat_id` 必须是已存在的聊天 ID，项目 ID 不能代替项目群的 `chat_id`。省略时使用当前聊天；显式错误目标不自动改写，模型收到工具错误后可在同一 run 用正确 ID 重试。校验在 durable send receipt、消息、事件和派发之前执行，合法 Bot 私聊、`to: {bot}` 和明确跨群目标保持。旧版已落盘的错误目标消息、任务、参数及审批不迁移、不重放。
 

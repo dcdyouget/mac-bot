@@ -222,10 +222,6 @@ class FakeProviderHandler(BaseHTTPRequestHandler):
                 "intent": "done",
                 "text": "决策子任务已快速完成",
                 "mentions": [],
-                "artifacts": [{
-                    "title": "决策子任务回执",
-                    "path_or_url": scenario.get("decision_child_artifact_path", ""),
-                }],
             }
         bot_decision_active = (active_marker == "bot_decision" and (
             latest_user.strip() == bot_decision_marker or "等待子任务自动恢复" in latest_user
@@ -301,6 +297,8 @@ class FakeProviderHandler(BaseHTTPRequestHandler):
         if question_active and "question" not in called:
             return "question", {"question": "smoke 请选择登录环境"}
         if question_active and "question" in called:
+            if "生产环境" in prompt and "send_msg" not in called:
+                return "send_msg", {"intent": "done", "text": "已按用户选择的生产环境完成检查。", "mentions": []}
             return None
         notify_active = active_marker == "notify"
         if notify_active and "notify_user" not in called:
@@ -319,6 +317,7 @@ class FakeProviderHandler(BaseHTTPRequestHandler):
                 (
                     instruction
                     for instruction in (
+                        scenario.get("revision_instruction", ""),
                         scenario.get("product_instruction", ""),
                         scenario.get("coder_instruction", ""),
                         scenario.get("tester_instruction", ""),
@@ -333,6 +332,11 @@ class FakeProviderHandler(BaseHTTPRequestHandler):
                     next_instruction = scenario["coder_instruction"]
                     artifact_path = scenario["product_artifact_path"]
                     done_text = "产品阶段已完成，交接编码"
+                elif chain_instruction == scenario["revision_instruction"]:
+                    next_bot_id = "main"
+                    next_instruction = "模型协作修订回报"
+                    artifact_path = scenario["revision_artifact_path"]
+                    done_text = f"{scenario['changes_marker']} 修订文件已真实写入，报告已写入并交主 Bot 复核"
                 elif chain_instruction == scenario["coder_instruction"]:
                     next_bot_id = scenario["tester_id"]
                     next_instruction = scenario["tester_instruction"]
@@ -343,6 +347,13 @@ class FakeProviderHandler(BaseHTTPRequestHandler):
                     next_instruction = "模型协作最终报告"
                     artifact_path = scenario["tester_artifact_path"]
                     done_text = "测试阶段已完成，报告已写入，已回报主 Bot"
+                if "write" not in called:
+                    required_marker = scenario["changes_marker"] if chain_instruction == scenario["revision_instruction"] else chain_instruction
+                    assert required_marker in prompt, f"worker prompt is missing {required_marker}"
+                    return "write", {
+                        "path": artifact_path,
+                        "content": f"# {chain_instruction}\n\n{required_marker}\nProduction provider write artifact.\n",
+                    }
                 if send_msg_count == 0:
                     return "send_msg", {
                         "intent": "progress",
@@ -393,29 +404,42 @@ class FakeProviderHandler(BaseHTTPRequestHandler):
                     # project handoff cards are deliberately self-contained;
                     # they must not wake Main and bypass the product chain.
                     "mentions": ["main"] if worker_instruction == "验证模型驱动协作 smoke" else [],
-                    "artifacts": [
-                        {
-                            "title": "登录验收报告",
-                            "path_or_url": scenario.get("artifact_path", scenario.get("coder_artifact_path", "")),
-                        }
-                    ],
+                }
+            if "parallel-collaboration" in latest_user and "send_msg" not in called:
+                return "send_msg", {
+                    "intent": "done",
+                    "text": "并行协作任务已完成。",
+                    "mentions": [],
                 }
         # A review notification may legitimately start a new main-Bot run.
         # In that run the latest user turn is the finish marker; do not replay
         # the original setup marker from the older chat history.
-        if is_main_bot and scenario.get("finish_marker") and scenario["finish_marker"] in latest_user and "finish_project" not in called:
-            return "finish_project", {
-                "project_id": scenario["project_id"],
-                "summary": "用户确认后完成项目",
-            }
-        if is_main_bot and (
-            scenario.get("worker_done_marker") in latest_user
-            or scenario.get("changes_marker") in latest_user
-        ) and "request_review" not in called:
-            return "request_review", {
-                "project_id": scenario["project_id"],
-                "summary": "主 Bot 已汇总最新产物，请用户验收",
-            }
+        if (
+            is_main_bot
+            and latest_user.startswith("处理项目修改：")
+            and scenario.get("changes_marker") in latest_user
+        ):
+            if "assign" not in called:
+                return "assign", {
+                    "project_id": scenario["project_id"],
+                    "bot_id": scenario["coder_id"],
+                    "title": "按验收意见修订",
+                    "instruction": f"{scenario['revision_instruction']}\n用户验收意见：{latest_user}",
+                }
+            if "send_msg" not in called:
+                return "send_msg", {"intent": "done", "text": "已按用户验收意见派发修订任务。", "mentions": []}
+        if is_main_bot and scenario.get("worker_done_marker") in latest_user:
+            if "request_review" not in called:
+                return "request_review", {
+                    "project_id": scenario["project_id"],
+                    "summary": "主 Bot 已汇总最新产物，请用户验收",
+                }
+            if "send_msg" not in called:
+                return "send_msg", {"intent": "done", "text": "已提交更新后的验收，请用户确认。", "mentions": []}
+        if is_main_bot and latest_user.startswith("主 Bot 汇总：") and "send_msg" not in called:
+            # Every coordinator assignment must publish its required durable
+            # report, including intermediate product/coder handoff summaries.
+            return "send_msg", {"intent": "done", "text": "已汇总当前阶段并完成交接。", "mentions": []}
         if is_main_bot and scenario.get("main_marker") and scenario["main_marker"] in latest_user:
             if "create_project" not in called:
                 return "create_project", {
@@ -424,53 +448,12 @@ class FakeProviderHandler(BaseHTTPRequestHandler):
                     "member_bot_ids": [scenario["product_id"], scenario["coder_id"], scenario["tester_id"]],
                     "flow": ["产品", "编码", "测试"],
                 }
-            if "send_msg" not in called:
-                return "send_msg", {
-                    "intent": "progress",
-                    "text": "目标：模型驱动协作 smoke；流程：产品 → 编码 → 测试。请产品 Bot 开始分析。",
-                    "chat_id": scenario["project_chat_id"],
-                    "mentions": [{
-                        "kind": "bot",
-                        "bot_id": scenario["product_id"],
-                        "instruction": scenario["product_instruction"],
-                    }],
-                }
-            if "delegate" not in called:
-                return "delegate", {
-                    "bot_id": scenario["tester_id"],
-                    "title": "模型委派测试",
-                    "instruction": "验证模型驱动协作 smoke",
-                }
-            if "send_msg" not in called:
-                return "send_msg", {
-                    # Keep the initial coordinator run alive for propose_bot.
-                    # Review is requested only by the fresh Main run woken by
-                    # a worker's done@main handoff.
-                    "intent": "progress",
-                    "text": "编码完成，请测试并回报主 Bot",
-                    "chat_id": scenario["project_chat_id"],
-                    "to": {"bot": scenario["tester_id"]},
-                    # Duplicate mentions are deliberate: this is the model's
-                    # real handoff and verifies the orchestrator deduplicates
-                    # one child assignment before the gateway dispatches it.
-                    "mentions": [
-                        {"kind": "bot", "bot_id": scenario["tester_id"], "instruction": "接手测试"},
-                        {"kind": "bot", "bot_id": scenario["tester_id"], "instruction": "重复交接不得创建第二个任务"},
-                    ],
-                }
-            if send_msg_count < 2:
-                return "send_msg", {
-                    "intent": "progress",
-                    "text": "已私信测试 Bot 继续核验",
-                    "chat_id": scenario["project_chat_id"],
-                    "to": {"bot": scenario["tester_id"]},
-                    "mentions": [
-                        {
-                            "kind": "bot",
-                            "bot_id": scenario["tester_id"],
-                            "instruction": "读取私信并继续测试",
-                        }
-                    ],
+            if "assign" not in called:
+                return "assign", {
+                    "project_id": scenario["project_id"],
+                    "bot_id": scenario["product_id"],
+                    "title": "产品分析",
+                    "instruction": scenario["product_instruction"],
                 }
             if "propose_bot" not in called:
                 return "propose_bot", {
@@ -478,15 +461,20 @@ class FakeProviderHandler(BaseHTTPRequestHandler):
                     "label": "smoke",
                     "description": "模型通过工具提出的 Bot",
                 }
-            # The initial coordinator run stops after handing work to the
-            # workers.  The worker's done@main message starts a fresh main
-            # run, which is the only run allowed to request review.
+            if send_msg_count == 1:
+                return "send_msg", {"intent": "done", "text": "项目和群内工作已安排完成。", "mentions": []}
+            if "send_msg" not in called:
+                return "send_msg", {"intent": "done", "text": "项目群与产品阶段已启动。", "mentions": []}
         if scenario.get("subagent_marker") and scenario["subagent_marker"] in latest_user and "subagent" not in called:
             return "subagent", {
                 "action": "start",
                 "task": "nested-trace child: inspect the assignment",
                 "max_turns": 2,
             }
+        if scenario.get("subagent_marker") and scenario["subagent_marker"] in prompt and "subagent" in called and "send_msg" not in called:
+            return "send_msg", {"intent": "done", "text": "子任务检查已完成。", "mentions": []}
+        if latest_user.strip() == "检查登录回归状态" and "send_msg" not in called:
+            return "send_msg", {"intent": "done", "text": "登录回归检查完成。", "mentions": []}
         return None
 
     def _authorized(self) -> bool:
@@ -638,6 +626,7 @@ def ids(value: list[dict[str, Any]]) -> set[str]:
 
 
 def acceptance(args: argparse.Namespace, provider_url: str) -> None:
+    assert args.home is not None, "--home must point to an isolated data directory"
     base = args.url.rstrip("/")
     password = args.password
     assert http_json(f"{base}/api/v1/health").get("protocol") == 1
@@ -677,14 +666,13 @@ def acceptance(args: argparse.Namespace, provider_url: str) -> None:
     main_chat_id = rpc(base, password, "bot.get", {"bot_id": "main"})["bot"]["dm_chat_id"]
 
     product = rpc(base, password, "bot.create", {"name": f"产品-{suffix}", "model": model, "max_parallel": 2})["bot"]
-    worker_tools = {"files": False, "bash": False, "browser": True, "subagent": True, "web": False, "mcp": False}
+    worker_tools = {"files": True, "bash": False, "browser": True, "subagent": True, "web": False, "mcp": False}
     coder = rpc(base, password, "bot.create", {"name": f"编码-{suffix}", "model": model, "max_parallel": 2, "tools": worker_tools})["bot"]
-    tester = rpc(base, password, "bot.create", {"name": f"测试-{suffix}", "model": model, "max_parallel": 2})["bot"]
+    tester = rpc(base, password, "bot.create", {"name": f"测试-{suffix}", "model": model, "max_parallel": 2, "tools": worker_tools})["bot"]
 
     model_marker = f"model-tool-collaboration-{suffix}"
     FakeProviderHandler.scenario = {
         "main_marker": model_marker,
-        "finish_marker": f"model-tool-finish-{suffix}",
         "worker_done_marker": "报告已写入",
         "changes_marker": f"model-request-changes-{suffix}",
         "subagent_marker": f"model-subagent-{suffix}",
@@ -695,7 +683,6 @@ def acceptance(args: argparse.Namespace, provider_url: str) -> None:
         "bot_decision_marker": f"model-bot-decision-{suffix}",
         "blocked_marker": f"model-blocked-{suffix}",
         "decision_child_instruction": f"决策子任务-{suffix}",
-        "decision_child_artifact_path": f"/tmp/macbot-decision-child-{suffix}.md",
         "project_name": f"模型协作-{suffix}",
         "product_id": product["id"],
         "coder_id": coder["id"],
@@ -703,6 +690,7 @@ def acceptance(args: argparse.Namespace, provider_url: str) -> None:
         "product_instruction": "产品阶段模型驱动协作 smoke",
         "coder_instruction": "编码阶段模型驱动协作 smoke",
         "tester_instruction": "测试阶段模型驱动协作 smoke",
+        "revision_instruction": f"模型验收修订-{suffix}",
         "decision_child_bot_id": tester["id"],
         "suffix": suffix,
     }
@@ -752,23 +740,26 @@ def acceptance(args: argparse.Namespace, provider_url: str) -> None:
     )
     project_id = project["project"]["id"]
     project_chat = project["chat"]["id"]
+    quote_source = rpc(base, password, "chat.send", {
+        "chat_id": project_chat,
+        "text": f"协作 smoke 引用源-{suffix}",
+        "mentions": [],
+        "client_request_id": f"quote-source-{suffix}",
+    })["message"]
+    quote_reply = rpc(base, password, "chat.send", {
+        "chat_id": project_chat,
+        "text": f"引用群内原文-{suffix}",
+        "mentions": [],
+        "quote": quote_source["id"],
+        "quote_mode": "reply",
+        "client_request_id": f"quote-reply-{suffix}",
+    })["message"]
+    assert quote_reply["quote"]["message_id"] == quote_source["id"], quote_reply
     artifact_path = f"artifacts/{suffix}/login-smoke.md"
     product_artifact_path = f"artifacts/{suffix}/product-plan.md"
     coder_artifact_path = f"artifacts/{suffix}/implementation.md"
     tester_artifact_path = f"artifacts/{suffix}/test-report.md"
-    artifact_file = (args.home or Path("/tmp/macbot-collaboration-smoke")) / artifact_path
-    artifact_file.parent.mkdir(parents=True, exist_ok=True)
-    for relative_path, title in (
-        (artifact_path, "# Login smoke report"),
-        (product_artifact_path, "# Product plan"),
-        (coder_artifact_path, "# Implementation report"),
-        (tester_artifact_path, "# Test report"),
-    ):
-        target = (args.home or Path("/tmp/macbot-collaboration-smoke")) / relative_path
-        target.write_text(
-            f"{title}\n\nProduction runtime fake-provider acceptance passed.\n",
-            encoding="utf-8",
-        )
+    revision_artifact_path = f"artifacts/{suffix}/revision-report.md"
     FakeProviderHandler.scenario.update({
         # Keep the legacy key pointed at the final Tester report so the
         # completion/memory assertions always refer to a chain-produced
@@ -777,6 +768,7 @@ def acceptance(args: argparse.Namespace, provider_url: str) -> None:
         "product_artifact_path": product_artifact_path,
         "coder_artifact_path": coder_artifact_path,
         "tester_artifact_path": tester_artifact_path,
+        "revision_artifact_path": revision_artifact_path,
     })
     assert project["project"]["status"] == "active", project
     assert project["chat"]["kind"] == "project", project
@@ -850,12 +842,18 @@ def acceptance(args: argparse.Namespace, provider_url: str) -> None:
     wait_until(model_review_ready, "model-driven project review", 45)
     model_project_chat = FakeProviderHandler.scenario["project_chat_id"]
     opening_history = rpc(base, password, "chat.history", {"chat_id":model_project_chat, "after_seq":0, "limit":500})["messages"]
-    openings = [message for message in opening_history if message.get("sender", {}).get("bot_id") == "main"
-                and any(mention.get("bot_id") == product["id"] for mention in message.get("mentions", []))
-                and "模型驱动协作 smoke" in message.get("fallback_text", "")
-                and "产品 → 编码 → 测试" in message.get("fallback_text", "")]
-    assert len(openings) == 1, openings
-    assert all(block.get("type") != "task_card" for block in openings[0]["blocks"]), openings[0]
+    product_assignments = [
+        item for item in rpc(base, password, "assignment.list", {"limit": 500})["items"]
+        if item.get("project_id") == FakeProviderHandler.scenario["project_id"]
+        and item.get("origin_chat_id") == model_project_chat
+        and item.get("bot_id") == product["id"]
+        and item.get("instruction") == FakeProviderHandler.scenario["product_instruction"]
+    ]
+    assert len(product_assignments) == 1, product_assignments
+    assert any(
+        block.get("type") == "task_card" and block.get("assignment_id") == product_assignments[0]["id"]
+        for message in opening_history for block in message.get("blocks", [])
+    ), opening_history
 
     def main_review_cards() -> list[dict[str, Any]]:
         history = rpc(
@@ -894,7 +892,7 @@ def acceptance(args: argparse.Namespace, provider_url: str) -> None:
     assert pending_artifact_ids, pending_review_cards[-1]
 
     # User-requested changes must happen while the project is in review.  The
-    # normal lifecycle is review -> request_changes -> review -> finish_project;
+    # normal lifecycle is review -> request_changes -> review -> explicit user confirmation;
     # calling request_changes after completion would exercise an invalid state
     # transition and would hide a regression in the model confirmation path.
     changes = rpc(
@@ -910,6 +908,7 @@ def acceptance(args: argparse.Namespace, provider_url: str) -> None:
     assert changes_message["chat_id"] == model_project_chat
 
     def changes_review_ready() -> bool:
+        settle_model_cards()
         project_value = rpc(
             base,
             password,
@@ -919,13 +918,26 @@ def acceptance(args: argparse.Namespace, provider_url: str) -> None:
         if project_value.get("status") != "review":
             return False
         assignments = rpc(base, password, "assignment.list", {"limit": 100})["items"]
+        revision_assignment = next(
+            (
+                item
+                for item in assignments
+                if item.get("bot_id") == coder["id"]
+                and item.get("project_id") == FakeProviderHandler.scenario["project_id"]
+                and FakeProviderHandler.scenario["revision_instruction"] in item.get("instruction", "")
+                and item.get("status") == "done"
+            ),
+            None,
+        )
+        if revision_assignment is None or not revision_assignment.get("result_message_id"):
+            return False
         main_assignment = next(
             (
                 item
                 for item in assignments
                 if item.get("bot_id") == "main"
                 and item.get("project_id") == FakeProviderHandler.scenario["project_id"]
-                and item.get("trigger_message_id") == changes_message["id"]
+                and item.get("trigger_message_id") == revision_assignment["result_message_id"]
             ),
             None,
         )
@@ -944,23 +956,24 @@ def acceptance(args: argparse.Namespace, provider_url: str) -> None:
         )
 
     wait_until(changes_review_ready, "request changes to Main review", 45)
+    revision_assignment = next(
+        item
+        for item in rpc(base, password, "assignment.list", {"limit": 500})["items"]
+        if item.get("bot_id") == coder["id"]
+        and item.get("project_id") == FakeProviderHandler.scenario["project_id"]
+        and FakeProviderHandler.scenario["revision_instruction"] in item.get("instruction", "")
+    )
+    assert revision_assignment["status"] == "done", revision_assignment
+    revision_trace = rpc(base, password, "trace.history", {"assignment_id": revision_assignment["id"], "limit": 500})["items"]
+    assert any(item.get("type") == "tool.start" and item.get("data", {}).get("name") == "write" for item in revision_trace), revision_trace
+    changed_project = rpc(base, password, "project.get", {"project_id": FakeProviderHandler.scenario["project_id"]})["project"]
+    revision_file = args.home / "projects" / changed_project["slug"] / revision_artifact_path
+    assert revision_file.is_file() and FakeProviderHandler.scenario["changes_marker"] in revision_file.read_text(encoding="utf-8"), revision_file
     wait_until(review_card_pending, "main DM review card after requested changes", 30)
 
-    # The second review is the one the user confirms.  This fresh Main run is
-    # deliberately driven through the same public chat path as the first one.
-    model_finish = rpc(
-        base,
-        password,
-        "chat.send",
-        {"chat_id": model_project_chat, "text": FakeProviderHandler.scenario["finish_marker"], "mentions": [{"kind": "main"}], "client_request_id": f"model-finish-{suffix}"},
-    )
-    assert_ack(model_finish, model_project_chat)
-
-    def model_project_done() -> bool:
-        settle_model_cards()
-        return rpc(base, password, "project.get", {"project_id": FakeProviderHandler.scenario["project_id"]})["project"]["status"] == "done"
-
-    wait_until(model_project_done, "model-driven project confirmation", 45)
+    # Completion requires the public user confirmation method.
+    confirmed = rpc(base, password, "project.confirm_done", {"project_id": FakeProviderHandler.scenario["project_id"], "client_request_id": f"model-finish-{suffix}"})
+    assert confirmed["project"]["status"] == "done", confirmed
     finished_project = rpc(base, password, "project.get", {"project_id": FakeProviderHandler.scenario["project_id"]})
     assert finished_project["project"]["status"] == "done", finished_project
     assert finished_project["announcement"]["project_id"] == FakeProviderHandler.scenario["project_id"]
@@ -1042,25 +1055,25 @@ def acceptance(args: argparse.Namespace, provider_url: str) -> None:
     assert FakeProviderHandler.scenario["artifact_path"] in project_summary.get("content", "")
     assert FakeProviderHandler.scenario["artifact_path"] in main_worklog.get("content", "")
 
-    # A worker model can start a bounded subagent. The continuation is
-    # approval-gated, then emits child run trace entries under the same scope.
+    # A worker model can start a bounded subagent from its project-group run.
+    # The continuation is approval-gated, then emits child traces in that scope.
     subagent_start = rpc(
         base,
         password,
         "chat.send",
         {
-            "chat_id": coder["dm_chat_id"],
+            "chat_id": project_chat,
             "text": FakeProviderHandler.scenario["subagent_marker"],
             "mentions": [{"kind": "bot", "bot_id": coder["id"], "instruction": "run nested-trace child"}],
             "client_request_id": f"model-subagent-{suffix}",
         },
     )
-    assert_ack(subagent_start, coder["dm_chat_id"])
+    assert_ack(subagent_start, project_chat)
 
     def subagent_trace_ready() -> bool:
         settle_model_cards()
         # Subagent trace items are scoped to the durable assignment stream,
-        # while the parent model run is scoped to the Bot DM chat stream.
+        # while the parent model run is scoped to the project-group stream.
         assignments = rpc(base, password, "assignment.list", {"limit": 100})["items"]
         for assignment in assignments:
             if assignment.get("bot_id") != coder["id"] or "nested-trace" not in assignment.get("instruction", ""):
@@ -1096,21 +1109,20 @@ def acceptance(args: argparse.Namespace, provider_url: str) -> None:
 
     wait_until(notify_trace_ready, "model notification tool", 45)
 
-    # The generic model question follows the same durable path as takeover:
-    # execution emits a question card, the sink registers it in pending
-    # questions, and question.answer resumes the original run id.
+    # The worker asks from its project-group assignment. The question card is
+    # durable and question.answer resumes the original run id.
     question_start = rpc(
         base,
         password,
         "chat.send",
         {
-            "chat_id": coder["dm_chat_id"],
+            "chat_id": project_chat,
             "text": FakeProviderHandler.scenario["question_marker"],
             "mentions": [{"kind": "bot", "bot_id": coder["id"], "instruction": "询问登录环境"}],
             "client_request_id": f"model-question-{suffix}",
         },
     )
-    assert_ack(question_start, coder["dm_chat_id"])
+    assert_ack(question_start, project_chat)
 
     model_question_target: dict[str, Any] = {}
 
@@ -1394,9 +1406,8 @@ def acceptance(args: argparse.Namespace, provider_url: str) -> None:
                 "chat.send",
                 {
                     "chat_id": project_chat,
-                    "assignment_id": target["id"],
                     "text": reply,
-                    "mentions": [],
+                    "mentions": [{"kind": "bot", "bot_id": target["bot_id"]}],
                     "client_request_id": f"reply-{reason}-{suffix}",
                 },
             )
@@ -1628,7 +1639,6 @@ def acceptance(args: argparse.Namespace, provider_url: str) -> None:
     product_assignment: list[dict[str, Any]] = []
     handoff_assignment: list[dict[str, Any]] = []
     flow_tester_assignment: list[dict[str, Any]] = []
-    delegate_assignment: list[dict[str, Any]] = []
 
     def model_handoff_assignments() -> bool:
         items = current_assignments()
@@ -1662,21 +1672,10 @@ def acceptance(args: argparse.Namespace, provider_url: str) -> None:
                 and item.get("bot_id") == tester["id"]
                 and item.get("instruction") == FakeProviderHandler.scenario["tester_instruction"]
             ]
-            delegate_match = [
-                item
-                for item in items
-                # `delegate` intentionally omits project_id: it is a small
-                # Main-DM task and the RPC router must force chat_main.
-                if item.get("project_id") is None
-                and item.get("origin_chat_id") == main_chat_id
-                and item.get("bot_id") == tester["id"]
-                and item.get("instruction") == "验证模型驱动协作 smoke"
-            ]
             if (
                 len(product_match) == 1
                 and len(coder_match) == 1
                 and len(tester_match) == 1
-                and delegate_match
                 and all(
                     item.get("status") in {"working", "done"}
                     for item in product_match + coder_match + tester_match
@@ -1685,7 +1684,6 @@ def acceptance(args: argparse.Namespace, provider_url: str) -> None:
                 product_assignment[:] = [product_match[-1]]
                 handoff_assignment[:] = [coder_match[-1]]
                 flow_tester_assignment[:] = [tester_match[-1]]
-                delegate_assignment[:] = [delegate_match[-1]]
                 return True
         return False
 
@@ -1710,6 +1708,7 @@ def acceptance(args: argparse.Namespace, provider_url: str) -> None:
     assert {member["bot_id"] for member in model_project["members"]} >= {
         product["id"], coder["id"], tester["id"]
     }, model_project
+    model_project_root = args.home / "projects" / model_project["slug"]
 
     def worker_artifact_message_ready() -> bool:
         history = rpc(
@@ -1734,7 +1733,7 @@ def acceptance(args: argparse.Namespace, provider_url: str) -> None:
                 for message in history.get("messages", [])
             )
             for assignment_id, artifact_path in expected.items()
-        )
+        ) and all((model_project_root / artifact_path).is_file() for artifact_path in expected.values())
 
     wait_until(worker_artifact_message_ready, "product/coder/tester done artifact messages", 30)
 
@@ -1746,41 +1745,20 @@ def acceptance(args: argparse.Namespace, provider_url: str) -> None:
         and item.get("origin_chat_id") == model_project_chat
         and item.get("instruction") == FakeProviderHandler.scenario["tester_instruction"]
     )
-    assert delegate_assignment and delegate_assignment[-1]["project_id"] is None
-    assert delegate_assignment[-1]["origin_chat_id"] == main_chat_id
     handoff_blocks: list[dict[str, Any]] = []
-    bot_dm_ref_chat_id: str | None = None
 
     def handoff_cards_ready() -> bool:
-        nonlocal bot_dm_ref_chat_id, handoff_blocks
+        nonlocal handoff_blocks
         project_history = rpc(
             base,
             password,
             "chat.history",
             {"chat_id": model_project_chat, "after_seq": 0, "limit": 500},
         )
-        main_history = rpc(
-            base,
-            password,
-            "chat.history",
-            {"chat_id": main_chat_id, "after_seq": 0, "limit": 500},
-        )
         handoff_blocks = [
             block
             for message in project_history.get("messages", [])
             for block in message.get("blocks", [])
-        ]
-        main_blocks = [
-            block
-            for message in main_history.get("messages", [])
-            for block in message.get("blocks", [])
-        ]
-        refs = [
-            block
-            for block in handoff_blocks
-            if block.get("type") == "bot_dm_ref"
-            and str(block.get("chat_id", "")).startswith("bot_dm_")
-            and int(block.get("count", 0)) >= 1
         ]
         ready = (
             any(
@@ -1788,34 +1766,19 @@ def acceptance(args: argparse.Namespace, provider_url: str) -> None:
                 and block.get("assignment_id") == coder_assignment["id"]
                 for block in handoff_blocks
             )
-            and any(
-                block.get("type") == "delegation"
-                and block.get("bot_id") == tester["id"]
-                and block.get("assignment_id") == delegate_assignment[-1]["id"]
-                for block in main_blocks
-            )
-            and bool(refs)
+            and all(item.get("project_id") == FakeProviderHandler.scenario["project_id"] for item in assignments if item.get("bot_id") in {product["id"], coder["id"], tester["id"]} and item.get("instruction") in {FakeProviderHandler.scenario["product_instruction"], FakeProviderHandler.scenario["coder_instruction"], FakeProviderHandler.scenario["tester_instruction"]})
+            and any(block.get("type") == "completion" and block.get("artifacts") for block in handoff_blocks)
         )
-        if ready:
-            bot_dm_ref_chat_id = refs[-1]["chat_id"]
         return ready
 
-    wait_until(handoff_cards_ready, "task, delegation, and Bot DM reference cards", 30)
-    assert bot_dm_ref_chat_id is not None
-    bot_dm = rpc(base, password, "chat.get", {"chat_id": bot_dm_ref_chat_id})["chat"]
-    assert bot_dm["kind"] == "bot_dm", bot_dm
-    assert set(bot_dm["member_bot_ids"]) == {"main", tester["id"]}, bot_dm
-    try:
-        rpc(
-            base,
-            password,
-            "chat.send",
-            {"chat_id": bot_dm_ref_chat_id, "text": "不可写入 Bot DM", "mentions": []},
-        )
-    except AssertionError as error:
-        assert "forbidden" in str(error).lower(), error
-    else:
-        raise AssertionError("bot_dm must be read-only")
+    wait_until(handoff_cards_ready, "project task card and group handoff completion", 30)
+    projectless_main_worker_assignments = [
+        item for item in current_assignments()
+        if item.get("project_id") is None
+        and item.get("bot_id") in {product["id"], coder["id"], tester["id"]}
+        and item.get("origin_chat_id") == main_chat_id
+    ]
+    assert not projectless_main_worker_assignments, projectless_main_worker_assignments
 
     # Approval/question cards above are emitted by real model tool calls and
     # settled through bootstrap, question.answer, and approval.decide.  Do not
@@ -1866,6 +1829,28 @@ def acceptance(args: argparse.Namespace, provider_url: str) -> None:
     wait_until(all_scene_work_drained, "all collaboration assignments and jobs terminal", 60)
     final_assignments = rpc(base, password, "assignment.list", {"limit": 500})["items"]
     final_jobs = job_snapshots()
+    core_project_id = FakeProviderHandler.scenario["project_id"]
+    core_assignments = [item for item in final_assignments if item.get("project_id") == core_project_id]
+    assert core_assignments and all(item.get("status") == "done" for item in core_assignments), core_assignments
+    core_run_ids: set[str] = set()
+    for item in core_assignments:
+        trace_path = args.home / "data" / "traces" / f"{item['id']}.jsonl"
+        if trace_path.is_file():
+            for line in trace_path.read_text(encoding="utf-8").splitlines():
+                try:
+                    event = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if event.get("type") == "run.start" and isinstance(event.get("run_id"), str):
+                    core_run_ids.add(event["run_id"])
+    core_jobs = [
+        job for job in final_jobs
+        if job.get("checkpoint", {}).get("run_id") in core_run_ids
+    ]
+    assert core_jobs and all(job.get("status") == "done" for job in core_jobs), core_jobs
+    unexpected_failures = [item for item in final_assignments if item.get("status") == "failed"]
+    assert not unexpected_failures, unexpected_failures
+    assert all(job.get("status") == "done" for job in final_jobs), final_jobs
 
     def counts(items: list[dict[str, Any]]) -> dict[str, int]:
         result: dict[str, int] = {}
@@ -1884,7 +1869,9 @@ def acceptance(args: argparse.Namespace, provider_url: str) -> None:
             "artifact_summary_memory": True,
             "assignment_project_filter": True,
             "parallel_groups": len(parallel_assignments) == 2,
-            "main_delegate_and_bot_dm": True,
+            "main_project_group_coordination": True,
+            "core_assignments_and_jobs_all_done": True,
+            "intentional_failed_or_cancelled_assignments": [],
             "steer_waiting": True,
             "question_takeover_decision_blocked": True,
             "decision_question_wire": decision_wait["answer_method"] == "question.answer"

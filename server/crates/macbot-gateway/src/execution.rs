@@ -14,11 +14,11 @@ use macbot_durable::{DurableError, DurableRuntime, InboxItem, Job, JobStatus};
 use macbot_providers::{Completion, ModelEvent, ModelProvider, ModelRequest, TokenUsage, ToolCall};
 use macbot_store::{Event, Store, StoreError};
 use macbot_tools::{
-    resolve_tool_path, Part, Risk, Tool, ToolCancellation, ToolContext, ToolOutputChunk, ToolResult,
+    Part, Risk, Tool, ToolCancellation, ToolContext, ToolOutputChunk, ToolResult, resolve_tool_path,
 };
 use macbot_usage::{Totals, UsageLedger, UsageRecord};
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::collections::HashSet;
 use std::{
     collections::HashMap,
@@ -27,7 +27,7 @@ use std::{
     time::{Instant, SystemTime, UNIX_EPOCH},
 };
 use thiserror::Error;
-use tokio::sync::{mpsc, Mutex};
+use tokio::sync::{Mutex, OwnedMutexGuard, mpsc};
 
 #[derive(Debug, Error)]
 pub enum ExecutionError {
@@ -81,6 +81,12 @@ pub struct ExecutionRequest {
     pub price: Option<macbot_usage::Price>,
     #[serde(default)]
     pub resume_approved: bool,
+    /// Durable identity and typed input for a scheduler continuation. The
+    /// checkpoint records the phase at which that input became authoritative.
+    #[serde(default)]
+    pub continuation_id: Option<String>,
+    #[serde(default)]
+    pub continuation_payload: Option<Value>,
     /// Child assignments never receive tool schemas and tool calls are
     /// rejected defensively even if a provider emits one anyway.
     #[serde(default)]
@@ -113,6 +119,26 @@ pub struct ExecutionRequest {
 
 fn default_max_turns() -> usize {
     16
+}
+
+fn continuation_checkpoint(
+    request: &ExecutionRequest,
+    mut checkpoint: Value,
+    phase: &str,
+) -> Value {
+    if let Some(continuation_id) = request.continuation_id.as_deref() {
+        if let Some(object) = checkpoint.as_object_mut() {
+            object.insert(
+                "continuation".into(),
+                json!({
+                    "id":continuation_id,
+                    "payload":request.continuation_payload,
+                    "phase":phase
+                }),
+            );
+        }
+    }
+    checkpoint
 }
 fn default_provider_id() -> String {
     "mock".into()
@@ -354,6 +380,7 @@ pub struct ExecutionState {
     usage_ticks: Arc<Mutex<HashMap<String, UsageTickState>>>,
     recovered: Mutex<bool>,
     run_locks: Mutex<HashMap<String, Arc<Mutex<()>>>>,
+    assignment_input_locks: Mutex<HashMap<String, Arc<Mutex<()>>>>,
     model_rate_limiter: ModelRateLimiter,
 }
 
@@ -373,7 +400,19 @@ impl ExecutionState {
             usage_ticks: Arc::new(Mutex::new(HashMap::new())),
             recovered: Mutex::new(false),
             run_locks: Mutex::new(HashMap::new()),
+            assignment_input_locks: Mutex::new(HashMap::new()),
         })
+    }
+
+    pub async fn assignment_input_gate(&self, assignment_id: &str) -> OwnedMutexGuard<()> {
+        let lock = self
+            .assignment_input_locks
+            .lock()
+            .await
+            .entry(assignment_id.to_owned())
+            .or_insert_with(|| Arc::new(Mutex::new(())))
+            .clone();
+        lock.lock_owned().await
     }
 
     async fn cancellation_for(&self, run_id: &str) -> ToolCancellation {
@@ -520,10 +559,16 @@ impl ExecutionEngine {
         let mut checkpoint = job.checkpoint.clone();
         checkpoint["run_id"] = json!(request.run_id);
         checkpoint["error"] = json!(error.to_string());
-        if self
+        let _failed_gate = if let Some(assignment_id) = request.assignment_id.as_deref() {
+            Some(self.state.assignment_input_gate(assignment_id).await)
+        } else {
+            None
+        };
+        let committed = self
             .commit_checkpoint(request, &job.id, JobStatus::Failed, checkpoint, false)
-            .await?
-        {
+            .await?;
+        drop(_failed_gate);
+        if committed {
             self.publish_answer(
                 request,
                 0,
@@ -546,6 +591,13 @@ impl ExecutionEngine {
         self.state.cancelled.lock().await.contains(run_id)
     }
 
+    async fn has_queued_question_answer(&self, job_id: &str) -> bool {
+        self.state.durable.lock().await.inbox(job_id).any(|item| {
+            item.message_id.starts_with("question-answer:")
+                && item.delivery == macbot_durable::Delivery::Queued
+        })
+    }
+
     /// Commit a checkpoint unless cancellation already made the job terminal.
     /// DurableRuntime also rejects a late transition after the cancellation
     /// commit, closing the race between the check and the write.
@@ -563,6 +615,35 @@ impl ExecutionEngine {
         let result = {
             let mut durable = self.state.durable.lock().await;
             durable.commit(job_id, status, checkpoint, unsafe_replay)
+        };
+        match result {
+            Ok(_) => Ok(true),
+            Err(DurableError::TerminalJob(_)) if self.is_cancelled(&request.run_id).await => {
+                Ok(false)
+            }
+            Err(error) => Err(error.into()),
+        }
+    }
+
+    async fn commit_checkpoint_consuming_inbox(
+        &self,
+        request: &ExecutionRequest,
+        job_id: &str,
+        checkpoint: Value,
+        inbox_item_id: &str,
+    ) -> Result<bool, ExecutionError> {
+        if self.is_cancelled(&request.run_id).await {
+            return Ok(false);
+        }
+        let result = {
+            let mut durable = self.state.durable.lock().await;
+            durable.commit_with_inbox_input(
+                job_id,
+                JobStatus::Running,
+                checkpoint,
+                false,
+                inbox_item_id,
+            )
         };
         match result {
             Ok(_) => Ok(true),
@@ -872,6 +953,18 @@ impl ExecutionEngine {
                 .find(|job| job.checkpoint["run_id"].as_str() == Some(request.run_id.as_str()))
                 .cloned()
             else {
+                // Runtime cancellation can race a request which is persisted
+                // but has not yet created its durable job. Remember the
+                // reservation so that a subsequently admitted run observes
+                // cancellation before calling its provider.
+                drop(durable);
+                self.state
+                    .cancelled
+                    .lock()
+                    .await
+                    .insert(request.run_id.clone());
+                self.state.cancel_tools(&request.run_id).await;
+                self.cleanup_run_tools(request).await;
                 return Ok(None);
             };
             if matches!(
@@ -898,17 +991,34 @@ impl ExecutionEngine {
                     .lock()
                     .await
                     .insert(request.run_id.clone());
+                // Signal live tools before writing the terminal snapshot. A
+                // durable commit can return SnapshotAfterCommit after the
+                // cancellation is already authoritative in the WAL; returning
+                // early on that error must not leave provider/tool work alive.
+                self.state.cancel_tools(&request.run_id).await;
                 let mut checkpoint = job.checkpoint.clone();
                 checkpoint["cancelled_at"] = json!(now_rfc3339());
-                let cancelled = durable.commit(&job.id, JobStatus::Cancelled, checkpoint, false)?;
-                ExecutionOutcome {
-                    run_id: request.run_id.clone(),
-                    job_id: cancelled.id,
-                    status: "cancelled".into(),
-                    text: String::new(),
-                    usage: TokenUsage::default(),
-                    turns: cancelled.checkpoint["round"].as_u64().unwrap_or(0) as usize,
-                }
+                durable
+                    .commit(&job.id, JobStatus::Cancelled, checkpoint, false)
+                    .map(|cancelled| ExecutionOutcome {
+                        run_id: request.run_id.clone(),
+                        job_id: cancelled.id,
+                        status: "cancelled".into(),
+                        text: String::new(),
+                        usage: TokenUsage::default(),
+                        turns: cancelled.checkpoint["round"].as_u64().unwrap_or(0) as usize,
+                    })
+                    .map_err(ExecutionError::from)
+            }
+        };
+        // Tool cleanup may wait on arbitrary tool implementations. Keep it
+        // outside the process-wide durable lock, including after a committed
+        // cancellation whose snapshot write failed.
+        let outcome = match outcome {
+            Ok(outcome) => outcome,
+            Err(error) => {
+                self.cleanup_run_tools(request).await;
+                return Err(error);
             }
         };
         if outcome.status == "cancelled" {
@@ -1045,21 +1155,7 @@ impl ExecutionEngine {
                         .is_some()
                     && matches!(job.status, JobStatus::Waiting | JobStatus::Suspended)
                 {
-                    let resumed_job = durable.commit(
-                        &job.id,
-                        JobStatus::Running,
-                        json!({"run_id":request.run_id,"round":round,"messages":messages}),
-                        false,
-                    )?;
-                    (
-                        resumed_job,
-                        messages,
-                        round,
-                        true,
-                        None,
-                        Vec::new(),
-                        run_guard,
-                    )
+                    (job, messages, round, true, None, Vec::new(), run_guard)
                 } else if request.resume_approved
                     && matches!(job.status, JobStatus::Waiting | JobStatus::Suspended)
                 {
@@ -1091,18 +1187,30 @@ impl ExecutionEngine {
                     let mut write_ahead_calls = Vec::with_capacity(pending_calls.len() + 1);
                     write_ahead_calls.push(call.clone());
                     write_ahead_calls.extend(pending_calls.iter().cloned());
-                    let mut checkpoint = json!({
+                    let checkpoint = json!({
                         "run_id": request.run_id,
                         "round": round,
                         "messages": messages,
                         "pending_tool": call.clone(),
                         "pending_tools": write_ahead_calls
                     });
+                    let safe_user_gate = matches!(
+                        call.name.as_str(),
+                        "ask_user" | "question" | "request_takeover"
+                    );
+                    let mut checkpoint = if safe_user_gate {
+                        checkpoint
+                    } else {
+                        continuation_checkpoint(&request, checkpoint, "effect_unknown")
+                    };
                     if let Some(detail) = job.checkpoint.get("approval_detail") {
                         checkpoint["approval_detail"] = detail.clone();
                     }
-                    let resumed_job =
-                        durable.commit(&job.id, JobStatus::Running, checkpoint, true)?;
+                    let resumed_job = if safe_user_gate {
+                        job
+                    } else {
+                        durable.commit(&job.id, JobStatus::Running, checkpoint, true)?
+                    };
                     (
                         resumed_job,
                         messages,
@@ -1124,6 +1232,15 @@ impl ExecutionEngine {
                 (job, initial_messages, 0, false, None, Vec::new(), run_guard)
             }
         };
+        // A family stop may have found this persisted request just before the
+        // engine created its job. In that case cancel() recorded the run id
+        // above; now that the job exists, commit its terminal cancellation
+        // before creating messages, traces, or a provider request.
+        if self.is_cancelled(&request.run_id).await {
+            if let Some(outcome) = self.cancel(&request).await? {
+                return Ok(outcome);
+            }
+        }
         // Assigned private runs deliver user-facing results through the
         // canonical send_msg bridge. Do not create a second assistant bubble
         // that could outlive a successful tool report or persist unreported
@@ -1175,7 +1292,11 @@ impl ExecutionEngine {
             self.state.durable.lock().await.commit(
                 &job.id,
                 JobStatus::Running,
-                json!({"run_id":request.run_id,"round":start_turn,"messages":messages}),
+                continuation_checkpoint(
+                    &request,
+                    json!({"run_id":request.run_id,"round":start_turn,"messages":messages}),
+                    "input_committed",
+                ),
                 false,
             )?;
         }
@@ -1198,7 +1319,11 @@ impl ExecutionEngine {
                 self.state.durable.lock().await.commit(
                     &job.id,
                     JobStatus::Running,
-                    json!({"run_id":request.run_id,"round":start_turn + 1,"messages":messages}),
+                    continuation_checkpoint(
+                        &request,
+                        json!({"run_id":request.run_id,"round":start_turn + 1,"messages":messages}),
+                        "input_committed",
+                    ),
                     false,
                 )?;
             } else if call.name == "request_takeover" {
@@ -1219,7 +1344,11 @@ impl ExecutionEngine {
                 self.state.durable.lock().await.commit(
                     &job.id,
                     JobStatus::Running,
-                    json!({"run_id":request.run_id,"round":start_turn + 1,"messages":messages}),
+                    continuation_checkpoint(
+                        &request,
+                        json!({"run_id":request.run_id,"round":start_turn + 1,"messages":messages}),
+                        "input_committed",
+                    ),
                     false,
                 )?;
             } else {
@@ -1286,35 +1415,52 @@ impl ExecutionEngine {
                 });
             }
             turns_used = turn + 1;
-            if let Some(steer) = {
+            let _input_gate = if let Some(assignment_id) = request.assignment_id.as_deref() {
+                Some(self.state.assignment_input_gate(assignment_id).await)
+            } else {
+                None
+            };
+            let delivered_input = {
                 let mut durable = self.state.durable.lock().await;
                 durable.deliver_next(&job.id)?
-            } {
-                messages.push(json!({"role":"user","content":steer.text.clone()}));
+            };
+            if let Some(input) = delivered_input.as_ref() {
+                messages.push(json!({"role":"user","content":input.text.clone()}));
+                let checkpoint = json!({"run_id":request.run_id,"round":turn,"messages":messages});
+                if !self
+                    .commit_checkpoint_consuming_inbox(&request, &job.id, checkpoint, &input.id)
+                    .await?
+                {
+                    drop(_input_gate);
+                    self.cleanup_run_tools(&request).await;
+                    return Ok(ExecutionOutcome {
+                        run_id: request.run_id.clone(),
+                        job_id: job.id.clone(),
+                        status: "cancelled".into(),
+                        text: final_text,
+                        usage,
+                        turns: turns_used,
+                    });
+                }
+                self.state.durable.lock().await.mark_read(&input.id)?;
+            }
+            drop(_input_gate);
+            if let Some(input) = delivered_input.as_ref() {
                 self.trace(
                     &request,
                     "steer",
-                    json!({"message_id":steer.message_id,"text":steer.text,"from":{"kind":"user"}}),
+                    json!({"message_id":input.message_id,"text":input.text,"from":{"kind":"user"}}),
                 )
                 .await?;
-                self.sink
-                    .emit(ExecutionEvent {
-                        event: "message.updated".into(),
-                        data: json!({"message":steer_message(&request, &steer, "delivered")}),
-                        persistent: true,
-                    })
-                    .await;
-                {
-                    let mut durable = self.state.durable.lock().await;
-                    durable.mark_read(&steer.id)?;
+                if !input.message_id.starts_with("question-answer:") {
+                    self.sink
+                        .emit(ExecutionEvent {
+                            event: "message.updated".into(),
+                            data: json!({"message":steer_message(&request, input, "delivered")}),
+                            persistent: true,
+                        })
+                        .await;
                 }
-                self.sink
-                    .emit(ExecutionEvent {
-                        event: "message.updated".into(),
-                        data: json!({"message":steer_message(&request, &steer, "read")}),
-                        persistent: true,
-                    })
-                    .await;
             }
             let mut turn_request = request.clone();
             turn_request.messages = messages.clone();
@@ -1328,16 +1474,11 @@ impl ExecutionEngine {
                     return Err(error);
                 }
             }
-            if !self
-                .commit_checkpoint(
-                    &request,
-                    &job.id,
-                    JobStatus::Running,
-                    json!({"run_id":request.run_id,"round":turn,"messages":messages}),
-                    false,
-                )
-                .await?
-            {
+            let checkpoint = json!({"run_id":request.run_id,"round":turn,"messages":messages});
+            let committed = self
+                .commit_checkpoint(&request, &job.id, JobStatus::Running, checkpoint, false)
+                .await?;
+            if !committed {
                 self.cleanup_run_tools(&request).await;
                 return Ok(ExecutionOutcome {
                     run_id: request.run_id.clone(),
@@ -1347,6 +1488,17 @@ impl ExecutionEngine {
                     usage,
                     turns: turns_used,
                 });
+            }
+            if let Some(input) = delivered_input.as_ref() {
+                if !input.message_id.starts_with("question-answer:") {
+                    self.sink
+                        .emit(ExecutionEvent {
+                            event: "message.updated".into(),
+                            data: json!({"message":steer_message(&request, input, "read")}),
+                            persistent: true,
+                        })
+                        .await;
+                }
             }
             self.sink.model_context_checkpointed(&turn_request).await;
             if let Some(bucket) = model_rate_bucket(&request) {
@@ -1485,6 +1637,70 @@ impl ExecutionEngine {
             )
             .await?;
 
+            // A safe answer or steer can arrive while the provider request is
+            // in flight. Persist it into the next prompt before executing any
+            // tool calls returned from the now-stale response.
+            let _input_gate = if let Some(assignment_id) = request.assignment_id.as_deref() {
+                Some(self.state.assignment_input_gate(assignment_id).await)
+            } else {
+                None
+            };
+            let late_input = {
+                let mut durable = self.state.durable.lock().await;
+                durable.deliver_next(&job.id)?
+            };
+            if let Some(input) = late_input {
+                messages.push(assistant_message(&completion));
+                for call in &completion.tool_calls {
+                    messages.push(tool_message(
+                        &call.call_id,
+                        &ToolResult::error(
+                            "deferred because new user input arrived during the provider request",
+                        ),
+                    ));
+                }
+                messages.push(json!({"role":"user","content":input.text}));
+                let checkpoint = continuation_checkpoint(
+                    &request,
+                    json!({"run_id":request.run_id,"round":turn + 1,"messages":messages}),
+                    "input_committed",
+                );
+                if !self
+                    .commit_checkpoint_consuming_inbox(&request, &job.id, checkpoint, &input.id)
+                    .await?
+                {
+                    drop(_input_gate);
+                    self.cleanup_run_tools(&request).await;
+                    return Ok(ExecutionOutcome {
+                        run_id: request.run_id.clone(),
+                        job_id: job.id.clone(),
+                        status: "cancelled".into(),
+                        text: final_text,
+                        usage,
+                        turns: turns_used,
+                    });
+                }
+                self.state.durable.lock().await.mark_read(&input.id)?;
+                drop(_input_gate);
+                self.trace(
+                    &request,
+                    "steer",
+                    json!({"message_id":input.message_id,"text":input.text,"from":{"kind":"user"}}),
+                )
+                .await?;
+                if !input.message_id.starts_with("question-answer:") {
+                    self.sink
+                        .emit(ExecutionEvent {
+                            event: "message.updated".into(),
+                            data: json!({"message":steer_message(&request, &input, "read")}),
+                            persistent: true,
+                        })
+                        .await;
+                }
+                continue;
+            }
+            drop(_input_gate);
+
             if completion.tool_calls.is_empty() {
                 if assignment_requires_report && !group_done {
                     if no_report_followups < 1 && turn + 1 < max_turns {
@@ -1619,7 +1835,7 @@ impl ExecutionEngine {
                         &job.id,
                         JobStatus::Waiting,
                         checkpoint,
-                        true,
+                        false,
                     )?;
                     self.trace(
                         &request,
@@ -1760,6 +1976,21 @@ impl ExecutionEngine {
                             .await?;
                             continue;
                         }
+                        let _done_gate = if intent == "done" {
+                            if let Some(assignment_id) = request.assignment_id.as_deref() {
+                                Some(self.state.assignment_input_gate(assignment_id).await)
+                            } else {
+                                None
+                            }
+                        } else {
+                            None
+                        };
+                        if intent == "done" && self.has_queued_question_answer(&job.id).await {
+                            let error = "a newly accepted question answer must be processed before completion";
+                            messages.push(tool_message(&call.call_id, &ToolResult::error(error)));
+                            self.trace(&request, "tool.end", json!({"call_id":call.call_id,"is_error":true,"preview":error,"details":{},"truncated":false,"full_output":null,"duration_ms":0})).await?;
+                            continue;
+                        }
                         let (receipt, _created) = self.state.durable.lock().await.send_msg_once(
                             &request.run_id,
                             &call.call_id,
@@ -1832,6 +2063,7 @@ impl ExecutionEngine {
                                 json!({"run_id":request.run_id,"text":final_text,"usage":usage,"turns":turns_used,"messages":messages}),
                                 false,
                             )?;
+                            drop(_done_gate);
                             self.sink
                                 .commit_succeeded(
                                     &request,
@@ -2038,11 +2270,17 @@ impl ExecutionEngine {
                 .await?;
             return Err(error);
         }
+        let _terminal_gate = if let Some(assignment_id) = request.assignment_id.as_deref() {
+            Some(self.state.assignment_input_gate(assignment_id).await)
+        } else {
+            None
+        };
         {
             let mut durable = self.state.durable.lock().await;
             let cancelled = self.state.cancelled.lock().await.contains(&request.run_id);
             if cancelled {
                 drop(durable);
+                drop(_terminal_gate);
                 self.cleanup_run_tools(&request).await;
                 return Ok(ExecutionOutcome {
                     run_id: request.run_id.clone(),
@@ -2060,6 +2298,7 @@ impl ExecutionEngine {
                 false,
             )?;
         }
+        drop(_terminal_gate);
         self.sink
             .commit_succeeded(&request, json!({"run_id":request.run_id,"text":final_text}))
             .await;
@@ -2302,7 +2541,11 @@ impl ExecutionEngine {
         self.state.durable.lock().await.commit(
             &job.id,
             JobStatus::Running,
-            json!({"run_id":request.run_id,"round":turn + 1,"messages":messages}),
+            continuation_checkpoint(
+                request,
+                json!({"run_id":request.run_id,"round":turn + 1,"messages":messages}),
+                "effect_result_committed",
+            ),
             false,
         )?;
         Ok(())
@@ -2516,6 +2759,27 @@ impl ExecutionEngine {
                     .await?;
                     continue;
                 }
+                let _done_gate = if intent == "done" {
+                    if let Some(assignment_id) = request.assignment_id.as_deref() {
+                        Some(self.state.assignment_input_gate(assignment_id).await)
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                };
+                if intent == "done" && self.has_queued_question_answer(&job.id).await {
+                    let error =
+                        "a newly accepted question answer must be processed before completion";
+                    messages.push(tool_message(&call.call_id, &ToolResult::error(error)));
+                    self.trace(
+                        request,
+                        "tool.end",
+                        json!({"call_id":call.call_id,"is_error":true,"preview":error,"details":{},"truncated":false,"full_output":null,"duration_ms":0}),
+                    )
+                    .await?;
+                    continue;
+                }
                 let (receipt, _) = self.state.durable.lock().await.send_msg_once(
                     &request.run_id,
                     &call.call_id,
@@ -2596,6 +2860,7 @@ impl ExecutionEngine {
                         json!({"run_id":request.run_id,"text":final_text,"usage":usage,"turns":turn + 1,"messages":messages}),
                         false,
                     )?;
+                    drop(_done_gate);
                     self.sink
                         .commit_succeeded(
                             request,
@@ -3313,7 +3578,7 @@ fn args_with_operation_id(call: &ToolCall, run_id: &str) -> Value {
 #[cfg(test)]
 mod prepared_context_tests {
     use super::{apply_prepared_model_context, compact_model_messages, prepend_memory_update};
-    use serde_json::{json, Value};
+    use serde_json::{Value, json};
 
     #[test]
     fn memory_update_precedes_first_user_message_and_preserves_tool_result_fields() {
@@ -3338,10 +3603,12 @@ mod prepared_context_tests {
             "<memory_update revision=\"4\">y</memory_update>",
         );
         assert_eq!(tool["tool_call_id"], "c1");
-        assert!(tool["content"]
-            .as_str()
-            .unwrap()
-            .starts_with("<memory_update"));
+        assert!(
+            tool["content"]
+                .as_str()
+                .unwrap()
+                .starts_with("<memory_update")
+        );
     }
 
     #[test]
@@ -3359,14 +3626,18 @@ mod prepared_context_tests {
         );
         assert_eq!(messages.iter().filter(|m| m["role"] == "system").count(), 2);
         assert_eq!(messages[0]["cache_control"]["type"], "ephemeral");
-        assert!(messages[1]["content"]
-            .as_str()
-            .unwrap()
-            .contains("locale directive"));
-        assert!(messages[2]["content"]
-            .as_str()
-            .unwrap()
-            .starts_with("<memory_update"));
+        assert!(
+            messages[1]["content"]
+                .as_str()
+                .unwrap()
+                .contains("locale directive")
+        );
+        assert!(
+            messages[2]["content"]
+                .as_str()
+                .unwrap()
+                .starts_with("<memory_update")
+        );
     }
 
     #[test]
@@ -4294,10 +4565,59 @@ mod tests {
     use crate::memory_tools::{FeatureExecutionSink, FeatureRunContext, FeatureToolRuntime};
     use macbot_providers::{MockProvider, ToolCall};
     use macbot_tools::{BashJobManager, BashTool, ReadTool, WriteTool};
-    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+    use std::fs;
     use std::sync::Mutex as StdMutex;
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
     use std::time::Duration;
     use tempfile::tempdir;
+
+    struct RecordingProvider {
+        completions: StdMutex<std::collections::VecDeque<Completion>>,
+        requests: Arc<StdMutex<Vec<macbot_providers::ModelRequest>>>,
+        first_started: Arc<tokio::sync::Notify>,
+        release_first: Arc<tokio::sync::Notify>,
+    }
+
+    #[async_trait]
+    impl ModelProvider for RecordingProvider {
+        async fn stream(
+            &self,
+            request: macbot_providers::ModelRequest,
+            events: mpsc::Sender<ModelEvent>,
+        ) -> macbot_providers::Result<Completion> {
+            let first_call = {
+                let mut requests = self.requests.lock().unwrap();
+                requests.push(request);
+                requests.len() == 1
+            };
+            if first_call {
+                self.first_started.notify_one();
+                self.release_first.notified().await;
+            }
+            let completion = self
+                .completions
+                .lock()
+                .unwrap()
+                .pop_front()
+                .unwrap_or_default();
+            let _ = events
+                .send(ModelEvent::TextDelta {
+                    text: completion.text.clone(),
+                })
+                .await;
+            let _ = events
+                .send(ModelEvent::Usage {
+                    usage: completion.usage.clone(),
+                })
+                .await;
+            let _ = events
+                .send(ModelEvent::Stop {
+                    reason: completion.stop_reason.clone(),
+                })
+                .await;
+            Ok(completion)
+        }
+    }
 
     #[test]
     fn memory_arguments_are_rejected_before_approval() {
@@ -4352,13 +4672,15 @@ mod tests {
             ),
             Some("invalid feature request: content is required".into())
         );
-        assert!(engine
-            .invalid_memory_args_for_request(
-                &request,
-                "skill_draft",
-                &json!({"name":"draft","content":"body"})
-            )
-            .is_none());
+        assert!(
+            engine
+                .invalid_memory_args_for_request(
+                    &request,
+                    "skill_draft",
+                    &json!({"name":"draft","content":"body"})
+                )
+                .is_none()
+        );
     }
 
     #[test]
@@ -4383,48 +4705,60 @@ mod tests {
         )
         .unwrap();
         let request = request(false);
-        assert!(engine
-            .invalid_memory_args_for_request(
-                &request,
-                "memory",
-                &json!({"scope":"project","project_id":"missing"})
-            )
-            .is_some());
-        assert!(engine
-            .invalid_memory_args_for_request(
-                &request,
-                "memory",
-                &json!({"scope":"bot","bot_id":"missing"})
-            )
-            .is_some());
-        assert!(engine
-            .invalid_memory_args_for_request(
-                &request,
-                "memory",
-                &json!({"scope":"project","project_id":"project-a","content":"project note"})
-            )
-            .is_none());
-        assert!(engine
-            .invalid_memory_args_for_request(
-                &request,
-                "memory",
-                &json!({"scope":"bot","bot_id":"bot-a","content":"bot note"})
-            )
-            .is_none());
-        assert!(engine
-            .invalid_memory_args_for_request(
-                &request,
-                "memory_search",
-                &json!({"scope":"project","project_id":"missing","query":"lookup"})
-            )
-            .is_some_and(|error| error.contains("does not exist")));
-        assert!(engine
-            .invalid_memory_args_for_request(
-                &request,
-                "memory_search",
-                &json!({"scope":"project","project_id":"project-a","query":"lookup"})
-            )
-            .is_none());
+        assert!(
+            engine
+                .invalid_memory_args_for_request(
+                    &request,
+                    "memory",
+                    &json!({"scope":"project","project_id":"missing"})
+                )
+                .is_some()
+        );
+        assert!(
+            engine
+                .invalid_memory_args_for_request(
+                    &request,
+                    "memory",
+                    &json!({"scope":"bot","bot_id":"missing"})
+                )
+                .is_some()
+        );
+        assert!(
+            engine
+                .invalid_memory_args_for_request(
+                    &request,
+                    "memory",
+                    &json!({"scope":"project","project_id":"project-a","content":"project note"})
+                )
+                .is_none()
+        );
+        assert!(
+            engine
+                .invalid_memory_args_for_request(
+                    &request,
+                    "memory",
+                    &json!({"scope":"bot","bot_id":"bot-a","content":"bot note"})
+                )
+                .is_none()
+        );
+        assert!(
+            engine
+                .invalid_memory_args_for_request(
+                    &request,
+                    "memory_search",
+                    &json!({"scope":"project","project_id":"missing","query":"lookup"})
+                )
+                .is_some_and(|error| error.contains("does not exist"))
+        );
+        assert!(
+            engine
+                .invalid_memory_args_for_request(
+                    &request,
+                    "memory_search",
+                    &json!({"scope":"project","project_id":"project-a","query":"lookup"})
+                )
+                .is_none()
+        );
     }
 
     #[test]
@@ -4440,16 +4774,24 @@ mod tests {
         )
         .unwrap();
         let request = request(false);
-        assert!(engine
-            .invalid_memory_args_for_request(
-                &request,
-                "memory",
-                &json!({"scope":"user","content":"preference"})
-            )
-            .is_some_and(|error| error.contains("only by the user or curator")));
-        assert!(engine
-            .invalid_memory_args_for_request(&request, "memory_search", &json!({"query":"lookup"}))
-            .is_none());
+        assert!(
+            engine
+                .invalid_memory_args_for_request(
+                    &request,
+                    "memory",
+                    &json!({"scope":"user","content":"preference"})
+                )
+                .is_some_and(|error| error.contains("only by the user or curator"))
+        );
+        assert!(
+            engine
+                .invalid_memory_args_for_request(
+                    &request,
+                    "memory_search",
+                    &json!({"query":"lookup"})
+                )
+                .is_none()
+        );
     }
 
     #[derive(Default)]
@@ -4742,10 +5084,12 @@ mod tests {
             assert_eq!(messages.last().unwrap()["streaming"], false);
             let _: macbot_protocol::Message =
                 serde_json::from_value(messages.last().unwrap().clone()).unwrap();
-            assert!(messages.last().unwrap()["fallback_text"]
-                .as_str()
-                .unwrap()
-                .contains("fake"));
+            assert!(
+                messages.last().unwrap()["fallback_text"]
+                    .as_str()
+                    .unwrap()
+                    .contains("fake")
+            );
             assert_eq!(
                 sink.events
                     .lock()
@@ -4809,10 +5153,12 @@ mod tests {
             .store
             .read_jsonl::<Value>("data/chats/chat_mock/messages.jsonl")
             .unwrap();
-        assert!(messages
-            .last()
-            .and_then(|message| message["fallback_text"].as_str())
-            .is_some_and(|text| text.contains("context compaction failed")));
+        assert!(
+            messages
+                .last()
+                .and_then(|message| message["fallback_text"].as_str())
+                .is_some_and(|text| text.contains("context compaction failed"))
+        );
         // A usage/trace task can briefly retain an engine clone after run.end.
         // The next engine must share this Store rather than race a second
         // open against its still-owned process lock.
@@ -4900,6 +5246,169 @@ mod tests {
                 )
                 .count(),
             1
+        );
+    }
+
+    #[tokio::test]
+    async fn snapshot_after_cancel_commit_still_stops_provider_and_returns_error() {
+        let dir = tempdir().unwrap();
+        let started = Arc::new(tokio::sync::Notify::new());
+        let dropped = Arc::new(AtomicBool::new(false));
+        let engine = Arc::new(
+            ExecutionEngine::new(
+                Store::open(dir.path()).unwrap(),
+                Arc::new(PendingProvider {
+                    started: started.clone(),
+                    dropped: dropped.clone(),
+                }),
+                Vec::<Arc<dyn Tool>>::new(),
+                Arc::new(RecordingSink::default()),
+                dir.path(),
+            )
+            .unwrap(),
+        );
+        let req = request(true);
+        let worker = {
+            let engine = engine.clone();
+            let req = req.clone();
+            tokio::spawn(async move { engine.run(req).await })
+        };
+        tokio::time::timeout(std::time::Duration::from_secs(2), started.notified())
+            .await
+            .unwrap();
+
+        let job_id = engine
+            .state
+            .durable
+            .lock()
+            .await
+            .jobs()
+            .find(|job| job.checkpoint["run_id"].as_str() == Some(req.run_id.as_str()))
+            .unwrap()
+            .id
+            .clone();
+        let snapshot = dir.path().join(format!("data/jobs/{job_id}.json"));
+        fs::remove_file(&snapshot).unwrap();
+        fs::create_dir(&snapshot).unwrap();
+
+        let error = engine.cancel(&req).await.unwrap_err();
+        assert!(error.to_string().contains("snapshot"), "{error}");
+        tokio::time::timeout(std::time::Duration::from_secs(2), async {
+            while !dropped.load(Ordering::SeqCst) {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("provider future must be dropped despite the snapshot error");
+        assert_eq!(
+            tokio::time::timeout(std::time::Duration::from_secs(2), worker)
+                .await
+                .unwrap()
+                .unwrap()
+                .unwrap()
+                .status,
+            "cancelled"
+        );
+
+        fs::remove_dir(&snapshot).unwrap();
+        drop(engine);
+        let recovered =
+            macbot_durable::DurableRuntime::from_store(Store::open(dir.path()).unwrap()).unwrap();
+        assert_eq!(
+            recovered.job(&job_id).unwrap().status,
+            JobStatus::Cancelled,
+            "the WAL cancellation remains authoritative after repairing the snapshot path"
+        );
+    }
+
+    #[tokio::test]
+    async fn snapshot_after_cancel_commit_stops_running_tool_and_returns_error() {
+        let dir = tempdir().unwrap();
+        let started = Arc::new(tokio::sync::Notify::new());
+        let calls = Arc::new(AtomicUsize::new(0));
+        let provider = Arc::new(MockProvider::new(vec![Completion {
+            tool_calls: vec![ToolCall {
+                call_id: "blocking_1".into(),
+                name: "blocking_write".into(),
+                args: json!({}),
+            }],
+            stop_reason: "tool_calls".into(),
+            ..Default::default()
+        }]));
+        let engine = Arc::new(
+            ExecutionEngine::new(
+                Store::open(dir.path()).unwrap(),
+                provider,
+                vec![Arc::new(BlockingWriteTool {
+                    calls: calls.clone(),
+                    started: started.clone(),
+                }) as Arc<dyn Tool>],
+                Arc::new(RecordingSink::default()),
+                dir.path(),
+            )
+            .unwrap(),
+        );
+        let req = request(true);
+        let worker = {
+            let engine = engine.clone();
+            let req = req.clone();
+            tokio::spawn(async move { engine.run(req).await })
+        };
+        tokio::time::timeout(Duration::from_secs(2), started.notified())
+            .await
+            .unwrap();
+        let job_id = engine
+            .state
+            .durable
+            .lock()
+            .await
+            .jobs()
+            .find(|job| job.checkpoint["run_id"].as_str() == Some(req.run_id.as_str()))
+            .unwrap()
+            .id
+            .clone();
+        let snapshot = dir.path().join(format!("data/jobs/{job_id}.json"));
+        fs::remove_file(&snapshot).unwrap();
+        fs::create_dir(&snapshot).unwrap();
+
+        let error = engine.cancel(&req).await.unwrap_err();
+        assert!(error.to_string().contains("snapshot"), "{error}");
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+        assert_eq!(
+            tokio::time::timeout(Duration::from_secs(2), worker)
+                .await
+                .expect("running tool must stop even though the snapshot write failed")
+                .unwrap()
+                .unwrap()
+                .status,
+            "cancelled"
+        );
+        fs::remove_dir(&snapshot).unwrap();
+        drop(engine);
+        let recovered = ExecutionEngine::new(
+            Store::open(dir.path()).unwrap(),
+            Arc::new(MockProvider::new(vec![Completion {
+                tool_calls: vec![ToolCall {
+                    call_id: "blocking_after_restart".into(),
+                    name: "blocking_write".into(),
+                    args: json!({}),
+                }],
+                stop_reason: "tool_calls".into(),
+                ..Default::default()
+            }])),
+            vec![Arc::new(BlockingWriteTool {
+                calls: calls.clone(),
+                started: started.clone(),
+            }) as Arc<dyn Tool>],
+            Arc::new(RecordingSink::default()),
+            dir.path(),
+        )
+        .unwrap();
+        assert_eq!(recovered.run(req).await.unwrap().status, "cancelled");
+        assert_eq!(
+            calls.load(Ordering::SeqCst),
+            1,
+            "WAL recovery must not restart the cancelled tool"
         );
     }
     #[async_trait]
@@ -5099,6 +5608,8 @@ mod tests {
             routine: false,
             price: None,
             resume_approved: false,
+            continuation_id: None,
+            continuation_payload: None,
             subagent: false,
             tools: None,
             phase: None,
@@ -5163,13 +5674,15 @@ mod tests {
             Some(&json!("string")),
             "explicit message ids remain supported outside private terminal sends"
         );
-        assert!(schema
-            .pointer("/function/parameters/properties/to/description")
-            .and_then(Value::as_str)
-            .is_some_and(|description| {
-                description.contains("own bot_id resolves to the same bound chat")
-                    && description.contains("Only a different Bot's bot_id")
-            }));
+        assert!(
+            schema
+                .pointer("/function/parameters/properties/to/description")
+                .and_then(Value::as_str)
+                .is_some_and(|description| {
+                    description.contains("own bot_id resolves to the same bound chat")
+                        && description.contains("Only a different Bot's bot_id")
+                })
+        );
         let description = schema["function"]["description"].as_str().unwrap();
         assert!(description.contains("decision"));
         assert!(description.contains("reply_to"));
@@ -5271,9 +5784,11 @@ mod tests {
             .unwrap();
         assert_eq!(submissions.len(), 1);
         assert_eq!(submissions[0]["receipt"]["message_id"], "valid-message");
-        assert!(submissions
-            .iter()
-            .all(|row| row.pointer("/receipt/payload/chat_id") == Some(&json!("chat_mock"))));
+        assert!(
+            submissions
+                .iter()
+                .all(|row| row.pointer("/receipt/payload/chat_id") == Some(&json!("chat_mock")))
+        );
         let events = sink.events.lock().unwrap();
         assert!(events.iter().any(|event| {
             event.event == "trace.item"
@@ -5350,9 +5865,11 @@ mod tests {
             .find(|job| job.checkpoint["run_id"] == req.run_id)
             .unwrap();
         assert_eq!(job.status, JobStatus::Failed);
-        assert!(job.checkpoint["error"]
-            .as_str()
-            .is_some_and(|error| error.contains("task_no_report")));
+        assert!(
+            job.checkpoint["error"]
+                .as_str()
+                .is_some_and(|error| error.contains("task_no_report"))
+        );
         let chat_path = dir.path().join("data/chats/chat_mock/messages.jsonl");
         if chat_path.exists() {
             let messages = std::fs::read_to_string(chat_path).unwrap();
@@ -6217,9 +6734,11 @@ mod tests {
             .filter(|record| record["task_done"] == true)
             .collect::<Vec<_>>();
         assert_eq!(usage_records.len(), 1);
-        assert!(usage_records[0]["request_id"]
-            .as_str()
-            .is_some_and(|id| id.starts_with("task_done:assignment_done:")));
+        assert!(
+            usage_records[0]["request_id"]
+                .as_str()
+                .is_some_and(|id| id.starts_with("task_done:assignment_done:"))
+        );
         let trace =
             std::fs::read_to_string(dir.path().join("data/traces/assignment_done.jsonl")).unwrap();
         assert!(trace.lines().any(|line| {
@@ -6260,16 +6779,19 @@ mod tests {
         let outcome = engine.run(req).await.unwrap();
         assert_eq!(outcome.status, "done");
         assert_eq!(sink.groups.lock().unwrap().len(), 1);
-        assert!(!dir
-            .path()
-            .join("data/chats/chat_mock/messages.jsonl")
-            .exists());
-        assert!(!sink
-            .events
-            .lock()
-            .unwrap()
-            .iter()
-            .any(|event| event.event == "message.created"));
+        assert!(
+            !dir.path()
+                .join("data/chats/chat_mock/messages.jsonl")
+                .exists()
+        );
+        assert!(
+            !sink
+                .events
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|event| event.event == "message.created")
+        );
     }
 
     #[tokio::test]
@@ -6535,6 +7057,94 @@ mod tests {
             "已选择生产环境"
         );
         assert_eq!(calls.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn short_answer_is_kept_as_user_input_even_when_system_context_contains_it() {
+        let dir = tempdir().unwrap();
+        let requests = Arc::new(StdMutex::new(Vec::new()));
+        let first_started = Arc::new(tokio::sync::Notify::new());
+        let release_first = Arc::new(tokio::sync::Notify::new());
+        let provider = Arc::new(RecordingProvider {
+            completions: StdMutex::new(
+                vec![
+                    Completion {
+                        text: "stale response".into(),
+                        stop_reason: "stop".into(),
+                        ..Default::default()
+                    },
+                    Completion {
+                        text: "已收到".into(),
+                        stop_reason: "stop".into(),
+                        ..Default::default()
+                    },
+                ]
+                .into(),
+            ),
+            requests: requests.clone(),
+            first_started: first_started.clone(),
+            release_first: release_first.clone(),
+        });
+        let engine = Arc::new(
+            ExecutionEngine::new(
+                Store::open(dir.path()).unwrap(),
+                provider,
+                vec![],
+                Arc::new(RecordingSink::default()),
+                dir.path(),
+            )
+            .unwrap(),
+        );
+        let mut req = request(true);
+        req.messages = vec![json!({"role":"system","content":"The guide includes the word Yes."})];
+        let running = {
+            let engine = engine.clone();
+            tokio::spawn(async move { engine.run(req).await.unwrap() })
+        };
+        first_started.notified().await;
+        let job_id = engine
+            .state
+            .durable
+            .lock()
+            .await
+            .jobs()
+            .next()
+            .unwrap()
+            .id
+            .clone();
+        engine
+            .state
+            .durable
+            .lock()
+            .await
+            .enqueue_steer(&job_id, "question-answer:question-yes", "Yes")
+            .unwrap();
+        release_first.notify_one();
+        assert_eq!(running.await.unwrap().status, "done");
+
+        let requests = requests.lock().unwrap();
+        let resumed = &requests[1].messages;
+        assert!(
+            resumed.iter().any(|message| {
+                message.get("role").and_then(Value::as_str) == Some("system")
+                    && message
+                        .get("content")
+                        .and_then(Value::as_str)
+                        .is_some_and(|text| text.contains("Yes"))
+            }),
+            "fixture must retain the system-context collision: {resumed:?}"
+        );
+        assert_eq!(
+            resumed
+                .iter()
+                .filter(|message| {
+                    message.get("role").and_then(Value::as_str) == Some("user")
+                        && message.get("content").and_then(Value::as_str) == Some("Yes")
+                })
+                .count(),
+            1,
+            "the canonical answer remains a distinct user input: {resumed:?}"
+        );
     }
 
     #[tokio::test]
@@ -7627,16 +8237,20 @@ mod tests {
                 content.contains("not executed because preceding call had invalid arguments")
             })
         }));
-        assert!(engine
-            .reject_invalid_pending_tool(req.clone(), "wrong-call")
-            .await
-            .unwrap()
-            .is_none());
-        assert!(engine
-            .reject_invalid_pending_tool(req, "corrected-memory")
-            .await
-            .unwrap()
-            .is_none());
+        assert!(
+            engine
+                .reject_invalid_pending_tool(req.clone(), "wrong-call")
+                .await
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            engine
+                .reject_invalid_pending_tool(req, "corrected-memory")
+                .await
+                .unwrap()
+                .is_none()
+        );
         assert_eq!(memory_calls.load(Ordering::SeqCst), 0);
         assert_eq!(sink.approvals.lock().unwrap().len(), 1);
     }
@@ -7677,9 +8291,11 @@ mod tests {
             "ok"
         );
         let commits = std::fs::read_to_string(dir.path().join("data/jobs/commits.jsonl")).unwrap();
-        assert!(commits
-            .lines()
-            .any(|line| line.contains("\"unsafe_replay\":true")));
+        assert!(
+            commits
+                .lines()
+                .any(|line| line.contains("\"unsafe_replay\":true"))
+        );
     }
 
     #[tokio::test]

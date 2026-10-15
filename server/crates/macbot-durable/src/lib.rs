@@ -22,6 +22,13 @@ pub enum DurableError {
     Io(#[from] std::io::Error),
     #[error("store: {0}")]
     Store(#[from] StoreError),
+    #[error("job {job_id} commit {commit_seq} is durable, but its snapshot failed: {source}")]
+    SnapshotAfterCommit {
+        job_id: String,
+        commit_seq: u64,
+        #[source]
+        source: StoreError,
+    },
     #[error("job not found: {0}")]
     JobNotFound(String),
     #[error("job is already terminal: {0}")]
@@ -83,6 +90,42 @@ pub struct InboxItem {
     pub text: String,
     pub delivery: Delivery,
     pub at: u64,
+}
+
+fn merge_inbox(
+    snapshot: Vec<InboxItem>,
+    journal: Vec<InboxItem>,
+    consumed_ids: &std::collections::HashSet<(String, String)>,
+) -> Result<Vec<InboxItem>, DurableError> {
+    let mut merged: Vec<InboxItem> =
+        Vec::with_capacity(snapshot.len().saturating_add(journal.len()));
+    let mut indexes: HashMap<(String, String), usize> = HashMap::new();
+    for item in snapshot.into_iter().chain(journal) {
+        let key = (item.job_id.clone(), item.message_id.clone());
+        if let Some(index) = indexes.get(&key).copied() {
+            if merged[index].text != item.text {
+                return Err(DurableError::Invalid(format!(
+                    "inbox message id {} for job {} was reused with different text",
+                    item.message_id, item.job_id
+                )));
+            }
+            // The snapshot is first and carries the latest delivery state.
+            // Duplicate journal records can arise when a caller retries after
+            // losing an older inbox snapshot; they must not create a second
+            // logical delivery.
+            if item.delivery == Delivery::Read || consumed_ids.contains(&(item.job_id, item.id)) {
+                merged[index].delivery = Delivery::Read;
+            }
+            continue;
+        }
+        let mut item = item;
+        if consumed_ids.contains(&(item.job_id.clone(), item.id.clone())) {
+            item.delivery = Delivery::Read;
+        }
+        indexes.insert(key, merged.len());
+        merged.push(item);
+    }
+    Ok(merged)
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -155,7 +198,6 @@ impl DurableRuntime {
             commit_seq: self.next_commit_seq()?,
         };
         self.persist_job(job.clone())?;
-        self.jobs.insert(id, job.clone());
         Ok(job)
     }
 
@@ -172,11 +214,13 @@ impl DurableRuntime {
 
     /// Commit is write-ahead: the durable commit record is synced before the
     /// snapshot. `unsafe_replay` marks a side effect that cannot be repeated.
+    /// `SnapshotAfterCommit` means the WAL and in-memory job already contain
+    /// the new state; callers must not treat that error as a rolled-back commit.
     pub fn commit(
         &mut self,
         id: &str,
         status: JobStatus,
-        checkpoint: Value,
+        mut checkpoint: Value,
         unsafe_replay: bool,
     ) -> Result<Job, DurableError> {
         validate_id("job", id)?;
@@ -190,6 +234,40 @@ impl DurableRuntime {
         ) {
             return Err(DurableError::TerminalJob(id.into()));
         }
+        // Engine continuation provenance is one atomic object. Ordinary
+        // checkpoints carry it forward; a continuation path may replace it
+        // only with a complete new identity, payload, and phase.
+        if current.checkpoint.get("continuation").is_some() && !checkpoint.is_object() {
+            return Err(DurableError::Invalid(
+                "checkpoint must preserve continuation provenance as an object".into(),
+            ));
+        }
+        if let Some(object) = checkpoint.as_object_mut() {
+            if !object.contains_key("continuation") {
+                if let Some(previous) = current.checkpoint.get("continuation") {
+                    object.insert("continuation".into(), previous.clone());
+                }
+            }
+            // Inbox consumption is durable execution metadata. Ordinary model
+            // checkpoints carry its complete set forward so a crash between
+            // checkpoint commit and inbox acknowledgement cannot duplicate an
+            // already injected input.
+            if !object.contains_key("runtime_inbox_consumed") {
+                if let Some(previous) = current.checkpoint.get("runtime_inbox_consumed") {
+                    object.insert("runtime_inbox_consumed".into(), previous.clone());
+                }
+            }
+        }
+        if let Some(continuation) = checkpoint.get("continuation") {
+            let valid = continuation.get("id").and_then(Value::as_str).is_some()
+                && continuation.get("payload").is_some()
+                && continuation.get("phase").and_then(Value::as_str).is_some();
+            if !valid {
+                return Err(DurableError::Invalid(
+                    "continuation checkpoint must contain id, payload, and phase".into(),
+                ));
+            }
+        }
         let seq = self.next_commit_seq()?;
         let job = Job {
             id: current.id.clone(),
@@ -201,14 +279,39 @@ impl DurableRuntime {
             updated_at: now(),
             commit_seq: seq,
         };
-        self.store
-            .append_jsonl("data/jobs/commits.jsonl", &JobCommit { job: job.clone() })?;
-        self.advance_commit_seq(seq);
-        self.store
-            .write_snapshot(format!("data/jobs/{}.json", id), &job)?;
-        self.refresh_job_metadata(id);
-        self.jobs.insert(id.into(), job.clone());
+        self.persist_job(job.clone())?;
         Ok(job)
+    }
+
+    pub fn commit_with_inbox_input(
+        &mut self,
+        id: &str,
+        status: JobStatus,
+        mut checkpoint: Value,
+        unsafe_replay: bool,
+        inbox_item_id: &str,
+    ) -> Result<Job, DurableError> {
+        let previous = self
+            .jobs
+            .get(id)
+            .ok_or_else(|| DurableError::JobNotFound(id.into()))?
+            .checkpoint
+            .get("runtime_inbox_consumed")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        let mut consumed = previous;
+        if !consumed
+            .iter()
+            .any(|value| value.as_str() == Some(inbox_item_id))
+        {
+            consumed.push(Value::String(inbox_item_id.to_owned()));
+        }
+        let object = checkpoint.as_object_mut().ok_or_else(|| {
+            DurableError::Invalid("checkpoint must be an object when consuming inbox input".into())
+        })?;
+        object.insert("runtime_inbox_consumed".into(), Value::Array(consumed));
+        self.commit(id, status, checkpoint, unsafe_replay)
     }
 
     /// On restart, running jobs are resumable; jobs whose checkpoint represents
@@ -241,13 +344,7 @@ impl DurableRuntime {
                 updated_at: now(),
                 ..current
             };
-            self.store
-                .append_jsonl("data/jobs/commits.jsonl", &JobCommit { job: job.clone() })?;
-            self.advance_commit_seq(seq);
-            self.store
-                .write_snapshot(format!("data/jobs/{}.json", job.id), &job)?;
-            self.refresh_job_metadata(&job.id);
-            self.jobs.insert(job.id.clone(), job.clone());
+            self.persist_job(job.clone())?;
             plan.push(job);
         }
         Ok(plan)
@@ -263,18 +360,24 @@ impl DurableRuntime {
             return Err(DurableError::JobNotFound(job_id.into()));
         }
         let message_id = message_id.into();
+        let text = text.into();
         if let Some(existing) = self
             .inbox
             .iter()
             .find(|x| x.job_id == job_id && x.message_id == message_id)
         {
+            if existing.text != text {
+                return Err(DurableError::Invalid(format!(
+                    "inbox message id {message_id} was reused with different text"
+                )));
+            }
             return Ok(existing.clone());
         }
         let item = InboxItem {
             id: format!("in_{}", uuid::Uuid::now_v7()),
             job_id: job_id.into(),
             message_id,
-            text: text.into(),
+            text,
             delivery: Delivery::Queued,
             at: now(),
         };
@@ -284,10 +387,35 @@ impl DurableRuntime {
     }
 
     pub fn deliver_next(&mut self, job_id: &str) -> Result<Option<InboxItem>, DurableError> {
-        let index = self
-            .inbox
+        let consumed = self
+            .jobs
+            .get(job_id)
+            .and_then(|job| job.checkpoint.get("runtime_inbox_consumed"))
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        let consumed_ids = consumed
             .iter()
-            .position(|x| x.job_id == job_id && x.delivery == Delivery::Queued);
+            .filter_map(Value::as_str)
+            .collect::<std::collections::HashSet<_>>();
+        let mut already_consumed = Vec::new();
+        let index = self.inbox.iter().enumerate().find_map(|(candidate, item)| {
+            if item.job_id != job_id || item.delivery == Delivery::Read {
+                return None;
+            }
+            if consumed_ids.contains(item.id.as_str()) {
+                already_consumed.push(candidate);
+                None
+            } else {
+                Some(candidate)
+            }
+        });
+        if !already_consumed.is_empty() {
+            for candidate in already_consumed {
+                self.inbox[candidate].delivery = Delivery::Read;
+            }
+            self.rewrite_inbox()?;
+        }
         let Some(index) = index else { return Ok(None) };
         self.inbox[index].delivery = Delivery::Delivered;
         self.rewrite_inbox()?;
@@ -360,8 +488,18 @@ impl DurableRuntime {
         self.store
             .append_jsonl("data/jobs/commits.jsonl", &JobCommit { job: job.clone() })?;
         self.advance_commit_seq(job.commit_seq);
+        // The synced WAL is authoritative even if the derived snapshot cannot
+        // be replaced. Never expose the previous (possibly nonterminal) job to
+        // a late worker after the commit has already taken effect.
+        self.jobs.insert(job.id.clone(), job.clone());
+        self.job_metadata.remove(&job.id);
         self.store
-            .write_snapshot(format!("data/jobs/{}.json", job.id), &job)?;
+            .write_snapshot(format!("data/jobs/{}.json", job.id), &job)
+            .map_err(|source| DurableError::SnapshotAfterCommit {
+                job_id: job.id.clone(),
+                commit_seq: job.commit_seq,
+                source,
+            })?;
         self.refresh_job_metadata(&job.id);
         Ok(())
     }
@@ -403,20 +541,30 @@ impl DurableRuntime {
                 .get(&job.id)
                 .is_none_or(|current| current.commit_seq < job.commit_seq)
             {
+                self.job_metadata.remove(&job.id);
                 self.jobs.insert(job.id.clone(), job);
             }
         }
         self.next_commit_seq = max_commit_seq.checked_add(1);
-        self.inbox = match self
+        let snapshot = self
             .store
-            .read_snapshot::<Vec<InboxItem>>("data/inbox.json")
-        {
-            Ok(Some(items)) => items,
-            _ => self
-                .store
-                .read_jsonl("data/inbox.jsonl")
-                .unwrap_or_default(),
-        };
+            .read_snapshot::<Vec<InboxItem>>("data/inbox.json")?
+            .unwrap_or_default();
+        let journal = self.store.read_jsonl::<InboxItem>("data/inbox.jsonl")?;
+        let consumed_ids = self
+            .jobs
+            .values()
+            .flat_map(|job| {
+                job.checkpoint
+                    .get("runtime_inbox_consumed")
+                    .and_then(Value::as_array)
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|value| value.as_str())
+                    .map(move |id| (job.id.clone(), id.to_owned()))
+            })
+            .collect();
+        self.inbox = merge_inbox(snapshot, journal, &consumed_ids)?;
         for submission in self
             .store
             .read_jsonl::<Submission>("data/submissions.jsonl")?
@@ -680,6 +828,105 @@ mod tests {
     }
 
     #[test]
+    fn persisted_new_job_remains_visible_after_snapshot_failure() {
+        let dir = tempdir().unwrap();
+        let mut rt = DurableRuntime::open(dir.path()).unwrap();
+        let job = Job {
+            id: "job_snapshot_failure".into(),
+            owner: "bot".into(),
+            kind: "demo".into(),
+            status: JobStatus::Queued,
+            checkpoint: serde_json::json!({"run_id":"stable"}),
+            unsafe_replay: false,
+            updated_at: now(),
+            commit_seq: 1,
+        };
+        let snapshot = dir.path().join(format!("data/jobs/{}.json", job.id));
+        std::fs::create_dir_all(&snapshot).unwrap();
+        assert!(matches!(
+            rt.persist_job(job.clone()),
+            Err(DurableError::SnapshotAfterCommit { .. })
+        ));
+        assert_eq!(rt.job(&job.id), Some(&job));
+        assert_eq!(rt.next_commit_seq, Some(2));
+        std::fs::remove_dir(&snapshot).unwrap();
+        drop(rt);
+        let recovered = DurableRuntime::open(dir.path()).unwrap();
+        assert_eq!(recovered.job(&job.id), Some(&job));
+    }
+
+    #[test]
+    fn wal_append_failure_does_not_change_job_or_sequence() {
+        let dir = tempdir().unwrap();
+        let mut rt = DurableRuntime::open(dir.path()).unwrap();
+        let job = rt.create_job("bot", "demo", serde_json::json!({})).unwrap();
+        let wal = dir.path().join("data/jobs/commits.jsonl");
+        let saved = dir.path().join("data/jobs/saved.jsonl");
+        std::fs::rename(&wal, &saved).unwrap();
+        std::fs::create_dir(&wal).unwrap();
+        assert!(matches!(
+            rt.commit(&job.id, JobStatus::Cancelled, serde_json::json!({}), false),
+            Err(DurableError::Store(_))
+        ));
+        assert_eq!(rt.job(&job.id), Some(&job));
+        assert_eq!(rt.next_commit_seq, Some(2));
+        std::fs::remove_dir(&wal).unwrap();
+        std::fs::rename(&saved, &wal).unwrap();
+        drop(rt);
+        let recovered = DurableRuntime::open(dir.path()).unwrap();
+        assert_eq!(recovered.job(&job.id), Some(&job));
+    }
+
+    #[test]
+    fn failed_snapshot_keeps_committed_terminal_state_in_memory() {
+        for status in [JobStatus::Done, JobStatus::Failed, JobStatus::Cancelled] {
+            let dir = tempdir().unwrap();
+            let mut rt = DurableRuntime::open(dir.path()).unwrap();
+            let job = rt.create_job("bot", "demo", serde_json::json!({})).unwrap();
+            let snapshot = dir.path().join(format!("data/jobs/{}.json", job.id));
+            std::fs::remove_file(&snapshot).unwrap();
+            std::fs::create_dir(&snapshot).unwrap();
+            assert!(rt
+                .commit(
+                    &job.id,
+                    status.clone(),
+                    serde_json::json!({"terminal":true}),
+                    false
+                )
+                .is_err());
+            assert_eq!(rt.job(&job.id).unwrap().status, status);
+            assert!(rt.job_snapshot_metadata(&job.id).is_none());
+            assert!(matches!(
+                rt.commit(&job.id, JobStatus::Running, serde_json::json!({}), true),
+                Err(DurableError::TerminalJob(_))
+            ));
+            std::fs::remove_dir(&snapshot).unwrap();
+            drop(rt);
+            let recovered = DurableRuntime::open(dir.path()).unwrap();
+            assert_eq!(recovered.job(&job.id).unwrap().status, status);
+        }
+    }
+
+    #[test]
+    fn failed_snapshot_keeps_unsafe_recovery_suspended_in_memory() {
+        let dir = tempdir().unwrap();
+        let mut rt = DurableRuntime::open(dir.path()).unwrap();
+        let job = rt.create_job("bot", "demo", serde_json::json!({})).unwrap();
+        rt.commit(&job.id, JobStatus::Running, serde_json::json!({}), true)
+            .unwrap();
+        let snapshot = dir.path().join(format!("data/jobs/{}.json", job.id));
+        std::fs::remove_file(&snapshot).unwrap();
+        std::fs::create_dir(&snapshot).unwrap();
+        assert!(rt.resume_plan().is_err());
+        assert_eq!(rt.job(&job.id).unwrap().status, JobStatus::Suspended);
+        assert!(rt.resume_plan().unwrap().is_empty());
+        std::fs::remove_dir(&snapshot).unwrap();
+        drop(rt);
+        let recovered = DurableRuntime::open(dir.path()).unwrap();
+        assert_eq!(recovered.job(&job.id).unwrap().status, JobStatus::Suspended);
+    }
+
+    #[test]
     fn unsafe_running_job_is_suspended_after_recovery() {
         let dir = tempdir().unwrap();
         let mut rt = DurableRuntime::open(dir.path()).unwrap();
@@ -692,6 +939,68 @@ mod tests {
         let mut rt = DurableRuntime::open(dir.path()).unwrap();
         let changed = rt.resume_plan().unwrap();
         assert_eq!(changed[0].status, JobStatus::Suspended);
+    }
+
+    #[test]
+    fn continuation_provenance_is_preserved_and_replaced_atomically() {
+        let dir = tempdir().unwrap();
+        let mut runtime = DurableRuntime::open(dir.path()).unwrap();
+        let job = runtime
+            .create_job("bot", "model_run", serde_json::json!({"run_id":"run-c"}))
+            .unwrap();
+        let entered = runtime.commit(
+            &job.id,
+            JobStatus::Running,
+            serde_json::json!({"run_id":"run-c", "continuation":{"id":"continuation-c","payload":{"kind":"approval","approval_id":"a1"},"phase":"effect_unknown"}}),
+            true,
+        ).unwrap();
+        let preserved = runtime
+            .commit(
+                &job.id,
+                JobStatus::Running,
+                serde_json::json!({"run_id":"run-c", "messages":[{"role":"tool"}]}),
+                false,
+            )
+            .unwrap();
+        assert_eq!(preserved.checkpoint["continuation"]["id"], "continuation-c");
+        let replaced = runtime
+            .commit(
+                &job.id,
+                JobStatus::Running,
+                serde_json::json!({"run_id":"run-c", "continuation":{"id":"continuation-d","payload":{"kind":"decision","answer":"yes"},"phase":"input_committed"}}),
+                false,
+            )
+            .unwrap();
+        let advanced = runtime
+            .commit(
+                &job.id,
+                JobStatus::Running,
+                serde_json::json!({"run_id":"run-c", "messages":[{"role":"assistant"}]}),
+                false,
+            )
+            .unwrap();
+        assert_eq!(advanced.checkpoint["continuation"]["id"], "continuation-d");
+        assert_eq!(
+            advanced.checkpoint["continuation"]["payload"]["answer"],
+            "yes"
+        );
+        assert_eq!(
+            advanced.checkpoint["continuation"]["phase"],
+            "input_committed"
+        );
+        drop(runtime);
+
+        let mut recovered = DurableRuntime::open(dir.path()).unwrap();
+        let plan = recovered.resume_plan().unwrap();
+        assert_eq!(plan[0].status, JobStatus::Running);
+        let recovered = recovered.job(&job.id).unwrap();
+        assert_eq!(recovered.checkpoint["continuation"]["id"], "continuation-d");
+        assert_eq!(
+            recovered.checkpoint["continuation"]["payload"]["kind"],
+            "decision"
+        );
+        assert!(advanced.commit_seq > replaced.commit_seq);
+        assert!(replaced.commit_seq > entered.commit_seq);
     }
 
     #[test]
@@ -790,6 +1099,14 @@ mod tests {
         let mut rt = DurableRuntime::open(dir.path()).unwrap();
         let job = rt.create_job("bot", "chat", serde_json::json!({})).unwrap();
         let item = rt.enqueue_steer(&job.id, "msg_1", "please stop").unwrap();
+        assert_eq!(
+            rt.enqueue_steer(&job.id, "msg_1", "please stop").unwrap(),
+            item
+        );
+        assert!(matches!(
+            rt.enqueue_steer(&job.id, "msg_1", "different text"),
+            Err(DurableError::Invalid(_))
+        ));
         assert_eq!(rt.inbox(&job.id).next().unwrap().delivery, Delivery::Queued);
         assert_eq!(
             rt.deliver_next(&job.id).unwrap().unwrap().delivery,
@@ -812,5 +1129,108 @@ mod tests {
             )
             .unwrap();
         assert_eq!(first, second);
+    }
+
+    #[test]
+    fn inbox_recovery_merges_journal_appends_after_snapshot() {
+        let dir = tempdir().unwrap();
+        let (job_id, second) = {
+            let mut rt = DurableRuntime::open(dir.path()).unwrap();
+            let job = rt.create_job("bot", "chat", serde_json::json!({})).unwrap();
+            let first = rt.enqueue_steer(&job.id, "msg_a", "first").unwrap();
+            assert_eq!(
+                rt.deliver_next(&job.id).unwrap().unwrap().message_id,
+                "msg_a"
+            );
+            rt.mark_read(&first.id).unwrap().unwrap();
+            let second = rt.enqueue_steer(&job.id, "msg_b", "second").unwrap();
+            (job.id, second)
+        };
+
+        let mut reopened = DurableRuntime::open(dir.path()).unwrap();
+        let persisted_second = reopened
+            .inbox(&job_id)
+            .find(|item| item.message_id == "msg_b")
+            .unwrap();
+        assert_eq!(persisted_second, &second);
+        assert_eq!(
+            reopened
+                .inbox(&job_id)
+                .find(|item| item.message_id == "msg_a")
+                .unwrap()
+                .delivery,
+            Delivery::Read
+        );
+        assert_eq!(
+            reopened.deliver_next(&job_id).unwrap().unwrap().message_id,
+            "msg_b"
+        );
+    }
+
+    #[test]
+    fn inbox_recovery_deduplicates_logical_input_and_honors_consumed_checkpoint() {
+        let dir = tempdir().unwrap();
+        let job_id = {
+            let mut rt = DurableRuntime::open(dir.path()).unwrap();
+            let job = rt.create_job("bot", "chat", serde_json::json!({})).unwrap();
+            let first = rt.enqueue_steer(&job.id, "msg_a", "answer").unwrap();
+            // Simulate an older queued snapshot whose logical input was
+            // consumed under a retry-generated journal id.
+            rt.store()
+                .write_snapshot("data/inbox.json", &vec![first.clone()])
+                .unwrap();
+            rt.commit_with_inbox_input(
+                &job.id,
+                JobStatus::Running,
+                serde_json::json!({}),
+                false,
+                "in_retry_duplicate",
+            )
+            .unwrap();
+            rt.store()
+                .append_jsonl(
+                    "data/inbox.jsonl",
+                    &InboxItem {
+                        id: "in_retry_duplicate".into(),
+                        job_id: job.id.clone(),
+                        message_id: "msg_a".into(),
+                        text: "answer".into(),
+                        delivery: Delivery::Queued,
+                        at: first.at + 1,
+                    },
+                )
+                .unwrap();
+            job.id
+        };
+
+        let mut reopened = DurableRuntime::open(dir.path()).unwrap();
+        let items = reopened.inbox(&job_id).cloned().collect::<Vec<_>>();
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].message_id, "msg_a");
+        assert_eq!(items[0].delivery, Delivery::Read);
+        assert_eq!(reopened.deliver_next(&job_id).unwrap(), None);
+        assert_eq!(
+            reopened.inbox(&job_id).next().unwrap().delivery,
+            Delivery::Read
+        );
+    }
+
+    #[test]
+    fn inbox_recovery_propagates_snapshot_and_journal_errors() {
+        let snapshot_dir = tempdir().unwrap();
+        std::fs::create_dir_all(snapshot_dir.path().join("data")).unwrap();
+        std::fs::write(snapshot_dir.path().join("data/inbox.json"), b"not json").unwrap();
+        assert!(matches!(
+            DurableRuntime::open(snapshot_dir.path()),
+            Err(DurableError::Store(_))
+        ));
+
+        let journal_dir = tempdir().unwrap();
+        std::fs::create_dir_all(journal_dir.path().join("data")).unwrap();
+        std::fs::write(journal_dir.path().join("data/inbox.jsonl"), b"not json\n").unwrap();
+        assert!(matches!(
+            DurableRuntime::open(journal_dir.path()),
+            Err(DurableError::Store(_))
+        ));
     }
 }

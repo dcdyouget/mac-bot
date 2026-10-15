@@ -139,7 +139,10 @@ impl CoordinationRpc for ProductionCoordinationRpc {
         let result = if method == "project.confirm_done" {
             if let Some(runtime) = &self.runtime {
                 runtime
-                    .confirm_project_for_coordination(&params, self.assignment_id.as_deref())
+                    .finalize_confirmed_project_for_coordination(
+                        &params,
+                        self.assignment_id.as_deref(),
+                    )
                     .await
             } else {
                 self.backend.call(method, params, &self.state).await
@@ -1156,8 +1159,8 @@ impl CollaborationTools {
             .rpc
             .call("project.status", json!({"project_id":project_id}))
             .await?;
-        if current["project"]["status"].as_str() != Some("review") {
-            return Err("project can be finished only after user confirmation".into());
+        if current["project"]["status"].as_str() != Some("done") {
+            return Err("project can be summarized only after the user confirms completion".into());
         }
         args.insert("project_id".into(), json!(project_id));
         self.rpc
@@ -1445,7 +1448,7 @@ fn description(name: &str) -> &'static str {
         "delegate" => "Assign work to a worker Bot in a project group; this alias also creates or reuses a group and never dispatches privately.",
         "project_status" | "get_status" => "Read project status and announcement.",
         "request_review" => "Move a project to review and notify the user.",
-        "finish_project" => "Confirm a project is complete after user approval.",
+        "finish_project" => "Finalize the project's summary only after the user has confirmed completion.",
         "propose_bot" => "Propose a new Bot and wait for user approval.",
         "notify_user" | "remind" => "Send a coordination notice to the user chat.",
         "routine" => "Create, update, list, enable, or delete a routine.",
@@ -1570,6 +1573,23 @@ mod tests {
         }
     }
 
+    struct ProjectStatusRpc {
+        status: String,
+        calls: Mutex<Vec<String>>,
+    }
+
+    #[async_trait]
+    impl CoordinationRpc for ProjectStatusRpc {
+        async fn call(&self, method: &str, _params: Value) -> Result<Value, String> {
+            self.calls.lock().unwrap().push(method.into());
+            match method {
+                "project.status" => Ok(json!({"project":{"status":self.status}})),
+                "project.confirm_done" => Ok(json!({"project":{"status":"done"}})),
+                other => Err(format!("unexpected RPC {other}")),
+            }
+        }
+    }
+
     #[derive(Default)]
     struct DispatchRpc(Mutex<Vec<(String, Value)>>);
 
@@ -1605,6 +1625,56 @@ mod tests {
             assert_eq!(bot_id, "bot-2");
             Ok("provider/model-bot-2".into())
         }
+    }
+
+    #[tokio::test]
+    async fn finish_project_tool_requires_done_state_from_explicit_user_confirmation() {
+        let review_rpc = Arc::new(ProjectStatusRpc {
+            status: "review".into(),
+            calls: Mutex::new(Vec::new()),
+        });
+        let review_tools = CollaborationTools::new(
+            review_rpc.clone(),
+            CollaborationIdentity {
+                is_main: true,
+                ..Default::default()
+            },
+            None,
+            None,
+        );
+        let args = json!({"project_id":"project-1","summary":"ready"})
+            .as_object()
+            .unwrap()
+            .clone();
+        assert!(review_tools.finish_project(args).await.is_err());
+        assert_eq!(
+            *review_rpc.calls.lock().unwrap(),
+            vec!["project.status"],
+            "a review-state call must not invoke project.confirm_done"
+        );
+
+        let done_rpc = Arc::new(ProjectStatusRpc {
+            status: "done".into(),
+            calls: Mutex::new(Vec::new()),
+        });
+        let done_tools = CollaborationTools::new(
+            done_rpc.clone(),
+            CollaborationIdentity {
+                is_main: true,
+                ..Default::default()
+            },
+            None,
+            None,
+        );
+        let args = json!({"project_id":"project-1","summary":"ready"})
+            .as_object()
+            .unwrap()
+            .clone();
+        assert!(done_tools.finish_project(args).await.is_ok());
+        assert_eq!(
+            *done_rpc.calls.lock().unwrap(),
+            vec!["project.status", "project.confirm_done"]
+        );
     }
 
     #[tokio::test]
