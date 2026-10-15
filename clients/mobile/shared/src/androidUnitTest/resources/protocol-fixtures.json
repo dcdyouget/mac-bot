@@ -986,7 +986,28 @@
           "home_path": "~/MacBot/projects/login/",
           "id": "prj_login",
           "lead_bot_id": "bot_main",
-          "members": [],
+          "members": [
+            {
+              "bot_id": "bot_main",
+              "joined_at": "2026-10-09T10:19:02.312Z",
+              "role_note": "主 Bot，项目负责人"
+            },
+            {
+              "bot_id": "bot_product",
+              "joined_at": "2026-10-09T10:19:02.312Z",
+              "role_note": "产品设计"
+            },
+            {
+              "bot_id": "bot_code",
+              "joined_at": "2026-10-09T10:19:02.312Z",
+              "role_note": "编码实现"
+            },
+            {
+              "bot_id": "bot_test",
+              "joined_at": "2026-10-09T10:19:02.312Z",
+              "role_note": "测试验收"
+            }
+          ],
           "name": "登录功能",
           "slug": "login",
           "status": "active",
@@ -1021,7 +1042,28 @@
           "home_path": "~/MacBot/projects/login/",
           "id": "prj_login",
           "lead_bot_id": "bot_main",
-          "members": [],
+          "members": [
+            {
+              "bot_id": "bot_main",
+              "joined_at": "2026-10-09T10:19:02.312Z",
+              "role_note": "主 Bot，项目负责人"
+            },
+            {
+              "bot_id": "bot_product",
+              "joined_at": "2026-10-09T10:19:02.312Z",
+              "role_note": "产品设计"
+            },
+            {
+              "bot_id": "bot_code",
+              "joined_at": "2026-10-09T10:19:02.312Z",
+              "role_note": "编码实现"
+            },
+            {
+              "bot_id": "bot_test",
+              "joined_at": "2026-10-09T10:19:02.312Z",
+              "role_note": "测试验收"
+            }
+          ],
           "name": "登录功能",
           "slug": "login",
           "status": "active",
@@ -1909,7 +1951,28 @@
       "home_path": "~/MacBot/projects/login/",
       "id": "prj_login",
       "lead_bot_id": "bot_main",
-      "members": [],
+      "members": [
+        {
+          "bot_id": "bot_main",
+          "joined_at": "2026-10-09T10:19:02.312Z",
+          "role_note": "主 Bot，项目负责人"
+        },
+        {
+          "bot_id": "bot_product",
+          "joined_at": "2026-10-09T10:19:02.312Z",
+          "role_note": "产品设计"
+        },
+        {
+          "bot_id": "bot_code",
+          "joined_at": "2026-10-09T10:19:02.312Z",
+          "role_note": "编码实现"
+        },
+        {
+          "bot_id": "bot_test",
+          "joined_at": "2026-10-09T10:19:02.312Z",
+          "role_note": "测试验收"
+        }
+      ],
       "name": "登录功能",
       "slug": "login",
       "status": "active",
@@ -3420,7 +3483,28 @@
           "home_path": "~/MacBot/projects/login/",
           "id": "prj_login",
           "lead_bot_id": "bot_main",
-          "members": [],
+          "members": [
+            {
+              "bot_id": "bot_main",
+              "joined_at": "2026-10-09T10:19:02.312Z",
+              "role_note": "主 Bot，项目负责人"
+            },
+            {
+              "bot_id": "bot_product",
+              "joined_at": "2026-10-09T10:19:02.312Z",
+              "role_note": "产品设计"
+            },
+            {
+              "bot_id": "bot_code",
+              "joined_at": "2026-10-09T10:19:02.312Z",
+              "role_note": "编码实现"
+            },
+            {
+              "bot_id": "bot_test",
+              "joined_at": "2026-10-09T10:19:02.312Z",
+              "role_note": "测试验收"
+            }
+          ],
           "name": "登录功能",
           "slug": "login",
           "status": "active",
@@ -4826,6 +4910,7 @@
           "last_read_seq": 0,
           "last_seq": 0,
           "member_bot_ids": [
+            "bot_main",
             "bot_code"
           ],
           "muted": false,
@@ -4863,8 +4948,19 @@
           "goal": "官网登录入口改版",
           "home_path": "~/MacBot/projects/web/",
           "id": "prj_web",
-          "lead_bot_id": "bot_code",
-          "members": [],
+          "lead_bot_id": "bot_main",
+          "members": [
+            {
+              "bot_id": "bot_main",
+              "joined_at": "2026-10-09T10:19:02.312Z",
+              "role_note": "主 Bot，项目负责人"
+            },
+            {
+              "bot_id": "bot_code",
+              "joined_at": "2026-10-09T10:19:02.312Z",
+              "role_note": "编码实现"
+            }
+          ],
           "name": "官网改版",
           "slug": "web",
           "status": "active",
@@ -5756,7 +5852,28 @@
           "home_path": "~/MacBot/projects/login/",
           "id": "prj_login",
           "lead_bot_id": "bot_main",
-          "members": [],
+          "members": [
+            {
+              "bot_id": "bot_main",
+              "joined_at": "2026-10-09T10:19:02.312Z",
+              "role_note": "主 Bot，项目负责人"
+            },
+            {
+              "bot_id": "bot_product",
+              "joined_at": "2026-10-09T10:19:02.312Z",
+              "role_note": "产品设计"
+            },
+            {
+              "bot_id": "bot_code",
+              "joined_at": "2026-10-09T10:19:02.312Z",
+              "role_note": "编码实现"
+            },
+            {
+              "bot_id": "bot_test",
+              "joined_at": "2026-10-09T10:19:02.312Z",
+              "role_note": "测试验收"
+            }
+          ],
           "name": "登录功能",
           "slug": "login",
           "status": "review",
@@ -5977,7 +6094,28 @@
           "home_path": "~/MacBot/projects/login/",
           "id": "prj_login",
           "lead_bot_id": "bot_main",
-          "members": [],
+          "members": [
+            {
+              "bot_id": "bot_main",
+              "joined_at": "2026-10-09T10:19:02.312Z",
+              "role_note": "主 Bot，项目负责人"
+            },
+            {
+              "bot_id": "bot_product",
+              "joined_at": "2026-10-09T10:19:02.312Z",
+              "role_note": "产品设计"
+            },
+            {
+              "bot_id": "bot_code",
+              "joined_at": "2026-10-09T10:19:02.312Z",
+              "role_note": "编码实现"
+            },
+            {
+              "bot_id": "bot_test",
+              "joined_at": "2026-10-09T10:19:02.312Z",
+              "role_note": "测试验收"
+            }
+          ],
           "name": "登录功能",
           "slug": "login",
           "status": "done",

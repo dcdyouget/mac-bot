@@ -14,6 +14,105 @@ type Value = serde_json::Value;
 type FixtureParser = fn(Value) -> Result<Value, Box<dyn std::error::Error>>;
 
 #[test]
+fn project_scenarios_keep_lead_and_members_in_sync_with_group_chats() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../fixtures/scenarios");
+    for entry in fs::read_dir(root).unwrap() {
+        let path = entry.unwrap().path();
+        if path.extension().and_then(|ext| ext.to_str()) != Some("jsonl") {
+            continue;
+        }
+        let body = fs::read_to_string(&path).unwrap();
+        let frames: Vec<Value> = body
+            .lines()
+            .map(|line| serde_json::from_str(line).unwrap())
+            .collect();
+        let chats: HashMap<String, Vec<String>> = frames
+            .iter()
+            .filter(|frame| frame["event"] == "chat.created")
+            .map(|frame| {
+                let chat = &frame["data"]["chat"];
+                (
+                    chat["project_id"].as_str().unwrap_or_default().to_owned(),
+                    chat["member_bot_ids"]
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .map(|id| id.as_str().unwrap().to_owned())
+                        .collect(),
+                )
+            })
+            .filter(|(project_id, _)| !project_id.is_empty())
+            .collect();
+
+        for members in chats.values() {
+            let unique_members: HashSet<&str> = members.iter().map(String::as_str).collect();
+            assert_eq!(
+                unique_members.len(),
+                members.len(),
+                "{}: duplicate group member",
+                path.display()
+            );
+            assert!(
+                unique_members.contains("bot_main"),
+                "{}: Main missing from group chat",
+                path.display()
+            );
+            let worker_count = unique_members
+                .iter()
+                .filter(|member| **member != "bot_main")
+                .count();
+            assert!(
+                (1..=6).contains(&worker_count),
+                "{}: groups require 1–6 unique workers",
+                path.display()
+            );
+        }
+
+        for frame in frames.iter().filter(|frame| {
+            matches!(
+                frame["event"].as_str(),
+                Some("project.created" | "project.updated")
+            )
+        }) {
+            let project = &frame["data"]["project"];
+            let project_id = project["id"].as_str().unwrap();
+            let mut members: Vec<String> = project["members"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|member| member["bot_id"].as_str().unwrap().to_owned())
+                .collect();
+            let lead = project["lead_bot_id"].as_str().unwrap();
+            assert!(
+                members.contains(&lead.to_owned()),
+                "{}: lead missing from project members",
+                path.display()
+            );
+            members.sort();
+            let mut chat_members = chats
+                .get(project_id)
+                .unwrap_or_else(|| {
+                    panic!("{}: missing group chat for {project_id}", path.display())
+                })
+                .clone();
+            chat_members.sort();
+            assert_eq!(
+                members,
+                chat_members,
+                "{}: project/chat membership differs for {project_id}",
+                path.display()
+            );
+            assert_eq!(
+                lead,
+                "bot_main",
+                "{}: all groups must be led by Main",
+                path.display()
+            );
+        }
+    }
+}
+
+#[test]
 fn settings_secret_parameter_roundtrips_outside_the_settings_patch() {
     let path = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../fixtures/requests/settings_update_web_search.json");

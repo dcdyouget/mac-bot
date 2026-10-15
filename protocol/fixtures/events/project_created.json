@@ -17,7 +17,28 @@
       "home_path": "~/MacBot/projects/login/",
       "id": "prj_login",
       "lead_bot_id": "bot_main",
-      "members": [],
+      "members": [
+        {
+          "bot_id": "bot_main",
+          "joined_at": "2026-10-09T10:19:02.312Z",
+          "role_note": "主 Bot，项目负责人"
+        },
+        {
+          "bot_id": "bot_product",
+          "joined_at": "2026-10-09T10:19:02.312Z",
+          "role_note": "产品设计"
+        },
+        {
+          "bot_id": "bot_code",
+          "joined_at": "2026-10-09T10:19:02.312Z",
+          "role_note": "编码实现"
+        },
+        {
+          "bot_id": "bot_test",
+          "joined_at": "2026-10-09T10:19:02.312Z",
+          "role_note": "测试验收"
+        }
+      ],
       "name": "登录功能",
       "slug": "login",
       "status": "active",

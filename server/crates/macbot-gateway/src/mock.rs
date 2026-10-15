@@ -4572,6 +4572,49 @@ fn project_get(state: &MockState, params: &Value) -> RpcResult {
     Ok(json!({"project":project,"announcement":announcement}))
 }
 fn create_project(state: &mut MockState, params: &Value) -> RpcResult {
+    let requested_members = params
+        .get("member_bot_ids")
+        .and_then(Value::as_array)
+        .ok_or_else(|| rpc_error("invalid_params", "member_bot_ids is required", None))?;
+    if requested_members.is_empty() || requested_members.len() > 6 {
+        return Err(rpc_error(
+            "invalid_params",
+            "invalid parameters: a project needs 1-6 member bots",
+            None,
+        ));
+    }
+    let main_bot_id = mock_main_bot_id(state);
+    let mut worker_ids = Vec::with_capacity(requested_members.len());
+    let mut seen = std::collections::HashSet::new();
+    for value in requested_members {
+        let bot_id = value
+            .as_str()
+            .filter(|id| !id.is_empty())
+            .ok_or_else(|| rpc_error("invalid_params", "bot_id is required", None))?;
+        if is_mock_main_id(state, bot_id) {
+            return Err(rpc_error(
+                "invalid_params",
+                "invalid parameters: main Bot is added to every project automatically",
+                None,
+            ));
+        }
+        let bot = state
+            .bots
+            .iter()
+            .find(|bot| bot.get("id").and_then(Value::as_str) == Some(bot_id))
+            .ok_or_else(|| rpc_error("not_found", "bot not found", None))?;
+        let canonical_id = bot["id"].as_str().unwrap_or(bot_id);
+        if !seen.insert(canonical_id.to_owned()) {
+            return Err(rpc_error(
+                "invalid_params",
+                &format!(
+                    "invalid parameters: Bot {canonical_id} appears more than once in project members"
+                ),
+                None,
+            ));
+        }
+        worker_ids.push(canonical_id.to_owned());
+    }
     let now = now();
     let project_id = id("prj");
     let chat_id = id("chat");
@@ -4581,20 +4624,14 @@ fn create_project(state: &mut MockState, params: &Value) -> RpcResult {
         .unwrap_or("project")
         .to_lowercase()
         .replace(' ', "-");
-    let mut member_ids = vec!["bot_main".to_owned()];
-    if let Some(values) = params.get("member_bot_ids").and_then(Value::as_array) {
-        for bot_id in values.iter().filter_map(Value::as_str) {
-            if !member_ids.iter().any(|existing| existing == bot_id) {
-                member_ids.push(bot_id.to_owned());
-            }
-        }
-    }
+    let mut member_ids = vec![main_bot_id.clone()];
+    member_ids.extend(worker_ids);
     let role_notes = member_ids
         .iter()
         .map(|bot_id| {
             (
                 bot_id.clone(),
-                if bot_id == "bot_main" {
+                if bot_id == &main_bot_id {
                     "负责人".to_owned()
                 } else {
                     bot_role_note(state, bot_id)
@@ -4613,7 +4650,7 @@ fn create_project(state: &mut MockState, params: &Value) -> RpcResult {
         })
         .collect::<Vec<_>>();
     let chat_members = member_ids.iter().map(|id| json!(id)).collect::<Vec<_>>();
-    let project = json!({"id":project_id,"chat_id":chat_id,"name":name,"slug":slug,"goal":params.get("goal").cloned().unwrap_or(json!("")),"flow":params.get("flow").cloned().unwrap_or(json!([])),"deadline":params.get("deadline").cloned().unwrap_or(Value::Null),"home_path":format!("~/MacBot/projects/{slug}/"),"status":"active","lead_bot_id":"bot_main","members":project_members,"created_by":{"kind":"user"},"created_at":now,"updated_at":now,"done_at":null,"highlights":[]});
+    let project = json!({"id":project_id,"chat_id":chat_id,"name":name,"slug":slug,"goal":params.get("goal").cloned().unwrap_or(json!("")),"flow":params.get("flow").cloned().unwrap_or(json!([])),"deadline":params.get("deadline").cloned().unwrap_or(Value::Null),"home_path":format!("~/MacBot/projects/{slug}/"),"status":"active","lead_bot_id":main_bot_id,"members":project_members,"created_by":{"kind":"user"},"created_at":now,"updated_at":now,"done_at":null,"highlights":[]});
     let chat = json!({"id":chat_id,"kind":"project","title":project["name"],"bot_id":null,"project_id":project_id,"member_bot_ids":chat_members,"last_message":null,"last_seq":0,"last_read_seq":0,"unread":0,"attention":"none","pinned":false,"muted":false,"updated_at":now});
     state.projects.push(project.clone());
     state.chats.push(chat.clone());
@@ -4751,26 +4788,161 @@ fn project_member(state: &mut MockState, params: &Value, add: bool) -> RpcResult
         .and_then(Value::as_str)
         .unwrap_or("");
     let bot_id = params.get("bot_id").and_then(Value::as_str).unwrap_or("");
-    let project = state
-        .projects
-        .iter_mut()
-        .find(|p| p.get("id").and_then(Value::as_str) == Some(project_id))
-        .ok_or_else(|| rpc_error("not_found", "project not found", None))?;
-    let members = project["members"].as_array_mut().unwrap();
-    if add {
-        if !members
-            .iter()
-            .any(|m| m.get("bot_id").and_then(Value::as_str) == Some(bot_id))
-        {
-            members.push(json!({"bot_id":bot_id,"role_note":params.get("role_note").and_then(Value::as_str).unwrap_or(""),"joined_at":now()}));
-        }
-    } else {
-        members.retain(|m| m.get("bot_id").and_then(Value::as_str) != Some(bot_id));
+    let main_bot_id = mock_main_bot_id(state);
+    let bot_is_main = is_mock_main_id(state, bot_id);
+    if !add && bot_is_main {
+        return Err(rpc_error(
+            "forbidden",
+            "forbidden: main Bot cannot be removed from a project",
+            None,
+        ));
     }
-    project["updated_at"] = json!(now());
-    let result = project.clone();
+    let canonical_bot_id = if bot_is_main {
+        main_bot_id.clone()
+    } else {
+        bot_id.to_owned()
+    };
+    if add
+        && !is_mock_main_id(state, bot_id)
+        && !state
+            .bots
+            .iter()
+            .any(|bot| bot.get("id").and_then(Value::as_str) == Some(bot_id))
+    {
+        return Err(rpc_error("not_found", "bot not found", None));
+    }
+    if !add {
+        let project = state
+            .projects
+            .iter()
+            .find(|project| project.get("id").and_then(Value::as_str) == Some(project_id))
+            .ok_or_else(|| rpc_error("not_found", "project not found", None))?;
+        let is_member = project
+            .get("members")
+            .and_then(Value::as_array)
+            .is_some_and(|members| {
+                members.iter().any(|member| {
+                    member.get("bot_id").and_then(Value::as_str) == Some(canonical_bot_id.as_str())
+                })
+            });
+        if !is_member {
+            return Err(rpc_error(
+                "conflict",
+                "bot is not a project member",
+                Some(json!({"project_id":project_id,"bot_id":bot_id})),
+            ));
+        }
+    }
+    let (result, chat_id) = {
+        let project = state
+            .projects
+            .iter_mut()
+            .find(|p| p.get("id").and_then(Value::as_str) == Some(project_id))
+            .ok_or_else(|| rpc_error("not_found", "project not found", None))?;
+        let members = project
+            .get_mut("members")
+            .and_then(Value::as_array_mut)
+            .ok_or_else(|| rpc_error("invalid_params", "project members must be an array", None))?;
+        ensure_mock_main_member(members, &main_bot_id);
+        if add {
+            if !members.iter().any(|member| {
+                member.get("bot_id").and_then(Value::as_str) == Some(canonical_bot_id.as_str())
+            }) {
+                let worker_count = members
+                    .iter()
+                    .filter(|member| !is_mock_main_id_value(member, &main_bot_id))
+                    .count();
+                if !bot_is_main && worker_count >= 6 {
+                    return Err(rpc_error(
+                        "invalid_params",
+                        "invalid parameters: project has at most 6 workers plus main",
+                        None,
+                    ));
+                }
+                members.push(json!({"bot_id":canonical_bot_id,"role_note":params.get("role_note").and_then(Value::as_str).unwrap_or(""),"joined_at":now()}));
+            }
+        } else {
+            members.retain(|member| {
+                member.get("bot_id").and_then(Value::as_str) != Some(canonical_bot_id.as_str())
+            });
+        }
+        project["updated_at"] = json!(now());
+        (
+            project.clone(),
+            project
+                .get("chat_id")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_owned(),
+        )
+    };
+    let member_ids = result
+        .get("members")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|member| member.get("bot_id").cloned())
+        .collect::<Vec<_>>();
+    if let Some(chat) = state
+        .chats
+        .iter_mut()
+        .find(|chat| chat.get("id").and_then(Value::as_str) == Some(chat_id.as_str()))
+    {
+        chat["member_bot_ids"] = json!(member_ids);
+        chat["updated_at"] = result["updated_at"].clone();
+    }
     state.emit("project.updated", json!({"project":result.clone()}));
+    let updated_chat = state
+        .chats
+        .iter()
+        .find(|chat| chat.get("id").and_then(Value::as_str) == Some(chat_id.as_str()))
+        .cloned();
+    if let Some(chat) = updated_chat {
+        state.emit("chat.updated", json!({"chat":chat.clone()}));
+    }
     Ok(json!({"project":result}))
+}
+
+fn mock_main_bot_id(state: &MockState) -> String {
+    state
+        .bots
+        .iter()
+        .find(|bot| bot.get("is_main").and_then(Value::as_bool) == Some(true))
+        .and_then(|bot| bot.get("id").and_then(Value::as_str))
+        .unwrap_or("bot_main")
+        .to_owned()
+}
+
+fn is_mock_main_id(state: &MockState, bot_id: &str) -> bool {
+    bot_id == "main"
+        || state.bots.iter().any(|bot| {
+            bot.get("id").and_then(Value::as_str) == Some(bot_id)
+                && bot.get("is_main").and_then(Value::as_bool) == Some(true)
+        })
+}
+
+fn ensure_mock_main_member(members: &mut Vec<Value>, main_bot_id: &str) {
+    let main = members.iter_mut().find(|member| {
+        member
+            .get("bot_id")
+            .and_then(Value::as_str)
+            .is_some_and(|id| id == "main" || id == "bot_main" || id == main_bot_id)
+    });
+    if let Some(main) = main {
+        main["bot_id"] = json!(main_bot_id);
+    } else {
+        members.insert(
+            0,
+            json!({"bot_id":main_bot_id,"role_note":"负责人","joined_at":now()}),
+        );
+    }
+}
+
+fn is_mock_main_id_value(member: &Value, main_bot_id: &str) -> bool {
+    member
+        .get("bot_id")
+        .and_then(Value::as_str)
+        .is_some_and(|id| id == "main" || id == "bot_main" || id == main_bot_id)
 }
 fn project_status(state: &mut MockState, params: &Value, status: &str) -> RpcResult {
     let project_id = params
@@ -5962,6 +6134,174 @@ mod contract_tests {
 
     async fn call(gateway: &Gateway, method: &str, params: Value) -> Value {
         gateway.rpc(method, params).await.unwrap()
+    }
+
+    #[tokio::test]
+    async fn mock_project_create_requires_one_to_six_non_main_workers() {
+        let gateway = gateway().await;
+        for member_bot_ids in [json!([]), json!(vec!["worker"; 7])] {
+            let error = gateway
+                .rpc(
+                    "project.create",
+                    json!({"name":"invalid group","member_bot_ids":member_bot_ids}),
+                )
+                .await
+                .unwrap_err();
+            assert_eq!(error.code, "invalid_params");
+            assert_eq!(
+                error.message,
+                "invalid parameters: a project needs 1-6 member bots"
+            );
+        }
+
+        for main_id in ["main", "bot_main"] {
+            let error = gateway
+                .rpc(
+                    "project.create",
+                    json!({"name":"main duplication","member_bot_ids":[main_id]}),
+                )
+                .await
+                .unwrap_err();
+            assert_eq!(error.code, "invalid_params");
+            assert_eq!(
+                error.message,
+                "invalid parameters: main Bot is added to every project automatically"
+            );
+        }
+
+        let worker = call(&gateway, "bot.create", json!({"name":"worker"})).await;
+        let worker_id = worker["bot"]["id"].as_str().unwrap();
+        let duplicate = gateway
+            .rpc(
+                "project.create",
+                json!({"name":"duplicate workers","member_bot_ids":[worker_id,worker_id]}),
+            )
+            .await
+            .unwrap_err();
+        assert_eq!(duplicate.code, "invalid_params");
+        assert!(duplicate.message.contains("appears more than once"));
+
+        let created = call(
+            &gateway,
+            "project.create",
+            json!({"name":"one worker","member_bot_ids":[worker_id]}),
+        )
+        .await;
+        let project_members = created["project"]["members"].as_array().unwrap();
+        assert_eq!(project_members.len(), 2);
+        assert_eq!(created["project"]["lead_bot_id"], "bot_main");
+        assert_eq!(project_members[0]["bot_id"], "bot_main");
+        assert_eq!(project_members[1]["bot_id"], worker_id);
+        let chat_members = created["chat"]["member_bot_ids"].as_array().unwrap();
+        assert_eq!(chat_members, &[json!("bot_main"), json!(worker_id)]);
+    }
+
+    #[tokio::test]
+    async fn mock_project_members_keep_main_and_enforce_six_worker_limit() {
+        let gateway = gateway().await;
+        let mut workers = Vec::new();
+        for index in 0..7 {
+            let result = call(
+                &gateway,
+                "bot.create",
+                json!({"name":format!("worker-{index}")}),
+            )
+            .await;
+            workers.push(result["bot"]["id"].as_str().unwrap().to_owned());
+        }
+        let created = call(
+            &gateway,
+            "project.create",
+            json!({"name":"member invariants","member_bot_ids":[workers[0]]}),
+        )
+        .await;
+        let project_id = created["project"]["id"].as_str().unwrap();
+
+        for main_id in ["main", "bot_main"] {
+            let error = gateway
+                .rpc(
+                    "project.remove_member",
+                    json!({"project_id":project_id,"bot_id":main_id}),
+                )
+                .await
+                .unwrap_err();
+            assert_eq!(error.code, "forbidden");
+            assert_eq!(
+                error.message,
+                "forbidden: main Bot cannot be removed from a project"
+            );
+        }
+        let unchanged = call(&gateway, "project.get", json!({"project_id":project_id})).await;
+        assert!(unchanged["project"]["members"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|member| member["bot_id"] == "bot_main"));
+
+        call(
+            &gateway,
+            "project.add_member",
+            json!({"project_id":project_id,"bot_id":"main"}),
+        )
+        .await;
+        for worker_id in &workers[1..6] {
+            call(
+                &gateway,
+                "project.add_member",
+                json!({"project_id":project_id,"bot_id":worker_id}),
+            )
+            .await;
+        }
+        let seventh = gateway
+            .rpc(
+                "project.add_member",
+                json!({"project_id":project_id,"bot_id":workers[6]}),
+            )
+            .await
+            .unwrap_err();
+        assert_eq!(seventh.code, "invalid_params");
+        assert_eq!(
+            seventh.message,
+            "invalid parameters: project has at most 6 workers plus main"
+        );
+
+        let removed = call(
+            &gateway,
+            "project.remove_member",
+            json!({"project_id":project_id,"bot_id":workers[1]}),
+        )
+        .await;
+        assert_eq!(removed["project"]["members"].as_array().unwrap().len(), 6);
+        assert!(removed["project"]["members"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|member| member["bot_id"] == "bot_main"));
+        let bootstrap = call(&gateway, "bootstrap", json!({})).await;
+        let chat = bootstrap["chats"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|chat| chat["project_id"] == project_id)
+            .unwrap();
+        assert_eq!(chat["member_bot_ids"].as_array().unwrap().len(), 6);
+        assert!(chat["member_bot_ids"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|id| id == "bot_main"));
+
+        for worker_id in workers.iter().take(6).filter(|id| *id != &workers[1]) {
+            call(
+                &gateway,
+                "project.remove_member",
+                json!({"project_id":project_id,"bot_id":worker_id}),
+            )
+            .await;
+        }
+        let main_only = call(&gateway, "project.get", json!({"project_id":project_id})).await;
+        assert_eq!(main_only["project"]["members"].as_array().unwrap().len(), 1);
+        assert_eq!(main_only["project"]["members"][0]["bot_id"], "bot_main");
     }
 
     #[test]
@@ -7371,7 +7711,7 @@ mod contract_tests {
         let created_project = call(
             &gateway,
             "project.create",
-            json!({"name":"卡片 RPC 示例","goal":"验证 project_card"}),
+            json!({"name":"卡片 RPC 示例","goal":"验证 project_card","member_bot_ids":["bot_code"]}),
         )
         .await;
         let project_id = created_project["project"]["id"].clone();
@@ -8108,7 +8448,7 @@ mod contract_tests {
         let project = call(
             &gateway,
             "project.create",
-            json!({"name":"Demo","goal":"Ship","member_bot_ids":[]}),
+            json!({"name":"Demo","goal":"Ship","member_bot_ids":["bot_code"]}),
         )
         .await;
         let project_value: Project = serde_json::from_value(project["project"].clone()).unwrap();
