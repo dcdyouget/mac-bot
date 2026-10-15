@@ -545,7 +545,6 @@
       },
       "event": "bot.status",
       "kind": "evt",
-      "seq": 36,
       "v": 1
     }
   },
@@ -681,7 +680,6 @@
       },
       "event": "hello",
       "kind": "evt",
-      "seq": 32,
       "v": 1
     }
   },
@@ -697,7 +695,6 @@
       },
       "event": "host.status",
       "kind": "evt",
-      "seq": 38,
       "v": 1
     }
   },
@@ -839,7 +836,6 @@
       },
       "event": "message.delta",
       "kind": "evt",
-      "seq": 34,
       "v": 1
     }
   },
@@ -925,7 +921,7 @@
       },
       "event": "message.updated",
       "kind": "evt",
-      "seq": 43,
+      "seq": 33,
       "v": 1
     }
   },
@@ -1383,11 +1379,11 @@
     "line": 1,
     "value": {
       "data": {
-        "seq": 42
+        "seq": 32
       },
       "event": "sync.cursor",
       "kind": "evt",
-      "seq": 42,
+      "seq": 32,
       "v": 1
     }
   },
@@ -1400,7 +1396,6 @@
       },
       "event": "sync.done",
       "kind": "evt",
-      "seq": 33,
       "v": 1
     }
   },
@@ -1417,7 +1412,6 @@
       },
       "event": "trace.delta",
       "kind": "evt",
-      "seq": 40,
       "v": 1
     }
   },
@@ -1444,7 +1438,6 @@
       },
       "event": "trace.item",
       "kind": "evt",
-      "seq": 39,
       "v": 1
     }
   },
@@ -1459,7 +1452,6 @@
       },
       "event": "trace.tool_output",
       "kind": "evt",
-      "seq": 41,
       "v": 1
     }
   },
@@ -1474,7 +1466,6 @@
       },
       "event": "typing",
       "kind": "evt",
-      "seq": 35,
       "v": 1
     }
   },
@@ -1495,7 +1486,6 @@
       },
       "event": "usage.tick",
       "kind": "evt",
-      "seq": 37,
       "v": 1
     }
   },
@@ -5860,7 +5850,6 @@
       },
       "event": "usage.tick",
       "kind": "evt",
-      "seq": 49,
       "v": 1
     }
   },
@@ -5898,7 +5887,7 @@
       },
       "event": "message.created",
       "kind": "evt",
-      "seq": 50,
+      "seq": 49,
       "v": 1
     }
   },
@@ -5962,7 +5951,7 @@
       },
       "event": "message.updated",
       "kind": "evt",
-      "seq": 51,
+      "seq": 50,
       "v": 1
     }
   },
@@ -5997,7 +5986,7 @@
       },
       "event": "project.updated",
       "kind": "evt",
-      "seq": 52,
+      "seq": 51,
       "v": 1
     }
   },
@@ -6076,7 +6065,7 @@
       },
       "event": "announcement.updated",
       "kind": "evt",
-      "seq": 53,
+      "seq": 52,
       "v": 1
     }
   },

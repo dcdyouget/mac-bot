@@ -88,6 +88,25 @@ class GeneratorCheckTest(unittest.TestCase):
         self.assertIn("Unable to read protocol fixtures", result.stderr)
         self.assertEqual(before, self.snapshot())
 
+    def test_nullable_object_and_array_accessors_handle_explicit_json_null(self):
+        self.schema.write_text(json.dumps({
+            "title": "NullableFields", "type": "object", "required": ["required_values"],
+            "definitions": {"Child": {"type": "object", "properties": {}}},
+            "properties": {
+                "child": {"anyOf": [{"$ref": "#/definitions/Child"}, {"type": "null"}]},
+                "optional_child": {"$ref": "#/definitions/Child"},
+                "values": {"type": ["array", "null"], "items": {"type": "number"}},
+                "required_values": {"type": ["array", "null"], "items": {"type": "number"}},
+            },
+        }))
+        result = self.run_generator()
+        self.assertEqual(0, result.returncode, result.stderr)
+        model = (self.root / "clients/mobile/shared/src/commonMain/kotlin/bot/mac/mobile/core/protocol/generated/SchemaModels.kt").read_text()
+        self.assertIn('val child: Child? get() = raw.objectOrNull("child")?.let(::Child)', model)
+        self.assertIn('val optionalChild: Child? get() = raw.objectOrNull("optional_child")?.let(::Child)', model)
+        for key in ("values", "required_values"):
+            self.assertIn(f'if (raw["{key}"] == null || raw["{key}"] == JsonNull) null else', model)
+
 
 if __name__ == "__main__":
     unittest.main()

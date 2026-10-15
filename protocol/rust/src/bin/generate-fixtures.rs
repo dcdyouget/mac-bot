@@ -580,14 +580,16 @@ fn events(root: &Path) -> Result<(), Box<dyn std::error::Error>> {
             json!({"message":loaded_skill_message()}),
         ),
     ];
-    for (i, (name, event, mut data)) in values.into_iter().enumerate() {
+    let mut seq = 0u64;
+    for (name, event, mut data) in values {
+        let event_seq = next_event_seq(&mut seq, event);
         if event == "sync.cursor" {
-            data["seq"] = json!(i as u64 + 1);
+            data["seq"] = json!(event_seq.expect("sync.cursor is persistent"));
         }
         write(
             &root.join("events"),
             &format!("{name}.json"),
-            json!({"v":1,"kind":"evt","seq":i as u64 + 1,"event":event,"data":data}),
+            frame(event_seq, event, data),
         )?;
     }
     Ok(())
@@ -599,6 +601,27 @@ fn frame(seq: Option<u64>, event: &str, data: Value) -> Value {
         value["seq"] = json!(seq);
     }
     value
+}
+
+fn next_event_seq(seq: &mut u64, event: &str) -> Option<u64> {
+    if matches!(
+        event,
+        "hello"
+            | "sync.done"
+            | "message.delta"
+            | "typing"
+            | "bot.status"
+            | "usage.tick"
+            | "host.status"
+            | "trace.item"
+            | "trace.delta"
+            | "trace.tool_output"
+    ) {
+        None
+    } else {
+        *seq += 1;
+        Some(*seq)
+    }
 }
 
 fn bot_for(id: &str, name: &str, label: &str, dm_chat_id: &str) -> Value {
@@ -712,8 +735,7 @@ fn trace_item(
 }
 
 fn push_frame(lines: &mut Vec<Value>, seq: &mut u64, event: &str, data: Value) {
-    *seq += 1;
-    lines.push(frame(Some(*seq), event, data));
+    lines.push(frame(next_event_seq(seq, event), event, data));
 }
 
 fn scenario(root: &Path) -> Result<(), Box<dyn std::error::Error>> {

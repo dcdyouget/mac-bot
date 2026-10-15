@@ -3589,6 +3589,537 @@
     },
     "TraceItem": {
       "type": "object",
+      "allOf": [
+        {
+          "if": {
+            "required": [
+              "type"
+            ],
+            "properties": {
+              "type": {
+                "const": "run.start"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "data"
+            ],
+            "properties": {
+              "data": {
+                "type": "object",
+                "required": [
+                  "model",
+                  "phase"
+                ],
+                "properties": {
+                  "model": {
+                    "type": "string"
+                  },
+                  "parent_run_id": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "phase": {
+                    "$ref": "#/definitions/TracePhase"
+                  },
+                  "subagent_task": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "type"
+            ],
+            "properties": {
+              "type": {
+                "const": "llm.request"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "data"
+            ],
+            "properties": {
+              "data": {
+                "type": "object",
+                "required": [
+                  "context",
+                  "model",
+                  "request_id",
+                  "tools"
+                ],
+                "properties": {
+                  "context": {
+                    "$ref": "#/definitions/TraceContext"
+                  },
+                  "model": {
+                    "type": "string"
+                  },
+                  "prompt_ref": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "request_id": {
+                    "type": "string"
+                  },
+                  "tools": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "type"
+            ],
+            "properties": {
+              "type": {
+                "const": "llm.response"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "data"
+            ],
+            "properties": {
+              "data": {
+                "type": "object",
+                "required": [
+                  "latency_ms",
+                  "request_id",
+                  "stop_reason",
+                  "text",
+                  "tool_calls",
+                  "ttft_ms",
+                  "usage"
+                ],
+                "properties": {
+                  "latency_ms": {
+                    "type": "integer",
+                    "format": "uint64",
+                    "minimum": 0.0
+                  },
+                  "request_id": {
+                    "type": "string"
+                  },
+                  "stop_reason": {
+                    "type": "string"
+                  },
+                  "text": {
+                    "type": "string"
+                  },
+                  "thinking": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "tool_calls": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/definitions/TraceToolCall"
+                    }
+                  },
+                  "ttft_ms": {
+                    "type": "integer",
+                    "format": "uint64",
+                    "minimum": 0.0
+                  },
+                  "usage": {
+                    "$ref": "#/definitions/UsageTotals"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "type"
+            ],
+            "properties": {
+              "type": {
+                "const": "tool.start"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "data"
+            ],
+            "properties": {
+              "data": {
+                "type": "object",
+                "required": [
+                  "args",
+                  "call_id",
+                  "name"
+                ],
+                "properties": {
+                  "args": {
+                    "type": "object",
+                    "additionalProperties": true
+                  },
+                  "call_id": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "type"
+            ],
+            "properties": {
+              "type": {
+                "const": "tool.end"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "data"
+            ],
+            "properties": {
+              "data": {
+                "type": "object",
+                "required": [
+                  "call_id",
+                  "details",
+                  "duration_ms",
+                  "is_error",
+                  "preview",
+                  "truncated"
+                ],
+                "properties": {
+                  "call_id": {
+                    "type": "string"
+                  },
+                  "details": {
+                    "type": "object",
+                    "additionalProperties": true
+                  },
+                  "duration_ms": {
+                    "type": "integer",
+                    "format": "uint64",
+                    "minimum": 0.0
+                  },
+                  "full_output": {
+                    "anyOf": [
+                      {
+                        "$ref": "#/definitions/FileRef"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "is_error": {
+                    "type": "boolean"
+                  },
+                  "preview": {
+                    "type": "string"
+                  },
+                  "truncated": {
+                    "type": "boolean"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "type"
+            ],
+            "properties": {
+              "type": {
+                "const": "send_msg"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "data"
+            ],
+            "properties": {
+              "data": {
+                "type": "object",
+                "required": [
+                  "call_id",
+                  "chat_id",
+                  "intent",
+                  "message_id"
+                ],
+                "properties": {
+                  "call_id": {
+                    "type": "string"
+                  },
+                  "chat_id": {
+                    "type": "string"
+                  },
+                  "intent": {
+                    "$ref": "#/definitions/Intent"
+                  },
+                  "message_id": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "type"
+            ],
+            "properties": {
+              "type": {
+                "const": "queue.review"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "data"
+            ],
+            "properties": {
+              "data": {
+                "type": "object",
+                "required": [
+                  "count",
+                  "message_ids"
+                ],
+                "properties": {
+                  "count": {
+                    "type": "integer",
+                    "format": "uint32",
+                    "minimum": 0.0
+                  },
+                  "message_ids": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "type"
+            ],
+            "properties": {
+              "type": {
+                "const": "steer"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "data"
+            ],
+            "properties": {
+              "data": {
+                "type": "object",
+                "required": [
+                  "from",
+                  "message_id",
+                  "text"
+                ],
+                "properties": {
+                  "from": {
+                    "$ref": "#/definitions/Sender"
+                  },
+                  "message_id": {
+                    "type": "string"
+                  },
+                  "text": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "type"
+            ],
+            "properties": {
+              "type": {
+                "const": "run.wait"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "data"
+            ],
+            "properties": {
+              "data": {
+                "type": "object",
+                "required": [
+                  "reason"
+                ],
+                "properties": {
+                  "message_id": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "reason": {
+                    "$ref": "#/definitions/WaitReason"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "type"
+            ],
+            "properties": {
+              "type": {
+                "const": "run.resume"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "data"
+            ],
+            "properties": {
+              "data": {
+                "type": "object",
+                "properties": {
+                  "by_message_id": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "type"
+            ],
+            "properties": {
+              "type": {
+                "const": "compaction"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "data"
+            ],
+            "properties": {
+              "data": {
+                "type": "object",
+                "required": [
+                  "after_tokens",
+                  "before_tokens",
+                  "reason"
+                ],
+                "properties": {
+                  "after_tokens": {
+                    "type": "integer",
+                    "format": "uint64",
+                    "minimum": 0.0
+                  },
+                  "before_tokens": {
+                    "type": "integer",
+                    "format": "uint64",
+                    "minimum": 0.0
+                  },
+                  "reason": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "type"
+            ],
+            "properties": {
+              "type": {
+                "const": "run.end"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "data"
+            ],
+            "properties": {
+              "data": {
+                "type": "object",
+                "required": [
+                  "status"
+                ],
+                "properties": {
+                  "error": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "status": {
+                    "$ref": "#/definitions/RunEndStatus"
+                  }
+                }
+              }
+            }
+          }
+        }
+      ],
       "required": [
         "aseq",
         "at",

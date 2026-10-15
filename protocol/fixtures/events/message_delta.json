@@ -6,6 +6,5 @@
   },
   "event": "message.delta",
   "kind": "evt",
-  "seq": 34,
   "v": 1
 }

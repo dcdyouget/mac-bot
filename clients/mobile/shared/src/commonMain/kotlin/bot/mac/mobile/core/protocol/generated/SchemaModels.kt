@@ -137,7 +137,7 @@ data class Assignment(override val raw: JsonObject) : RawProtocolModel {
     val title: String get() = raw.str("title")
     val triggerMessageId: String? get() = raw.stringOrNull("trigger_message_id")
     val usage: UsageTotals get() = UsageTotals(raw.obj("usage"))
-    val wait: WaitState? get() = raw["wait"]?.jsonObject?.let(::WaitState)
+    val wait: WaitState? get() = raw.objectOrNull("wait")?.let(::WaitState)
 }
 object AssignmentSerializer : RawModelSerializer<Assignment>(::Assignment)
 
@@ -236,7 +236,7 @@ data class Chat(override val raw: JsonObject) : RawProtocolModel {
     val botId: String? get() = raw.stringOrNull("bot_id")
     val id: String get() = raw.str("id")
     val kind: String get() = raw.str("kind")
-    val lastMessage: MessagePreview? get() = raw["last_message"]?.jsonObject?.let(::MessagePreview)
+    val lastMessage: MessagePreview? get() = raw.objectOrNull("last_message")?.let(::MessagePreview)
     val lastReadSeq: Long get() = raw.long("last_read_seq")
     val lastSeq: Long get() = raw.long("last_seq")
     val memberBotIds: List<String> get() = raw.arr("member_bot_ids").mapNotNull { (it as? JsonPrimitive)?.contentOrNull }
@@ -408,9 +408,9 @@ data class Message(override val raw: JsonObject) : RawProtocolModel {
     val fallbackText: String get() = raw.str("fallback_text")
     val id: String get() = raw.str("id")
     val intent: String? get() = raw.stringOrNull("intent")
-    val loadedSkills: List<LoadedSkill>? get() = if (raw["loaded_skills"] == null) null else raw.arr("loaded_skills").mapNotNull { (it as? JsonObject)?.let(::LoadedSkill) }
+    val loadedSkills: List<LoadedSkill>? get() = if (raw["loaded_skills"] == null || raw["loaded_skills"] == JsonNull) null else raw.arr("loaded_skills").mapNotNull { (it as? JsonObject)?.let(::LoadedSkill) }
     val mentions: List<Mention> get() = raw.arr("mentions").mapNotNull { (it as? JsonObject)?.let(::Mention) }
-    val quote: Quote? get() = raw["quote"]?.jsonObject?.let(::Quote)
+    val quote: Quote? get() = raw.objectOrNull("quote")?.let(::Quote)
     val reactions: List<Reaction> get() = raw.arr("reactions").mapNotNull { (it as? JsonObject)?.let(::Reaction) }
     val replyTo: String? get() = raw.stringOrNull("reply_to")
     val sender: Sender get() = Sender(raw.obj("sender"))
@@ -436,7 +436,7 @@ data class Model(override val raw: JsonObject) : RawProtocolModel {
     val enabled: Boolean get() = raw.boolean("enabled")
     val maxOutput: Long get() = raw.long("max_output")
     val modelId: String get() = raw.str("model_id")
-    val price: ModelPrice? get() = raw["price"]?.jsonObject?.let(::ModelPrice)
+    val price: ModelPrice? get() = raw.objectOrNull("price")?.let(::ModelPrice)
     val providerId: String get() = raw.str("provider_id")
     val ref: String get() = raw.str("ref")
 }
@@ -518,7 +518,7 @@ object PushSettingsSerializer : RawModelSerializer<PushSettings>(::PushSettings)
 @Serializable(with = QuestionSerializer::class)
 data class Question(override val raw: JsonObject) : RawProtocolModel {
     val allowFreeText: Boolean get() = raw.boolean("allow_free_text")
-    val answer: QuestionAnswer? get() = raw["answer"]?.jsonObject?.let(::QuestionAnswer)
+    val answer: QuestionAnswer? get() = raw.objectOrNull("answer")?.let(::QuestionAnswer)
     val assignmentId: String get() = raw.str("assignment_id")
     val botId: String get() = raw.str("bot_id")
     val chatId: String get() = raw.str("chat_id")
@@ -534,7 +534,7 @@ object QuestionSerializer : RawModelSerializer<Question>(::Question)
 data class QuestionAnswer(override val raw: JsonObject) : RawProtocolModel {
     val at: String get() = raw.str("at")
     val optionIndex: Long? get() = raw.longOrNull("option_index")
-    val optionIndexes: List<Long>? get() = if (raw["option_indexes"] == null) null else raw.arr("option_indexes").mapNotNull { (it as? JsonPrimitive)?.longOrNull }
+    val optionIndexes: List<Long>? get() = if (raw["option_indexes"] == null || raw["option_indexes"] == JsonNull) null else raw.arr("option_indexes").mapNotNull { (it as? JsonPrimitive)?.longOrNull }
     val text: String? get() = raw.stringOrNull("text")
 }
 object QuestionAnswerSerializer : RawModelSerializer<QuestionAnswer>(::QuestionAnswer)
@@ -561,7 +561,7 @@ data class Routine(override val raw: JsonObject) : RawProtocolModel {
     val enabled: Boolean get() = raw.boolean("enabled")
     val id: String get() = raw.str("id")
     val instructions: String get() = raw.str("instructions")
-    val lastRun: RoutineRun? get() = raw["last_run"]?.jsonObject?.let(::RoutineRun)
+    val lastRun: RoutineRun? get() = raw.objectOrNull("last_run")?.let(::RoutineRun)
     val name: String get() = raw.str("name")
     val nextRunAt: String? get() = raw.stringOrNull("next_run_at")
     val projectId: String? get() = raw.stringOrNull("project_id")
@@ -619,7 +619,7 @@ object SettingsSerializer : RawModelSerializer<Settings>(::Settings)
 data class Skill(override val raw: JsonObject) : RawProtocolModel {
     val description: String get() = raw.str("description")
     val disabledBotIds: List<String> get() = raw.arr("disabled_bot_ids").mapNotNull { (it as? JsonPrimitive)?.contentOrNull }
-    val draftFrom: SkillDraftFrom? get() = raw["draft_from"]?.jsonObject?.let(::SkillDraftFrom)
+    val draftFrom: SkillDraftFrom? get() = raw.objectOrNull("draft_from")?.let(::SkillDraftFrom)
     val enabled: Boolean get() = raw.boolean("enabled")
     val files: List<String> get() = raw.arr("files").mapNotNull { (it as? JsonPrimitive)?.contentOrNull }
     val invocations7d: Invocations7d get() = Invocations7d(raw.obj("invocations_7d"))
@@ -773,14 +773,14 @@ object ApprovalDecideParamsSerializer : RawModelSerializer<ApprovalDecideParams>
 
 @Serializable(with = ApprovalListParamsSerializer::class)
 data class ApprovalListParams(override val raw: JsonObject) : RawProtocolModel {
-    val state: List<String>? get() = if (raw["state"] == null) null else raw.arr("state").mapNotNull { (it as? JsonPrimitive)?.contentOrNull }
+    val state: List<String>? get() = if (raw["state"] == null || raw["state"] == JsonNull) null else raw.arr("state").mapNotNull { (it as? JsonPrimitive)?.contentOrNull }
 }
 object ApprovalListParamsSerializer : RawModelSerializer<ApprovalListParams>(::ApprovalListParams)
 
 @Serializable(with = ApprovalSettingsPatchSerializer::class)
 data class ApprovalSettingsPatch(override val raw: JsonObject) : RawProtocolModel {
     val mode: String? get() = raw.stringOrNull("mode")
-    val rules: List<ApprovalRule>? get() = if (raw["rules"] == null) null else raw.arr("rules").mapNotNull { (it as? JsonObject)?.let(::ApprovalRule) }
+    val rules: List<ApprovalRule>? get() = if (raw["rules"] == null || raw["rules"] == JsonNull) null else raw.arr("rules").mapNotNull { (it as? JsonObject)?.let(::ApprovalRule) }
 }
 object ApprovalSettingsPatchSerializer : RawModelSerializer<ApprovalSettingsPatch>(::ApprovalSettingsPatch)
 
@@ -812,7 +812,7 @@ data class AssignmentListParams(override val raw: JsonObject) : RawProtocolModel
     val cursor: String? get() = raw.stringOrNull("cursor")
     val limit: Long? get() = raw.longOrNull("limit")
     val projectId: String? get() = raw.stringOrNull("project_id")
-    val status: List<String>? get() = if (raw["status"] == null) null else raw.arr("status").mapNotNull { (it as? JsonPrimitive)?.contentOrNull }
+    val status: List<String>? get() = if (raw["status"] == null || raw["status"] == JsonNull) null else raw.arr("status").mapNotNull { (it as? JsonPrimitive)?.contentOrNull }
 }
 object AssignmentListParamsSerializer : RawModelSerializer<AssignmentListParams>(::AssignmentListParams)
 
@@ -825,7 +825,7 @@ object AssignmentRetryParamsSerializer : RawModelSerializer<AssignmentRetryParam
 
 @Serializable(with = BotCreateParamsSerializer::class)
 data class BotCreateParams(override val raw: JsonObject) : RawProtocolModel {
-    val avatar: Avatar? get() = raw["avatar"]?.jsonObject?.let(::Avatar)
+    val avatar: Avatar? get() = raw.objectOrNull("avatar")?.let(::Avatar)
     val browserMode: String? get() = raw.stringOrNull("browser_mode")
     val clientRequestId: String? get() = raw.stringOrNull("client_request_id")
     val description: String? get() = raw.stringOrNull("description")
@@ -833,7 +833,7 @@ data class BotCreateParams(override val raw: JsonObject) : RawProtocolModel {
     val maxParallel: Long? get() = raw.longOrNull("max_parallel")
     val model: String? get() = raw.stringOrNull("model")
     val name: String get() = raw.str("name")
-    val tools: ToolToggles? get() = raw["tools"]?.jsonObject?.let(::ToolToggles)
+    val tools: ToolToggles? get() = raw.objectOrNull("tools")?.let(::ToolToggles)
 }
 object BotCreateParamsSerializer : RawModelSerializer<BotCreateParams>(::BotCreateParams)
 
@@ -860,7 +860,7 @@ object BotListParamsSerializer : RawModelSerializer<BotListParams>(::BotListPara
 
 @Serializable(with = BotPatchSerializer::class)
 data class BotPatch(override val raw: JsonObject) : RawProtocolModel {
-    val avatar: Avatar? get() = raw["avatar"]?.jsonObject?.let(::Avatar)
+    val avatar: Avatar? get() = raw.objectOrNull("avatar")?.let(::Avatar)
     val browserMode: String? get() = raw.stringOrNull("browser_mode")
     val description: String? get() = raw.stringOrNull("description")
     val hidden: Boolean? get() = raw.boolOrNull("hidden")
@@ -870,7 +870,7 @@ data class BotPatch(override val raw: JsonObject) : RawProtocolModel {
     val name: String? get() = raw.stringOrNull("name")
     val notifications: Boolean? get() = raw.boolOrNull("notifications")
     val pinned: Boolean? get() = raw.boolOrNull("pinned")
-    val tools: ToolToggles? get() = raw["tools"]?.jsonObject?.let(::ToolToggles)
+    val tools: ToolToggles? get() = raw.objectOrNull("tools")?.let(::ToolToggles)
 }
 object BotPatchSerializer : RawModelSerializer<BotPatch>(::BotPatch)
 
@@ -886,7 +886,7 @@ object BotUpdateParamsSerializer : RawModelSerializer<BotUpdateParams>(::BotUpda
 data class BrowserSettingsPatch(override val raw: JsonObject) : RawProtocolModel {
     val chromeProfile: String? get() = raw.stringOrNull("chrome_profile")
     val defaultMode: String? get() = raw.stringOrNull("default_mode")
-    val stream: StreamSettingsPatch? get() = raw["stream"]?.jsonObject?.let(::StreamSettingsPatch)
+    val stream: StreamSettingsPatch? get() = raw.objectOrNull("stream")?.let(::StreamSettingsPatch)
 }
 object BrowserSettingsPatchSerializer : RawModelSerializer<BrowserSettingsPatch>(::BrowserSettingsPatch)
 
@@ -940,7 +940,7 @@ object ChatReactParamsSerializer : RawModelSerializer<ChatReactParams>(::ChatRea
 
 @Serializable(with = ChatSendParamsSerializer::class)
 data class ChatSendParams(override val raw: JsonObject) : RawProtocolModel {
-    val attachments: List<String>? get() = if (raw["attachments"] == null) null else raw.arr("attachments").mapNotNull { (it as? JsonPrimitive)?.contentOrNull }
+    val attachments: List<String>? get() = if (raw["attachments"] == null || raw["attachments"] == JsonNull) null else raw.arr("attachments").mapNotNull { (it as? JsonPrimitive)?.contentOrNull }
     val chatId: String get() = raw.str("chat_id")
     val clientLocale: String? get() = raw.stringOrNull("client_locale")
     val clientRequestId: String? get() = raw.stringOrNull("client_request_id")
@@ -1097,14 +1097,14 @@ object ModelDeleteParamsSerializer : RawModelSerializer<ModelDeleteParams>(::Mod
 
 @Serializable(with = ModelUpsertParamsSerializer::class)
 data class ModelUpsertParams(override val raw: JsonObject) : RawProtocolModel {
-    val caps: ModelCaps? get() = raw["caps"]?.jsonObject?.let(::ModelCaps)
+    val caps: ModelCaps? get() = raw.objectOrNull("caps")?.let(::ModelCaps)
     val clientRequestId: String? get() = raw.stringOrNull("client_request_id")
     val contextWindow: Long? get() = raw.longOrNull("context_window")
     val displayName: String? get() = raw.stringOrNull("display_name")
     val enabled: Boolean? get() = raw.boolOrNull("enabled")
     val maxOutput: Long? get() = raw.longOrNull("max_output")
     val modelId: String get() = raw.str("model_id")
-    val price: ModelPrice? get() = raw["price"]?.jsonObject?.let(::ModelPrice)
+    val price: ModelPrice? get() = raw.objectOrNull("price")?.let(::ModelPrice)
     val providerId: String get() = raw.str("provider_id")
     val ref: String? get() = raw.stringOrNull("ref")
 }
@@ -1135,7 +1135,7 @@ object ProjectIdParamsSerializer : RawModelSerializer<ProjectIdParams>(::Project
 
 @Serializable(with = ProjectListParamsSerializer::class)
 data class ProjectListParams(override val raw: JsonObject) : RawProtocolModel {
-    val status: List<String>? get() = if (raw["status"] == null) null else raw.arr("status").mapNotNull { (it as? JsonPrimitive)?.contentOrNull }
+    val status: List<String>? get() = if (raw["status"] == null || raw["status"] == JsonNull) null else raw.arr("status").mapNotNull { (it as? JsonPrimitive)?.contentOrNull }
 }
 object ProjectListParamsSerializer : RawModelSerializer<ProjectListParams>(::ProjectListParams)
 
@@ -1151,7 +1151,7 @@ object ProjectMemberParamsSerializer : RawModelSerializer<ProjectMemberParams>(:
 @Serializable(with = ProjectPatchSerializer::class)
 data class ProjectPatch(override val raw: JsonObject) : RawProtocolModel {
     val deadline: JsonElement? get() = raw["deadline"]
-    val flow: List<String>? get() = if (raw["flow"] == null) null else raw.arr("flow").mapNotNull { (it as? JsonPrimitive)?.contentOrNull }
+    val flow: List<String>? get() = if (raw["flow"] == null || raw["flow"] == JsonNull) null else raw.arr("flow").mapNotNull { (it as? JsonPrimitive)?.contentOrNull }
     val goal: String? get() = raw.stringOrNull("goal")
     val name: String? get() = raw.stringOrNull("name")
 }
@@ -1220,7 +1220,7 @@ object ProviderUpdateParamsSerializer : RawModelSerializer<ProviderUpdateParams>
 data class QuestionAnswerParams(override val raw: JsonObject) : RawProtocolModel {
     val clientRequestId: String? get() = raw.stringOrNull("client_request_id")
     val optionIndex: Long? get() = raw.longOrNull("option_index")
-    val optionIndexes: List<Long>? get() = if (raw["option_indexes"] == null) null else raw.arr("option_indexes").mapNotNull { (it as? JsonPrimitive)?.longOrNull }
+    val optionIndexes: List<Long>? get() = if (raw["option_indexes"] == null || raw["option_indexes"] == JsonNull) null else raw.arr("option_indexes").mapNotNull { (it as? JsonPrimitive)?.longOrNull }
     val questionId: String get() = raw.str("question_id")
     val text: String? get() = raw.stringOrNull("text")
 }
@@ -1230,7 +1230,7 @@ object QuestionAnswerParamsSerializer : RawModelSerializer<QuestionAnswerParams>
 data class QuestionListParams(override val raw: JsonObject) : RawProtocolModel {
     val assignmentId: String? get() = raw.stringOrNull("assignment_id")
     val chatId: String? get() = raw.stringOrNull("chat_id")
-    val state: List<String>? get() = if (raw["state"] == null) null else raw.arr("state").mapNotNull { (it as? JsonPrimitive)?.contentOrNull }
+    val state: List<String>? get() = if (raw["state"] == null || raw["state"] == JsonNull) null else raw.arr("state").mapNotNull { (it as? JsonPrimitive)?.contentOrNull }
 }
 object QuestionListParamsSerializer : RawModelSerializer<QuestionListParams>(::QuestionListParams)
 
@@ -1273,7 +1273,7 @@ data class RoutinePatch(override val raw: JsonObject) : RawProtocolModel {
     val instructions: String? get() = raw.stringOrNull("instructions")
     val name: String? get() = raw.stringOrNull("name")
     val projectId: JsonElement? get() = raw["project_id"]
-    val schedules: List<Schedule>? get() = if (raw["schedules"] == null) null else raw.arr("schedules").mapNotNull { (it as? JsonObject)?.let(::Schedule) }
+    val schedules: List<Schedule>? get() = if (raw["schedules"] == null || raw["schedules"] == JsonNull) null else raw.arr("schedules").mapNotNull { (it as? JsonObject)?.let(::Schedule) }
     val timezone: String? get() = raw.stringOrNull("timezone")
 }
 object RoutinePatchSerializer : RawModelSerializer<RoutinePatch>(::RoutinePatch)
@@ -1288,7 +1288,7 @@ object RoutineUpdateParamsSerializer : RawModelSerializer<RoutineUpdateParams>(:
 
 @Serializable(with = SearchParamsSerializer::class)
 data class SearchParams(override val raw: JsonObject) : RawProtocolModel {
-    val kinds: List<String>? get() = if (raw["kinds"] == null) null else raw.arr("kinds").mapNotNull { (it as? JsonPrimitive)?.contentOrNull }
+    val kinds: List<String>? get() = if (raw["kinds"] == null || raw["kinds"] == JsonNull) null else raw.arr("kinds").mapNotNull { (it as? JsonPrimitive)?.contentOrNull }
     val limit: Long? get() = raw.longOrNull("limit")
     val query: String get() = raw.str("query")
 }
@@ -1303,18 +1303,18 @@ object SessionResumeParamsSerializer : RawModelSerializer<SessionResumeParams>(:
 
 @Serializable(with = SettingsPatchSerializer::class)
 data class SettingsPatch(override val raw: JsonObject) : RawProtocolModel {
-    val approvals: ApprovalSettingsPatch? get() = raw["approvals"]?.jsonObject?.let(::ApprovalSettingsPatch)
-    val browser: BrowserSettingsPatch? get() = raw["browser"]?.jsonObject?.let(::BrowserSettingsPatch)
-    val concurrency: ConcurrencyPatch? get() = raw["concurrency"]?.jsonObject?.let(::ConcurrencyPatch)
+    val approvals: ApprovalSettingsPatch? get() = raw.objectOrNull("approvals")?.let(::ApprovalSettingsPatch)
+    val browser: BrowserSettingsPatch? get() = raw.objectOrNull("browser")?.let(::BrowserSettingsPatch)
+    val concurrency: ConcurrencyPatch? get() = raw.objectOrNull("concurrency")?.let(::ConcurrencyPatch)
     val currency: String? get() = raw.stringOrNull("currency")
     val hostName: String? get() = raw.stringOrNull("host_name")
-    val mainBot: MainBotSettingsPatch? get() = raw["main_bot"]?.jsonObject?.let(::MainBotSettingsPatch)
-    val models: ModelDefaultsPatch? get() = raw["models"]?.jsonObject?.let(::ModelDefaultsPatch)
-    val skills: SkillSettingsPatch? get() = raw["skills"]?.jsonObject?.let(::SkillSettingsPatch)
+    val mainBot: MainBotSettingsPatch? get() = raw.objectOrNull("main_bot")?.let(::MainBotSettingsPatch)
+    val models: ModelDefaultsPatch? get() = raw.objectOrNull("models")?.let(::ModelDefaultsPatch)
+    val skills: SkillSettingsPatch? get() = raw.objectOrNull("skills")?.let(::SkillSettingsPatch)
     val timezone: String? get() = raw.stringOrNull("timezone")
-    val tools: ToolsSettingsPatch? get() = raw["tools"]?.jsonObject?.let(::ToolsSettingsPatch)
-    val trace: TraceSettingsPatch? get() = raw["trace"]?.jsonObject?.let(::TraceSettingsPatch)
-    val webSearch: WebSearchSettingsPatch? get() = raw["web_search"]?.jsonObject?.let(::WebSearchSettingsPatch)
+    val tools: ToolsSettingsPatch? get() = raw.objectOrNull("tools")?.let(::ToolsSettingsPatch)
+    val trace: TraceSettingsPatch? get() = raw.objectOrNull("trace")?.let(::TraceSettingsPatch)
+    val webSearch: WebSearchSettingsPatch? get() = raw.objectOrNull("web_search")?.let(::WebSearchSettingsPatch)
 }
 object SettingsPatchSerializer : RawModelSerializer<SettingsPatch>(::SettingsPatch)
 
@@ -1364,7 +1364,7 @@ object SkillSetEnabledParamsSerializer : RawModelSerializer<SkillSetEnabledParam
 
 @Serializable(with = SkillSettingsPatchSerializer::class)
 data class SkillSettingsPatch(override val raw: JsonObject) : RawProtocolModel {
-    val extraDirs: List<String>? get() = if (raw["extra_dirs"] == null) null else raw.arr("extra_dirs").mapNotNull { (it as? JsonPrimitive)?.contentOrNull }
+    val extraDirs: List<String>? get() = if (raw["extra_dirs"] == null || raw["extra_dirs"] == JsonNull) null else raw.arr("extra_dirs").mapNotNull { (it as? JsonPrimitive)?.contentOrNull }
 }
 object SkillSettingsPatchSerializer : RawModelSerializer<SkillSettingsPatch>(::SkillSettingsPatch)
 
@@ -1378,8 +1378,8 @@ object StreamQualityPatchSerializer : RawModelSerializer<StreamQualityPatch>(::S
 
 @Serializable(with = StreamSettingsPatchSerializer::class)
 data class StreamSettingsPatch(override val raw: JsonObject) : RawProtocolModel {
-    val desktop: StreamQualityPatch? get() = raw["desktop"]?.jsonObject?.let(::StreamQualityPatch)
-    val mobile: StreamQualityPatch? get() = raw["mobile"]?.jsonObject?.let(::StreamQualityPatch)
+    val desktop: StreamQualityPatch? get() = raw.objectOrNull("desktop")?.let(::StreamQualityPatch)
+    val mobile: StreamQualityPatch? get() = raw.objectOrNull("mobile")?.let(::StreamQualityPatch)
 }
 object StreamSettingsPatchSerializer : RawModelSerializer<StreamSettingsPatch>(::StreamSettingsPatch)
 
@@ -1411,7 +1411,7 @@ object ToolTogglesPatchSerializer : RawModelSerializer<ToolTogglesPatch>(::ToolT
 
 @Serializable(with = ToolsSettingsPatchSerializer::class)
 data class ToolsSettingsPatch(override val raw: JsonObject) : RawProtocolModel {
-    val defaults: ToolTogglesPatch? get() = raw["defaults"]?.jsonObject?.let(::ToolTogglesPatch)
+    val defaults: ToolTogglesPatch? get() = raw.objectOrNull("defaults")?.let(::ToolTogglesPatch)
 }
 object ToolsSettingsPatchSerializer : RawModelSerializer<ToolsSettingsPatch>(::ToolsSettingsPatch)
 
@@ -1451,7 +1451,7 @@ object TraceUnsubscribeParamsSerializer : RawModelSerializer<TraceUnsubscribePar
 @Serializable(with = UsageBreakdownParamsSerializer::class)
 data class UsageBreakdownParams(override val raw: JsonObject) : RawProtocolModel {
     val dimension: String get() = raw.str("dimension")
-    val drill: UsageDrill? get() = raw["drill"]?.jsonObject?.let(::UsageDrill)
+    val drill: UsageDrill? get() = raw.objectOrNull("drill")?.let(::UsageDrill)
     val from: String get() = raw.str("from")
     val to: String get() = raw.str("to")
 }
@@ -1725,8 +1725,8 @@ object EmptyResultSerializer : RawModelSerializer<EmptyResult>(::EmptyResult)
 
 @Serializable(with = HeatmapResultSerializer::class)
 data class HeatmapResult(override val raw: JsonObject) : RawProtocolModel {
-    val calendar: CalendarHeatmap? get() = raw["calendar"]?.jsonObject?.let(::CalendarHeatmap)
-    val weekhour: WeekhourHeatmap? get() = raw["weekhour"]?.jsonObject?.let(::WeekhourHeatmap)
+    val calendar: CalendarHeatmap? get() = raw.objectOrNull("calendar")?.let(::CalendarHeatmap)
+    val weekhour: WeekhourHeatmap? get() = raw.objectOrNull("weekhour")?.let(::WeekhourHeatmap)
 }
 object HeatmapResultSerializer : RawModelSerializer<HeatmapResult>(::HeatmapResult)
 
@@ -1941,7 +1941,7 @@ data class SkillDetail(override val raw: JsonObject) : RawProtocolModel {
     val content: String get() = raw.str("content")
     val description: String get() = raw.str("description")
     val disabledBotIds: List<String> get() = raw.arr("disabled_bot_ids").mapNotNull { (it as? JsonPrimitive)?.contentOrNull }
-    val draftFrom: SkillDraftFrom? get() = raw["draft_from"]?.jsonObject?.let(::SkillDraftFrom)
+    val draftFrom: SkillDraftFrom? get() = raw.objectOrNull("draft_from")?.let(::SkillDraftFrom)
     val enabled: Boolean get() = raw.boolean("enabled")
     val files: List<String> get() = raw.arr("files").mapNotNull { (it as? JsonPrimitive)?.contentOrNull }
     val invocations7d: Invocations7d get() = Invocations7d(raw.obj("invocations_7d"))
@@ -2012,10 +2012,10 @@ object UsageRowSerializer : RawModelSerializer<UsageRow>(::UsageRow)
 
 @Serializable(with = UsageSeriesSerializer::class)
 data class UsageSeries(override val raw: JsonObject) : RawProtocolModel {
-    val inputValues: List<Double>? get() = if (raw["input_values"] == null) null else raw.arr("input_values").mapNotNull { (it as? JsonPrimitive)?.doubleOrNull }
+    val inputValues: List<Double>? get() = if (raw["input_values"] == null || raw["input_values"] == JsonNull) null else raw.arr("input_values").mapNotNull { (it as? JsonPrimitive)?.doubleOrNull }
     val key: String get() = raw.str("key")
     val label: String get() = raw.str("label")
-    val outputValues: List<Double>? get() = if (raw["output_values"] == null) null else raw.arr("output_values").mapNotNull { (it as? JsonPrimitive)?.doubleOrNull }
+    val outputValues: List<Double>? get() = if (raw["output_values"] == null || raw["output_values"] == JsonNull) null else raw.arr("output_values").mapNotNull { (it as? JsonPrimitive)?.doubleOrNull }
     val total: Double get() = raw.double("total")
     val values: List<Double> get() = raw.arr("values").mapNotNull { (it as? JsonPrimitive)?.doubleOrNull }
 }
@@ -2105,7 +2105,7 @@ object RpcErrorSerializer : RawModelSerializer<RpcError>(::RpcError)
 
 @Serializable(with = RpcResponseSerializer::class)
 data class RpcResponse(override val raw: JsonObject) : RawProtocolModel {
-    val error: RpcError? get() = raw["error"]?.jsonObject?.let(::RpcError)
+    val error: RpcError? get() = raw.objectOrNull("error")?.let(::RpcError)
     val id: String get() = raw.str("id")
     val kind: String get() = raw.str("kind")
     val ok: Boolean get() = raw.boolean("ok")

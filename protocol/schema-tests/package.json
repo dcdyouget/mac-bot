@@ -1,0 +1,9 @@
+{
+  "name": "macbot-protocol-schema-tests",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Independent JSON Schema contract validation for Mac Bot",
+  "dependencies": {
+    "ajv": "6.15.0"
+  }
+}

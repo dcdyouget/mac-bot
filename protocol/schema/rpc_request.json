@@ -2,6 +2,1966 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "RpcRequest",
   "type": "object",
+  "allOf": [
+    {
+      "if": {
+        "required": [
+          "method"
+        ],
+        "properties": {
+          "method": {
+            "const": "session.resume"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "params"
+        ],
+        "properties": {
+          "params": {
+            "$ref": "#/definitions/SessionResumeParams"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "method"
+        ],
+        "properties": {
+          "method": {
+            "const": "ping"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "params"
+        ],
+        "properties": {
+          "params": {
+            "$ref": "#/definitions/EmptyParams"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "method"
+        ],
+        "properties": {
+          "method": {
+            "const": "bootstrap"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "params"
+        ],
+        "properties": {
+          "params": {
+            "$ref": "#/definitions/EmptyParams"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "method"
+        ],
+        "properties": {
+          "method": {
+            "const": "device.register"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "params"
+        ],
+        "properties": {
+          "params": {
+            "$ref": "#/definitions/DeviceRegisterParams"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "method"
+        ],
+        "properties": {
+          "method": {
+            "const": "chat.list"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "params"
+        ],
+        "properties": {
+          "params": {
+            "$ref": "#/definitions/IncludeArchivedParams"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "method"
+        ],
+        "properties": {
+          "method": {
+            "const": "chat.get"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "params"
+        ],
+        "properties": {
+          "params": {
+            "$ref": "#/definitions/ChatIdParams"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "method"
+        ],
+        "properties": {
+          "method": {
+            "const": "chat.history"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "params"
+        ],
+        "properties": {
+          "params": {
+            "$ref": "#/definitions/ChatHistoryParams"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "method"
+        ],
+        "properties": {
+          "method": {
+            "const": "chat.thread"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "params"
+        ],
+        "properties": {
+          "params": {
+            "$ref": "#/definitions/ChatThreadParams"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "method"
+        ],
+        "properties": {
+          "method": {
+            "const": "chat.send"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "params"
+        ],
+        "properties": {
+          "params": {
+            "$ref": "#/definitions/ChatSendParams"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "method"
+        ],
+        "properties": {
+          "method": {
+            "const": "message.delete"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "params"
+        ],
+        "properties": {
+          "params": {
+            "$ref": "#/definitions/MessageDeleteParams"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "method"
+        ],
+        "properties": {
+          "method": {
+            "const": "message.edit"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "params"
+        ],
+        "properties": {
+          "params": {
+            "$ref": "#/definitions/MessageEditParams"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "method"
+        ],
+        "properties": {
+          "method": {
+            "const": "message.steer"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "params"
+        ],
+        "properties": {
+          "params": {
+            "$ref": "#/definitions/MessageSteerParams"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "method"
+        ],
+        "properties": {
+          "method": {
+            "const": "artifact.versions.list"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "params"
+        ],
+        "properties": {
+          "params": {
+            "$ref": "#/definitions/ArtifactVersionsParams"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "method"
+        ],
+        "properties": {
+          "method": {
+            "const": "artifact.version.get"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "params"
+        ],
+        "properties": {
+          "params": {
+            "$ref": "#/definitions/ArtifactVersionGetParams"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "method"
+        ],
+        "properties": {
+          "method": {
+            "const": "chat.mark_read"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "params"
+        ],
+        "properties": {
+          "params": {
+            "$ref": "#/definitions/ChatMarkReadParams"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "method"
+        ],
+        "properties": {
+          "method": {
+            "const": "chat.react"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "params"
+        ],
+        "properties": {
+          "params": {
+            "$ref": "#/definitions/ChatReactParams"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "method"
+        ],
+        "properties": {
+          "method": {
+            "const": "chat.set_pinned"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "params"
+        ],
+        "properties": {
+          "params": {
+            "$ref": "#/definitions/ChatPinnedParams"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "method"
+        ],
+        "properties": {
+          "method": {
+            "const": "chat.set_muted"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "params"
+        ],
+        "properties": {
+          "params": {
+            "$ref": "#/definitions/ChatMutedParams"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "method"
+        ],
+        "properties": {
+          "method": {
+            "const": "bot.list"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "params"
+        ],
+        "properties": {
+          "params": {
+            "$ref": "#/definitions/BotListParams"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "method"
+        ],
+        "properties": {
+          "method": {
+            "const": "bot.get"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "params"
+        ],
+        "properties": {
+          "params": {
+            "$ref": "#/definitions/BotIdParams"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "method"
+        ],
+        "properties": {
+          "method": {
+            "const": "bot.create"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "params"
+        ],
+        "properties": {
+          "params": {
+            "$ref": "#/definitions/BotCreateParams"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "method"
+        ],
+        "properties": {
+          "method": {
+            "const": "bot.update"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "params"
+        ],
+        "properties": {
+          "params": {
+            "$ref": "#/definitions/BotUpdateParams"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "method"
+        ],
+        "properties": {
+          "method": {
+            "const": "bot.duplicate"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "params"
+        ],
+        "properties": {
+          "params": {
+            "$ref": "#/definitions/BotDuplicateParams"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "method"
+        ],
+        "properties": {
+          "method": {
+            "const": "bot.delete"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "params"
+        ],
+        "properties": {
+          "params": {
+            "$ref": "#/definitions/BotIdParams"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "method"
+        ],
+        "properties": {
+          "method": {
+            "const": "bot.templates"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "params"
+        ],
+        "properties": {
+          "params": {
+            "$ref": "#/definitions/EmptyParams"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "method"
+        ],
+        "properties": {
+          "method": {
+            "const": "bot.create_from_template"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "params"
+        ],
+        "properties": {
+          "params": {
+            "$ref": "#/definitions/CreateFromTemplateParams"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "method"
+        ],
+        "properties": {
+          "method": {
+            "const": "project.list"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "params"
+        ],
+        "properties": {
+          "params": {
+            "$ref": "#/definitions/ProjectListParams"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "method"
+        ],
+        "properties": {
+          "method": {
+            "const": "project.get"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "params"
+        ],
+        "properties": {
+          "params": {
+            "$ref": "#/definitions/ProjectIdParams"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "method"
+        ],
+        "properties": {
+          "method": {
+            "const": "project.create"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "params"
+        ],
+        "properties": {
+          "params": {
+            "$ref": "#/definitions/ProjectCreateParams"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "method"
+        ],
+        "properties": {
+          "method": {
+            "const": "project.update"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "params"
+        ],
+        "properties": {
+          "params": {
+            "$ref": "#/definitions/ProjectUpdateParams"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "method"
+        ],
+        "properties": {
+          "method": {
+            "const": "announcement.update"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "params"
+        ],
+        "properties": {
+          "params": {
+            "$ref": "#/definitions/AnnouncementUpdateParams"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "method"
+        ],
+        "properties": {
+          "method": {
+            "const": "project.add_member"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "params"
+        ],
+        "properties": {
+          "params": {
+            "$ref": "#/definitions/ProjectMemberParams"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "method"
+        ],
+        "properties": {
+          "method": {
+            "const": "project.remove_member"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "params"
+        ],
+        "properties": {
+          "params": {
+            "$ref": "#/definitions/ProjectRemoveMemberParams"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "method"
+        ],
+        "properties": {
+          "method": {
+            "const": "project.confirm_done"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "params"
+        ],
+        "properties": {
+          "params": {
+            "$ref": "#/definitions/ProjectConfirmDoneParams"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "method"
+        ],
+        "properties": {
+          "method": {
+            "const": "project.request_changes"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "params"
+        ],
+        "properties": {
+          "params": {
+            "$ref": "#/definitions/ProjectRequestChangesParams"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "method"
+        ],
+        "properties": {
+          "method": {
+            "const": "project.archive"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "params"
+        ],
+        "properties": {
+          "params": {
+            "$ref": "#/definitions/ProjectIdParams"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "method"
+        ],
+        "properties": {
+          "method": {
+            "const": "project.reopen"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "params"
+        ],
+        "properties": {
+          "params": {
+            "$ref": "#/definitions/ProjectIdParams"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "method"
+        ],
+        "properties": {
+          "method": {
+            "const": "assignment.list"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "params"
+        ],
+        "properties": {
+          "params": {
+            "$ref": "#/definitions/AssignmentListParams"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "method"
+        ],
+        "properties": {
+          "method": {
+            "const": "assignment.get"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "params"
+        ],
+        "properties": {
+          "params": {
+            "$ref": "#/definitions/AssignmentIdParams"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "method"
+        ],
+        "properties": {
+          "method": {
+            "const": "assignment.stop"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "params"
+        ],
+        "properties": {
+          "params": {
+            "$ref": "#/definitions/AssignmentIdParams"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "method"
+        ],
+        "properties": {
+          "method": {
+            "const": "assignment.retry"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "params"
+        ],
+        "properties": {
+          "params": {
+            "$ref": "#/definitions/AssignmentRetryParams"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "method"
+        ],
+        "properties": {
+          "method": {
+            "const": "trace.history"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "params"
+        ],
+        "properties": {
+          "params": {
+            "$ref": "#/definitions/TraceHistoryParams"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "method"
+        ],
+        "properties": {
+          "method": {
+            "const": "trace.subscribe"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "params"
+        ],
+        "properties": {
+          "params": {
+            "$ref": "#/definitions/TraceSubscribeParams"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "method"
+        ],
+        "properties": {
+          "method": {
+            "const": "trace.unsubscribe"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "params"
+        ],
+        "properties": {
+          "params": {
+            "$ref": "#/definitions/TraceUnsubscribeParams"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "method"
+        ],
+        "properties": {
+          "method": {
+            "const": "approval.list"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "params"
+        ],
+        "properties": {
+          "params": {
+            "$ref": "#/definitions/ApprovalListParams"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "method"
+        ],
+        "properties": {
+          "method": {
+            "const": "approval.decide"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "params"
+        ],
+        "properties": {
+          "params": {
+            "$ref": "#/definitions/ApprovalDecideParams"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "method"
+        ],
+        "properties": {
+          "method": {
+            "const": "question.answer"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "params"
+        ],
+        "properties": {
+          "params": {
+            "$ref": "#/definitions/QuestionAnswerParams"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "method"
+        ],
+        "properties": {
+          "method": {
+            "const": "question.list"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "params"
+        ],
+        "properties": {
+          "params": {
+            "$ref": "#/definitions/QuestionListParams"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "method"
+        ],
+        "properties": {
+          "method": {
+            "const": "loop.resolve"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "params"
+        ],
+        "properties": {
+          "params": {
+            "$ref": "#/definitions/LoopResolveParams"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "method"
+        ],
+        "properties": {
+          "method": {
+            "const": "takeover.start"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "params"
+        ],
+        "properties": {
+          "params": {
+            "$ref": "#/definitions/TakeoverStartParams"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "method"
+        ],
+        "properties": {
+          "method": {
+            "const": "takeover.release"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "params"
+        ],
+        "properties": {
+          "params": {
+            "$ref": "#/definitions/TakeoverReleaseParams"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "method"
+        ],
+        "properties": {
+          "method": {
+            "const": "workbench.get"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "params"
+        ],
+        "properties": {
+          "params": {
+            "$ref": "#/definitions/EmptyParams"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "method"
+        ],
+        "properties": {
+          "method": {
+            "const": "skill.list"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "params"
+        ],
+        "properties": {
+          "params": {
+            "$ref": "#/definitions/EmptyParams"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "method"
+        ],
+        "properties": {
+          "method": {
+            "const": "skill.get"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "params"
+        ],
+        "properties": {
+          "params": {
+            "$ref": "#/definitions/SkillNameParams"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "method"
+        ],
+        "properties": {
+          "method": {
+            "const": "skill.create"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "params"
+        ],
+        "properties": {
+          "params": {
+            "$ref": "#/definitions/SkillCreateParams"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "method"
+        ],
+        "properties": {
+          "method": {
+            "const": "skill.update"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "params"
+        ],
+        "properties": {
+          "params": {
+            "$ref": "#/definitions/SkillCreateParams"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "method"
+        ],
+        "properties": {
+          "method": {
+            "const": "skill.delete"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "params"
+        ],
+        "properties": {
+          "params": {
+            "$ref": "#/definitions/SkillNameParams"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "method"
+        ],
+        "properties": {
+          "method": {
+            "const": "skill.set_enabled"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "params"
+        ],
+        "properties": {
+          "params": {
+            "$ref": "#/definitions/SkillSetEnabledParams"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "method"
+        ],
+        "properties": {
+          "method": {
+            "const": "skill.publish"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "params"
+        ],
+        "properties": {
+          "params": {
+            "$ref": "#/definitions/SkillNameParams"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "method"
+        ],
+        "properties": {
+          "method": {
+            "const": "skill.import"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "params"
+        ],
+        "properties": {
+          "params": {
+            "$ref": "#/definitions/SkillImportParams"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "method"
+        ],
+        "properties": {
+          "method": {
+            "const": "routine.list"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "params"
+        ],
+        "properties": {
+          "params": {
+            "$ref": "#/definitions/RoutineListParams"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "method"
+        ],
+        "properties": {
+          "method": {
+            "const": "routine.create"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "params"
+        ],
+        "properties": {
+          "params": {
+            "$ref": "#/definitions/RoutineCreateParams"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "method"
+        ],
+        "properties": {
+          "method": {
+            "const": "routine.update"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "params"
+        ],
+        "properties": {
+          "params": {
+            "$ref": "#/definitions/RoutineUpdateParams"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "method"
+        ],
+        "properties": {
+          "method": {
+            "const": "routine.delete"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "params"
+        ],
+        "properties": {
+          "params": {
+            "$ref": "#/definitions/RoutineIdParams"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "method"
+        ],
+        "properties": {
+          "method": {
+            "const": "routine.set_enabled"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "params"
+        ],
+        "properties": {
+          "params": {
+            "$ref": "#/definitions/RoutineEnabledParams"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "method"
+        ],
+        "properties": {
+          "method": {
+            "const": "routine.test_run"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "params"
+        ],
+        "properties": {
+          "params": {
+            "$ref": "#/definitions/RoutineIdParams"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "method"
+        ],
+        "properties": {
+          "method": {
+            "const": "routine.runs"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "params"
+        ],
+        "properties": {
+          "params": {
+            "$ref": "#/definitions/RoutineIdParams"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "method"
+        ],
+        "properties": {
+          "method": {
+            "const": "provider.list"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "params"
+        ],
+        "properties": {
+          "params": {
+            "$ref": "#/definitions/EmptyParams"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "method"
+        ],
+        "properties": {
+          "method": {
+            "const": "provider.create"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "params"
+        ],
+        "properties": {
+          "params": {
+            "$ref": "#/definitions/ProviderCreateParams"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "method"
+        ],
+        "properties": {
+          "method": {
+            "const": "provider.update"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "params"
+        ],
+        "properties": {
+          "params": {
+            "$ref": "#/definitions/ProviderUpdateParams"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "method"
+        ],
+        "properties": {
+          "method": {
+            "const": "provider.delete"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "params"
+        ],
+        "properties": {
+          "params": {
+            "$ref": "#/definitions/ProviderIdParams"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "method"
+        ],
+        "properties": {
+          "method": {
+            "const": "provider.test"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "params"
+        ],
+        "properties": {
+          "params": {
+            "$ref": "#/definitions/ProviderIdParams"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "method"
+        ],
+        "properties": {
+          "method": {
+            "const": "model.refresh"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "params"
+        ],
+        "properties": {
+          "params": {
+            "$ref": "#/definitions/ProviderIdParams"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "method"
+        ],
+        "properties": {
+          "method": {
+            "const": "model.upsert"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "params"
+        ],
+        "properties": {
+          "params": {
+            "$ref": "#/definitions/ModelUpsertParams"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "method"
+        ],
+        "properties": {
+          "method": {
+            "const": "model.delete"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "params"
+        ],
+        "properties": {
+          "params": {
+            "$ref": "#/definitions/ModelDeleteParams"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "method"
+        ],
+        "properties": {
+          "method": {
+            "const": "settings.get"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "params"
+        ],
+        "properties": {
+          "params": {
+            "$ref": "#/definitions/EmptyParams"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "method"
+        ],
+        "properties": {
+          "method": {
+            "const": "host.permissions"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "params"
+        ],
+        "properties": {
+          "params": {
+            "$ref": "#/definitions/EmptyParams"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "method"
+        ],
+        "properties": {
+          "method": {
+            "const": "settings.update"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "params"
+        ],
+        "properties": {
+          "params": {
+            "$ref": "#/definitions/SettingsUpdateParams"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "method"
+        ],
+        "properties": {
+          "method": {
+            "const": "memory.user.list"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "params"
+        ],
+        "properties": {
+          "params": {
+            "$ref": "#/definitions/EmptyParams"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "method"
+        ],
+        "properties": {
+          "method": {
+            "const": "memory.user.create"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "params"
+        ],
+        "properties": {
+          "params": {
+            "$ref": "#/definitions/MemoryUserCreateParams"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "method"
+        ],
+        "properties": {
+          "method": {
+            "const": "memory.user.update"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "params"
+        ],
+        "properties": {
+          "params": {
+            "$ref": "#/definitions/MemoryUserUpdateParams"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "method"
+        ],
+        "properties": {
+          "method": {
+            "const": "memory.user.delete"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "params"
+        ],
+        "properties": {
+          "params": {
+            "$ref": "#/definitions/MemoryUserDeleteParams"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "method"
+        ],
+        "properties": {
+          "method": {
+            "const": "memory.profile.get"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "params"
+        ],
+        "properties": {
+          "params": {
+            "$ref": "#/definitions/EmptyParams"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "method"
+        ],
+        "properties": {
+          "method": {
+            "const": "memory.profile.update"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "params"
+        ],
+        "properties": {
+          "params": {
+            "$ref": "#/definitions/MemoryProfileUpdateParams"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "method"
+        ],
+        "properties": {
+          "method": {
+            "const": "usage.summary"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "params"
+        ],
+        "properties": {
+          "params": {
+            "$ref": "#/definitions/UsagePeriodParams"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "method"
+        ],
+        "properties": {
+          "method": {
+            "const": "usage.heatmap"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "params"
+        ],
+        "properties": {
+          "params": {
+            "$ref": "#/definitions/UsageHeatmapParams"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "method"
+        ],
+        "properties": {
+          "method": {
+            "const": "usage.timeseries"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "params"
+        ],
+        "properties": {
+          "params": {
+            "$ref": "#/definitions/UsageTimeseriesParams"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "method"
+        ],
+        "properties": {
+          "method": {
+            "const": "usage.breakdown"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "params"
+        ],
+        "properties": {
+          "params": {
+            "$ref": "#/definitions/UsageBreakdownParams"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "method"
+        ],
+        "properties": {
+          "method": {
+            "const": "search"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "params"
+        ],
+        "properties": {
+          "params": {
+            "$ref": "#/definitions/SearchParams"
+          }
+        }
+      }
+    }
+  ],
   "required": [
     "id",
     "kind",

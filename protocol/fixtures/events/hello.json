@@ -12,6 +12,5 @@
   },
   "event": "hello",
   "kind": "evt",
-  "seq": 32,
   "v": 1
 }

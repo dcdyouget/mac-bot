@@ -10,6 +10,5 @@
   },
   "event": "bot.status",
   "kind": "evt",
-  "seq": 36,
   "v": 1
 }

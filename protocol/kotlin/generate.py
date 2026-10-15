@@ -203,7 +203,7 @@ def scalar_expression(key: str, schema: dict, required: bool, registry: dict[str
         kind = schema_kind(target, registry)
         if kind in {"object", "object_union"}:
             name = resolved_ref_name(base, registry)
-            return f"raw[{quoted}]?.jsonObject?.let(::{name})" if nullable else f"{name}(raw.obj({quoted}))"
+            return f"raw.objectOrNull({quoted})?.let(::{name})" if nullable else f"{name}(raw.obj({quoted}))"
         if kind == "scalar":
             base = target
         else:
@@ -213,7 +213,7 @@ def scalar_expression(key: str, schema: dict, required: bool, registry: dict[str
     if base.get("type") == "array":
         item = non_null_schema(base.get("items", {}))
         expression = array_expression(f"raw.arr({quoted})", item, registry)
-        return expression if required else f"if (raw[{quoted}] == null) null else {expression}"
+        return f"if (raw[{quoted}] == null || raw[{quoted}] == JsonNull) null else {expression}" if nullable else expression
     if base.get("type") == "boolean":
         return f"raw.boolOrNull({quoted})" if nullable else f"raw.boolean({quoted})"
     if base.get("type") == "integer":
@@ -298,8 +298,8 @@ def generate_models(objects: dict[str, dict], registry: dict[str, dict]) -> str:
         # the serializer still preserves the complete raw object for the direct
         # wire shapes used by the result fixtures.
         if name == "HeatmapResult" and not properties:
-            lines.append("    val calendar: CalendarHeatmap? get() = raw[\"calendar\"]?.jsonObject?.let(::CalendarHeatmap)")
-            lines.append("    val weekhour: WeekhourHeatmap? get() = raw[\"weekhour\"]?.jsonObject?.let(::WeekhourHeatmap)")
+            lines.append("    val calendar: CalendarHeatmap? get() = raw.objectOrNull(\"calendar\")?.let(::CalendarHeatmap)")
+            lines.append("    val weekhour: WeekhourHeatmap? get() = raw.objectOrNull(\"weekhour\")?.let(::WeekhourHeatmap)")
         required = set(schema.get("required", []))
         for key, property in properties.items():
             if not isinstance(property, dict):

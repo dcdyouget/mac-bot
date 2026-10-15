@@ -1,7 +1,30 @@
 package bot.mac.mobile.core.protocol
 import kotlinx.serialization.json.*
+import bot.mac.mobile.core.protocol.generated.UsageSeries
+import bot.mac.mobile.core.protocol.generated.HeatmapResult
 import kotlin.test.*
 class ProtocolTest {
+    @Test fun nullableGeneratedFieldsPreserveNullAndValues() {
+        for (raw in listOf(buildJsonObject {}, protocolJson.parseToJsonElement("""{"wait":null,"last_message":null,"quote":null,"answer":null,"calendar":null,"weekhour":null,"input_values":null,"output_values":null}""").jsonObject)) {
+            assertNull(bot.mac.mobile.core.protocol.generated.Assignment(raw).wait)
+            assertNull(bot.mac.mobile.core.protocol.generated.Chat(raw).lastMessage)
+            assertNull(bot.mac.mobile.core.protocol.generated.Message(raw).quote)
+            assertNull(bot.mac.mobile.core.protocol.generated.Question(raw).answer)
+            assertNull(HeatmapResult(raw).calendar)
+            assertNull(HeatmapResult(raw).weekhour)
+            assertNull(UsageSeries(raw).inputValues)
+            assertNull(UsageSeries(raw).outputValues)
+        }
+        val value = buildJsonObject { put("marker", "kept") }
+        assertEquals(value, bot.mac.mobile.core.protocol.generated.Assignment(buildJsonObject { put("wait", value) }).wait?.raw)
+        assertEquals(value, bot.mac.mobile.core.protocol.generated.Chat(buildJsonObject { put("last_message", value) }).lastMessage?.raw)
+        assertEquals(value, bot.mac.mobile.core.protocol.generated.Message(buildJsonObject { put("quote", value) }).quote?.raw)
+        assertEquals(value, bot.mac.mobile.core.protocol.generated.Question(buildJsonObject { put("answer", value) }).answer?.raw)
+        val series = UsageSeries(protocolJson.parseToJsonElement("""{"input_values":[],"output_values":[1,2.5]}""").jsonObject)
+        assertEquals(emptyList(), series.inputValues)
+        assertEquals(listOf(1.0, 2.5), series.outputValues)
+    }
+
     @Test fun unknownFieldsAndBlocksRoundTrip() {
         val source = protocolJson.parseToJsonElement("""{"id":"msg_1","extra":{"future":[1,null]},"blocks":[{"type":"future","payload":7}],"fallback_text":"fallback"}""").jsonObject
         val decoded = protocolJson.decodeFromJsonElement(WireObject.serializer(), source)

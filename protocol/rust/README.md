@@ -9,6 +9,14 @@ Generate checked-in schemas from the Rust types:
 cargo run --manifest-path protocol/rust/Cargo.toml --bin generate-schema
 ```
 
+Run protocol tests, including independent JSON Schema validation (requires
+Node.js and npm; the validator has its own pinned dependencies):
+
+```sh
+npm ci --prefix protocol/schema-tests
+cargo test --manifest-path protocol/rust/Cargo.toml
+```
+
 Regenerate the protocol fixture corpus:
 
 ```sh

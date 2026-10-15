@@ -272,14 +272,27 @@ fn login_scenario_preserves_ordered_workflow_and_cursors() {
         let frame: EventFrame = serde_json::from_value(raw.clone()).unwrap();
         let event = raw["event"].as_str().unwrap();
         event_names.insert(event.to_owned());
+        let temporary = matches!(
+            event,
+            "hello"
+                | "sync.done"
+                | "message.delta"
+                | "typing"
+                | "bot.status"
+                | "usage.tick"
+                | "host.status"
+                | "trace.item"
+                | "trace.delta"
+                | "trace.tool_output"
+        );
+        assert_eq!(
+            raw.get("seq").is_none(),
+            temporary,
+            "event does not obey durable/temporary classification: {event}"
+        );
         if let Some(seq) = raw.get("seq").and_then(Value::as_u64) {
             assert!(seq > last_global_seq, "persistent event sequence regressed");
             last_global_seq = seq;
-        } else {
-            assert!(
-                event == "hello" || event.starts_with("trace."),
-                "temporary frame must be hello or trace: {event}"
-            );
         }
 
         match event {

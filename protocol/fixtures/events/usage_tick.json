@@ -12,6 +12,5 @@
   },
   "event": "usage.tick",
   "kind": "evt",
-  "seq": 37,
   "v": 1
 }

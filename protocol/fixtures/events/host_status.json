@@ -7,6 +7,5 @@
   },
   "event": "host.status",
   "kind": "evt",
-  "seq": 38,
   "v": 1
 }
