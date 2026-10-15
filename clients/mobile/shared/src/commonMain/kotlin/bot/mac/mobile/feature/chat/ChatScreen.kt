@@ -104,6 +104,8 @@ import bot.mac.mobile.core.design.BotAvatar
 import bot.mac.mobile.core.design.FontScaleLimit
 import bot.mac.mobile.core.design.LocalMobilePalette
 import bot.mac.mobile.core.design.LocalSystemAnimationsEnabled
+import bot.mac.mobile.feature.group.GroupAvatar
+import bot.mac.mobile.feature.group.groupAvatarMembers
 import bot.mac.mobile.core.state.MobileRepository
 import bot.mac.mobile.core.state.MobileState
 import bot.mac.mobile.core.ui.MarkdownText
@@ -225,6 +227,13 @@ fun ChatScreen(
     var pendingQuoteJump by remember(hostId, chatId) { mutableStateOf<String?>(null) }
     val readOnly = chat?.str("kind") == "bot_dm"
     val memberIds = chat?.arr("member_bot_ids").orEmpty().map { it.toString().trim('"') }
+    val chatProjectId = chat?.str("project_id").orEmpty()
+    val chatProject = state.projects.firstOrNull { it.str("id") == chatProjectId }
+    val groupAvatarMembers = groupAvatarMembers(
+        announcementMembers = state.announcements[chatProjectId]?.arr("members").orEmpty(),
+        projectMembers = chatProject?.arr("members").orEmpty(),
+        chatMemberIds = chat?.arr("member_bot_ids").orEmpty(),
+    )
     val mentionCandidates = state.bots.filter { it.str("id") in memberIds || memberIds.isEmpty() }
     val groupChat = chat?.str("kind") == "project"
     val mainBotChat = chat?.str("kind") == "main"
@@ -631,7 +640,10 @@ fun ChatScreen(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 IconButton(onClick = onBack, modifier = Modifier.semantics { contentDescription = backLabel }) { LucideIcon(LucideIconKind.ArrowLeft, Modifier.size(20.dp)) }
-                if (!groupChat && chatBot != null) {
+                if (groupChat) {
+                    GroupAvatar(repository, groupAvatarMembers, state.bots, 40.dp)
+                    Spacer(Modifier.width(12.dp))
+                } else if (chatBot != null) {
                     BotAvatar(repository, chatBot, main = chatBot.boolean("is_main"), status = chatBot.obj("status")?.str("summary").orEmpty(), size = 40.dp)
                     Spacer(Modifier.width(12.dp))
                 }

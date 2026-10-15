@@ -538,6 +538,13 @@ import org.jetbrains.compose.resources.stringResource
 }
 @Composable private fun ChatRow(chat:JsonObject,state:MobileState,onChat:(String)->Unit,repository:ClientRepository) {
     val bot=state.bots.firstOrNull { it.str("id")==chat.str("bot_id") }
+    val projectId = chat.str("project_id")
+    val project = state.projects.firstOrNull { it.str("id") == projectId }
+    val groupMembers = groupAvatarMembers(
+        announcementMembers = state.announcements[projectId]?.arr("members").orEmpty(),
+        projectMembers = project?.arr("members").orEmpty(),
+        chatMemberIds = chat.arr("member_bot_ids").orEmpty(),
+    )
     val attention=chat.str("attention")
     val pendingApproval = state.approvals.firstOrNull { it.str("chat_id") == chat.str("id") && it.str("state") == "pending" }
     val pendingQuestion = state.questions.firstOrNull { it.str("chat_id") == chat.str("id") && it.str("state") == "pending" }
@@ -623,7 +630,11 @@ import org.jetbrains.compose.resources.stringResource
         verticalAlignment=Alignment.CenterVertically,
         horizontalArrangement=Arrangement.spacedBy(12.dp),
     ) {
-        BotAvatar(repository,bot,chat.str("kind")=="main",bot?.obj("status")?.str("summary") ?: attention, size = 48.dp)
+        if (chat.str("kind") == "project") {
+            GroupAvatar(repository, groupMembers, state.bots, size = 48.dp)
+        } else {
+            BotAvatar(repository,bot,chat.str("kind")=="main",bot?.obj("status")?.str("summary") ?: attention, size = 48.dp)
+        }
         Column(Modifier.weight(1f)) {
             Text(chat.str("title"),style=MaterialTheme.typography.titleMedium,maxLines=1,overflow=TextOverflow.Ellipsis,modifier=Modifier.semantics { contentDescription = rowDescription })
             when {

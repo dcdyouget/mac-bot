@@ -4,6 +4,10 @@ import bot.mac.mobile.core.protocol.boolean
 import bot.mac.mobile.core.protocol.obj
 import bot.mac.mobile.core.protocol.str
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 
 internal data class GroupAvatarLayout(
     val botIds: List<String>,
@@ -15,6 +19,33 @@ internal data class GroupMemberTaskState(
     val status: String,
     val assignmentId: String?,
 )
+
+/** Selects membership from the freshest source; older snapshots only enrich matching IDs. */
+internal fun groupAvatarMembers(
+    announcementMembers: List<JsonElement>,
+    projectMembers: List<JsonElement>,
+    chatMemberIds: List<JsonElement>,
+): List<JsonElement> {
+    val chatIds = chatMemberIds.mapNotNull { member ->
+        val id = when (member) {
+            is JsonPrimitive -> member.content
+            is JsonObject -> member.str("bot_id")
+            else -> ""
+        }.takeIf(String::isNotBlank) ?: return@mapNotNull null
+        id
+    }.distinct()
+    if (chatIds.isNotEmpty()) {
+        val metadata = projectMembers + announcementMembers
+        return chatIds.map { id ->
+            metadata.firstOrNull { (it as? JsonObject)?.str("bot_id") == id } as? JsonObject
+                ?: buildJsonObject { put("bot_id", id) }
+        }
+    }
+    val authoritative = projectMembers.takeIf { it.isNotEmpty() } ?: announcementMembers
+    return authoritative.mapNotNull { member ->
+        (member as? JsonObject)?.takeIf { it.str("bot_id").isNotBlank() }
+    }.distinctBy { it.str("bot_id") }
+}
 
 /** The lead occupies the upper-left cell; the remaining members retain join order. */
 internal fun groupAvatarLayout(members: List<JsonObject>, bots: List<JsonObject>): GroupAvatarLayout {
