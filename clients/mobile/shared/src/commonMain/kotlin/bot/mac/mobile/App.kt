@@ -33,11 +33,11 @@ import bot.mac.mobile.core.state.*
 import bot.mac.mobile.core.platform.PlatformBackHandler
 import bot.mac.mobile.core.platform.DeepLinkKind
 import bot.mac.mobile.core.platform.parseMobileDeepLink
-import bot.mac.mobile.core.platform.resolveHost
-import bot.mac.mobile.core.platform.containsDeepLinkResource
+import bot.mac.mobile.core.platform.resolveDeepLinkNavigation
 import bot.mac.mobile.core.platform.platformLocaleTag
 import bot.mac.mobile.feature.connect.ConnectScreen
 import bot.mac.mobile.feature.connect.OnboardingTemplatesScreen
+import bot.mac.mobile.feature.connect.shouldResetHostScopedRoute
 import bot.mac.mobile.feature.mainbot.MainBotScreen
 import bot.mac.mobile.feature.mainbot.FollowupScreen
 import bot.mac.mobile.feature.trace.TraceScreen
@@ -57,10 +57,12 @@ import bot.mac.mobile.feature.search.SearchScreen
 import bot.mac.mobile.feature.search.searchChatTarget
 import bot.mac.mobile.feature.routines.RoutinesScreen
 import bot.mac.mobile.feature.computer.ComputerScreen
+import bot.mac.mobile.feature.computer.TakeoverOwner
 import bot.mac.mobile.feature.computer.shouldReleaseTakeoverOnHostChange
 import bot.mac.mobile.feature.computer.shouldReleaseTakeoverOnNavigation
 import bot.mac.mobile.resources.*
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.*
@@ -82,7 +84,9 @@ import org.jetbrains.compose.resources.stringResource
     var traceReturnMessageId by rememberSaveable { mutableStateOf("") }
     var traceReturnOffsetPx by rememberSaveable { mutableStateOf(0) }
     var routeHistory by rememberSaveable { mutableStateOf(listOf<String>()) }
+    var routeHostId by rememberSaveable { mutableStateOf(active?.id) }
     var computerTakeoverOwnerHostId by rememberSaveable { mutableStateOf<String?>(null) }
+    var computerTakeoverOwnerBotId by rememberSaveable { mutableStateOf<String?>(null) }
     var computerExitInFlight by remember { mutableStateOf(false) }
     var changesProject by remember { mutableStateOf<String?>(null) }
     var changesText by remember { mutableStateOf("") }
@@ -93,18 +97,33 @@ import org.jetbrains.compose.resources.stringResource
     val snackbarHostState = remember { SnackbarHostState() }
     val attentionMessage = stringResource(Res.string.feature_attention_banner)
     val attentionAction = stringResource(Res.string.feature_attention_open)
-    suspend fun releaseOwnedTakeover(ownerHostId: String, botId: String) {
-        takeoverReleaseMutex.withLock {
-            if (computerTakeoverOwnerHostId == ownerHostId) {
-                runCatching { repository.callOnHost(ownerHostId, "takeover.release", jsonParams("bot_id" to botId)) }
+    fun takeoverOwner(): TakeoverOwner? {
+        val hostId = computerTakeoverOwnerHostId ?: return null
+        val botId = computerTakeoverOwnerBotId ?: return null
+        return TakeoverOwner(hostId, botId)
+    }
+    suspend fun releaseOwnedTakeover(owner: TakeoverOwner): Boolean {
+        return takeoverReleaseMutex.withLock {
+            if (computerTakeoverOwnerHostId == owner.hostId && computerTakeoverOwnerBotId == owner.botId) {
+                try {
+                    repository.callOnHost(owner.hostId, "takeover.release", jsonParams("bot_id" to owner.botId))
+                } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                    throw cancelled
+                } catch (failure: Throwable) {
+                    actionError = failure.message ?: "takeover.release failed"
+                    return@withLock false
+                }
                 computerTakeoverOwnerHostId = null
+                computerTakeoverOwnerBotId = null
             }
+            true
         }
     }
     fun navigate(next: String, id: String = "", second: String = "", pushHistory: Boolean, popHistory: Boolean = false) {
         val routeChanged = next != page || id != target || second != secondTarget
+        val owner = takeoverOwner()
         val releaseTakeover = shouldReleaseTakeoverOnNavigation(
-            page, target, next, id, computerTakeoverOwnerHostId, repository.activeHost.value?.id,
+            page, target, next, id, owner, repository.activeHost.value?.id,
         )
         if (!routeChanged && !releaseTakeover) return
         if (computerExitInFlight) return
@@ -114,13 +133,12 @@ import org.jetbrains.compose.resources.stringResource
             page = next; target = id; secondTarget = second
         }
         if (releaseTakeover) {
-            val ownerHostId = computerTakeoverOwnerHostId ?: return
-            val botId = target
+            val releaseOwner = owner ?: return
             computerExitInFlight = true
             scope.launch {
-                releaseOwnedTakeover(ownerHostId, botId)
+                val released = releaseOwnedTakeover(releaseOwner)
                 computerExitInFlight = false
-                if (routeChanged) changeRoute()
+                if (released && routeChanged) changeRoute()
             }
         } else if (routeChanged) {
             changeRoute()
@@ -142,25 +160,44 @@ import org.jetbrains.compose.resources.stringResource
         if (chat?.str("kind") == "project") open("group", chat.str("project_id"), messageId.orEmpty())
         else open("chat", id, messageId.orEmpty())
     }
+    fun resetHostScopedRoute(nextHostId: String?) {
+        val owner = takeoverOwner()
+        if (shouldReleaseTakeoverOnHostChange(owner, nextHostId) && owner != null) {
+            // Start release in the App scope while owner identity still exists;
+            // clearing page/target cannot change its Host or bot destination.
+            scope.launch(start = CoroutineStart.UNDISPATCHED) { releaseOwnedTakeover(owner) }
+        }
+        routeHostId = nextHostId
+        page = "home"
+        target = ""
+        secondTarget = ""
+        routeHistory = emptyList()
+        traceReturnHostId = ""
+        traceReturnChatId = ""
+        traceReturnMessageId = ""
+        traceReturnOffsetPx = 0
+        changesProject = null
+        changesText = ""
+        actionError = null
+    }
     val artifactMissing = stringResource(Res.string.artifact_not_found)
     val openArtifact: (String,String,String?) -> Unit = { id,path,projectId ->
         if(path.startsWith("http://") || path.startsWith("https://") || !projectId.isNullOrBlank()) open("file",projectId.orEmpty(),path)
-        else scope.launch { runCatching {
+        else repository.activeHost.value?.id?.let { requestHostId -> scope.launch { runCatching {
             var found=false
-            for(project in repository.call("project.list").objects("projects")) {
+            for(project in repository.callOnHost(requestHostId, "project.list").objects("projects")) {
                 val pid=project.str("id")
-                val artifact=repository.call("project.get",jsonParams("project_id" to pid)).obj("announcement").objects("artifacts").firstOrNull{it.str("id")==id}
-                if(artifact!=null) { open("file",pid,artifact.str("path_or_url"));found=true;break }
+                val artifact=repository.callOnHost(requestHostId, "project.get", jsonParams("project_id" to pid)).obj("announcement").objects("artifacts").firstOrNull{it.str("id")==id}
+                if(artifact!=null) { if (repository.activeHost.value?.id == requestHostId) open("file",pid,artifact.str("path_or_url"));found=true;break }
             }
-            if(!found) actionError=artifactMissing
-        }.onFailure{actionError=it.message} }
+            if(!found && repository.activeHost.value?.id == requestHostId) actionError=artifactMissing
+        }.onFailure{if(repository.activeHost.value?.id == requestHostId) actionError=it.message} } }
     }
     LaunchedEffect(Unit) { repository.initialize() }
-    LaunchedEffect(active?.id, page, target, computerTakeoverOwnerHostId) {
-        val ownerHostId = computerTakeoverOwnerHostId ?: return@LaunchedEffect
-        if (shouldReleaseTakeoverOnHostChange(page, ownerHostId, active?.id)) {
-            releaseOwnedTakeover(ownerHostId, target)
-        }
+    LaunchedEffect(active?.id) {
+        val nextHostId = active?.id
+        if (shouldResetHostScopedRoute(routeHostId, nextHostId)) resetHostScopedRoute(nextHostId)
+        else routeHostId = nextHostId
     }
     LaunchedEffect(active?.id, page, target) {
         repository.hostEvents.collect { hostEvent ->
@@ -210,30 +247,49 @@ import org.jetbrains.compose.resources.stringResource
             return@LaunchedEffect
         }
         repository.initialize()
-        val hostId = link.resolveHost(
-            repository.hosts.value.map { it.id }.toSet(),
-            repository.activeHost.value?.id,
+        val destination = resolveDeepLinkNavigation(
+            link = link,
+            currentHostId = repository.activeHost.value?.id,
+            knownHostIds = repository.hosts.value.map { it.id }.toSet(),
+            selectHost = { hostId -> repository.selectHost(hostId) },
+            stateForHost = { hostId -> repository.hostStates.value[hostId] ?: MobileState() },
+            onHostSwitch = ::resetHostScopedRoute,
         )
-        if (hostId == null) {
+        if (destination == null) {
             repository.deepLink.value = null
             return@LaunchedEffect
         }
-        repository.selectHost(hostId)
-        if (!repository.state.value.containsDeepLinkResource(link)) {
-            repository.deepLink.value = null
-            return@LaunchedEffect
-        }
-        when (link.kind) {
-            DeepLinkKind.APPROVAL -> open("approvals", link.resourceId)
-            DeepLinkKind.REVIEW -> open("group", link.resourceId)
-            DeepLinkKind.CHAT -> openChat(link.resourceId, link.messageId)
-            DeepLinkKind.COMPUTER -> open("computer", link.resourceId)
+        when (destination.kind) {
+            DeepLinkKind.APPROVAL -> open("approvals", destination.resourceId)
+            DeepLinkKind.REVIEW -> open("group", destination.resourceId)
+            DeepLinkKind.CHAT -> openChat(destination.resourceId, destination.messageId)
+            DeepLinkKind.COMPUTER -> open("computer", destination.resourceId)
         }
         repository.deepLink.value = null
     }
     PlatformBackHandler(page != "home", back)
     MacBotTheme(theme) {
-        changesProject?.let { projectId -> AlertDialog(onDismissRequest={changesProject=null},title={Text(stringResource(Res.string.review_changes_title))},text={Column { OutlinedTextField(changesText,{changesText=it},label={Text(stringResource(Res.string.review_changes_hint))});actionError?.let{Text(it,color=MaterialTheme.colorScheme.error)} }},confirmButton={TextButton(enabled=changesText.isNotBlank(),onClick={scope.launch{runCatching{repository.call("project.request_changes",jsonParams("project_id" to projectId,"text" to changesText))}.onSuccess{changesProject=null}.onFailure{actionError=it.message}}}){Text(stringResource(Res.string.review_changes_submit))}},dismissButton={TextButton(onClick={changesProject=null}){Text(stringResource(Res.string.common_cancel))}}) }
+        changesProject?.let { projectId ->
+            AlertDialog(
+                onDismissRequest = { changesProject = null },
+                title = { Text(stringResource(Res.string.review_changes_title)) },
+                text = { Column {
+                    OutlinedTextField(changesText, { changesText = it }, label = { Text(stringResource(Res.string.review_changes_hint)) })
+                    actionError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+                } },
+                confirmButton = {
+                    TextButton(enabled = changesText.isNotBlank(), onClick = {
+                        val requestHostId = active?.id
+                        if (requestHostId != null) scope.launch {
+                            runCatching { repository.callOnHost(requestHostId, "project.request_changes", jsonParams("project_id" to projectId, "text" to changesText)) }
+                                .onSuccess { if (repository.activeHost.value?.id == requestHostId) changesProject = null }
+                                .onFailure { if (repository.activeHost.value?.id == requestHostId) actionError = it.message }
+                        }
+                    }) { Text(stringResource(Res.string.review_changes_submit)) }
+                },
+                dismissButton = { TextButton(onClick = { changesProject = null }) { Text(stringResource(Res.string.common_cancel)) } },
+            )
+        }
         Surface(Modifier.fillMaxSize()) {
             Scaffold(
                 containerColor = LocalMobilePalette.current.window,
@@ -273,6 +329,7 @@ import org.jetbrains.compose.resources.stringResource
                         }
                         Text(stringResource(message), Modifier.fillMaxWidth().semantics { liveRegion = LiveRegionMode.Polite }.background(LocalMobilePalette.current.warningSoft).clickable { open("connect") }.padding(horizontal = 16.dp, vertical = 8.dp), style = MaterialTheme.typography.bodySmall, color = LocalMobilePalette.current.warning)
                     }
+                    androidx.compose.runtime.key(active?.id) {
                     when {
                         page == "connect" || hosts.isEmpty() -> ConnectScreen(
                             repository = repository,
@@ -310,7 +367,10 @@ import org.jetbrains.compose.resources.stringResource
                             onRememberTraceAnchor = { chatId, messageId, offsetPx -> active?.id?.let { hostId -> traceReturnHostId = hostId; traceReturnChatId = chatId; traceReturnMessageId = messageId; traceReturnOffsetPx = offsetPx } },
                             onTraceAnchorRestored = { chatId -> if (traceReturnHostId == active?.id && traceReturnChatId == chatId) { traceReturnHostId = ""; traceReturnChatId = ""; traceReturnMessageId = ""; traceReturnOffsetPx = 0 } },
                             onInitialMessageConsumed = { chatId, messageId -> if (page == "chat" && target == chatId && secondTarget == messageId) secondTarget = "" },
-                            onOpenTrace = { assignment, chat -> open("trace", assignment.orEmpty(), chat.orEmpty()) }, onOpenProject = { open("group", it) }, onOpenProjectMessage = { projectId, messageId -> open("group", projectId, messageId.orEmpty()) }, onBack = back, onProjectAction = { projectId, action -> if (action == "confirm_done") scope.launch { runCatching { repository.call("project.confirm_done",jsonParams("project_id" to projectId)) }.onFailure { actionError=it.message } } else { changesProject=projectId;changesText="" } }, onOpenScreen={bot,tabId->open("computer",bot,tabId.orEmpty())},onOpenChat={openChat(it)},onLoopAction={id,action->scope.launch{runCatching{repository.call("loop.resolve",jsonParams("root_message_id" to id,"action" to action))}.onFailure{actionError=it.message}}},onTakeover={open("computer",it)},onOpenArtifact=openArtifact,onOpenHistory={open("history",it)},onOpenFollowup={open("followup",it)},onCreateSkill={ open("skills", "", it) })
+                            onOpenTrace = { assignment, chat -> open("trace", assignment.orEmpty(), chat.orEmpty()) }, onOpenProject = { open("group", it) }, onOpenProjectMessage = { projectId, messageId -> open("group", projectId, messageId.orEmpty()) }, onBack = back, onProjectAction = { projectId, action ->
+                                if (action == "confirm_done") repository.activeHost.value?.id?.let { requestHostId -> scope.launch { runCatching { repository.callOnHost(requestHostId, "project.confirm_done", jsonParams("project_id" to projectId)) }.onFailure { if (repository.activeHost.value?.id == requestHostId) actionError=it.message } } }
+                                else { changesProject=projectId; changesText="" }
+                            }, onOpenScreen={bot,tabId->open("computer",bot,tabId.orEmpty())},onOpenChat={openChat(it)},onLoopAction={id,action->repository.activeHost.value?.id?.let { requestHostId -> scope.launch{runCatching{repository.callOnHost(requestHostId,"loop.resolve",jsonParams("root_message_id" to id,"action" to action))}.onFailure{if(repository.activeHost.value?.id == requestHostId) actionError=it.message}}}},onTakeover={open("computer",it)},onOpenArtifact=openArtifact,onOpenHistory={open("history",it)},onOpenFollowup={open("followup",it)},onCreateSkill={ open("skills", "", it) })
                         page == "group" -> GroupScreen(repository = repository, projectId = target, initialMessageId = secondTarget.takeIf { it != "edit_announcement" },
                             initialScrollAnchorMessageId = traceReturnMessageId.takeIf {
                                 traceReturnHostId == active?.id && traceReturnChatId == (
@@ -328,7 +388,7 @@ import org.jetbrains.compose.resources.stringResource
                                     ?: repository.state.value.chats.firstOrNull { it.str("kind") == "project" && it.str("project_id") == target }?.str("id")
                                 if (page == "group" && chatId == groupChatId && secondTarget == messageId) secondTarget = ""
                             },
-                            onOpenTrace = { open("trace", it) }, onBack = back,onOpenScreen={bot,tabId->open("computer",bot,tabId.orEmpty())},onOpenChat={openChat(it)},onLoopAction={id,action->scope.launch{runCatching{repository.call("loop.resolve",jsonParams("root_message_id" to id,"action" to action))}.onFailure{actionError=it.message}}},onTakeover={open("computer",it)},onOpenProject={open("group",it)},onOpenProjectMessage={projectId,messageId->open("group",projectId,messageId.orEmpty())},onOpenArtifact=openArtifact,onOpenHistory={open("history",it)},onOpenHome={open("file",target,"")},onCopyHome={clipboard.setText(AnnotatedString(it))},onOpenGroupInfo={open("groupinfo",it)},onCreateSkill={ open("skills", "", it) },editAnnouncementOnOpen=secondTarget=="edit_announcement")
+                            onOpenTrace = { open("trace", it) }, onBack = back,onOpenScreen={bot,tabId->open("computer",bot,tabId.orEmpty())},onOpenChat={openChat(it)},onLoopAction={id,action->repository.activeHost.value?.id?.let { requestHostId -> scope.launch{runCatching{repository.callOnHost(requestHostId,"loop.resolve",jsonParams("root_message_id" to id,"action" to action))}.onFailure{if(repository.activeHost.value?.id == requestHostId) actionError=it.message}}}},onTakeover={open("computer",it)},onOpenProject={open("group",it)},onOpenProjectMessage={projectId,messageId->open("group",projectId,messageId.orEmpty())},onOpenArtifact=openArtifact,onOpenHistory={open("history",it)},onOpenHome={open("file",target,"")},onCopyHome={clipboard.setText(AnnotatedString(it))},onOpenGroupInfo={open("groupinfo",it)},onCreateSkill={ open("skills", "", it) },editAnnouncementOnOpen=secondTarget=="edit_announcement")
                         page == "groupinfo" -> GroupInfoScreen(repository, target, back, onEditAnnouncement = { open("group", it, "edit_announcement") }, onOpenHome = { open("file", target, it) }, onCopyHome = { clipboard.setText(AnnotatedString(it)) }, onOpenArtifact = openArtifact,
                             onOpenDecisionChat = { chatId, messageId -> openChat(chatId, messageId) }, onOpenApproval = { open("approvals", it) }, onOpenQuestion = { id -> repository.state.value.questions.firstOrNull { it.str("id") == id }?.str("chat_id")?.takeIf(String::isNotBlank)?.let { openChat(it) } ?: open("approvals") })
                         page == "followup" -> FollowupScreen(repository, target, onBack = back, onOpenProject = { open("group", it) }, onOpenChat = { chatId, messageId -> openChat(chatId, messageId) }, onOpenTrace = { assignment, chat -> open("trace", assignment, chat.orEmpty()) }, onOpenApproval = { open("approvals", it) }, onOpenQuestion = { id ->
@@ -365,21 +425,25 @@ import org.jetbrains.compose.resources.stringResource
                         page == "dashboard" -> DashboardScreen(repository, back, { open("connect") })
                         page == "skills" -> SkillsScreen(repository, back, secondTarget.takeIf(String::isNotBlank))
                         page == "routines" -> RoutinesScreen(repository, { open("trace", it) }, back)
-                        page == "computer" -> ComputerScreen(repository, target, secondTarget.ifBlank { null }, back) { computerTakeoverOwnerHostId = it }
+                        page == "computer" -> ComputerScreen(repository, target, secondTarget.ifBlank { null }, back) { owner ->
+                            computerTakeoverOwnerHostId = owner?.hostId
+                            computerTakeoverOwnerBotId = owner?.botId
+                        }
                         page == "search" -> SearchScreen(repository, { result ->
                             when (result.str("kind")) {
                                 "bot" -> open("bot_editor", result.str("id")); "routine" -> open("routines");
                                 "artifact" -> {
-                                    scope.launch { runCatching {
-                                        val projects=repository.call("project.list").objects("projects")
+                                    val requestHostId = active?.id
+                                    if (requestHostId != null) scope.launch { runCatching {
+                                        val projects=repository.callOnHost(requestHostId, "project.list").objects("projects")
                                         var found=false
                                         for(project in projects) {
                                             val projectId=project.str("id")
-                                            val artifact=repository.call("project.get",jsonParams("project_id" to projectId)).obj("announcement").objects("artifacts").firstOrNull{it.str("id")==result.str("id")}
-                                            if(artifact!=null) { open("file",artifact.str("root_id").ifBlank{projectId},artifact.str("path_or_url"));found=true;break }
+                                            val artifact=repository.callOnHost(requestHostId, "project.get",jsonParams("project_id" to projectId)).obj("announcement").objects("artifacts").firstOrNull{it.str("id")==result.str("id")}
+                                            if(artifact!=null) { if (repository.activeHost.value?.id == requestHostId) open("file",artifact.str("root_id").ifBlank{projectId},artifact.str("path_or_url"));found=true;break }
                                         }
-                                        if(!found) result.str("chat_id").takeIf{it.isNotBlank()}?.let{openChat(it)}
-                                    }.onFailure{actionError=it.message} }
+                                        if(!found && repository.activeHost.value?.id == requestHostId) result.str("chat_id").takeIf{it.isNotBlank()}?.let{openChat(it)}
+                                    }.onFailure{if(repository.activeHost.value?.id == requestHostId) actionError=it.message} }
                                 }
                                 else -> searchChatTarget(result)?.let { openChat(it.chatId, it.messageId) }
                             }
@@ -389,6 +453,7 @@ import org.jetbrains.compose.resources.stringResource
                             1 -> WorkbenchScreen(repository, { open("trace", it) }, { open("group", it) },onOpenApproval={open("approvals",it)},onOpenQuestion={open("approvals",it)},onOpenComputer={bot,tabId->open("computer",bot,tabId.orEmpty())})
                             else -> MineScreen(repository) { open(it) }
                         }
+                    }
                     }
                 }
             }
@@ -506,14 +571,15 @@ import org.jetbrains.compose.resources.stringResource
                     Modifier.width(72.dp).fillMaxHeight().background(when (action) { "pin" -> LocalMobilePalette.current.accent; "done" -> LocalMobilePalette.current.success; else -> LocalMobilePalette.current.textSecondary })
                         .clickable {
                             if (action == "done" && projectId.isBlank()) return@clickable
+                            val requestHostId = repository.activeHost.value?.id ?: return@clickable
                             scope.launch {
                                 runCatching {
                                     when (action) {
-                                        "pin" -> repository.call("chat.set_pinned", buildJsonObject { put("chat_id", chat.str("id")); put("pinned", !chat.boolean("pinned")) })
-                                        "mute" -> repository.call("chat.set_muted", buildJsonObject { put("chat_id", chat.str("id")); put("muted", !chat.boolean("muted")) })
-                                        else -> repository.call("project.confirm_done", buildJsonObject { put("project_id", projectId) })
+                                        "pin" -> repository.callOnHost(requestHostId, "chat.set_pinned", buildJsonObject { put("chat_id", chat.str("id")); put("pinned", !chat.boolean("pinned")) })
+                                        "mute" -> repository.callOnHost(requestHostId, "chat.set_muted", buildJsonObject { put("chat_id", chat.str("id")); put("muted", !chat.boolean("muted")) })
+                                        else -> repository.callOnHost(requestHostId, "project.confirm_done", buildJsonObject { put("project_id", projectId) })
                                     }
-                                }.onFailure { rowError = it.message ?: "" }
+                                }.onFailure { if (repository.activeHost.value?.id == requestHostId) rowError = it.message ?: "" }
                                 swipeOffset = 0f
                             }
                         }, verticalArrangement=Arrangement.Center, horizontalAlignment=Alignment.CenterHorizontally,
@@ -607,7 +673,10 @@ private fun chatAttentionRank(chat: JsonObject, state: MobileState): Int = when 
 @Composable private fun MineScreen(repository: ClientRepository, onOpen:(String)->Unit) {
     val state by repository.state.collectAsState()
     val activeHost by repository.activeHost.collectAsState()
-    LaunchedEffect(activeHost?.id) { if (activeHost != null) runCatching { repository.call("memory.user.list") } }
+    LaunchedEffect(activeHost?.id) {
+        val requestHostId = activeHost?.id ?: return@LaunchedEffect
+        runCatching { repository.callOnHost(requestHostId, "memory.user.list") }
+    }
     Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surfaceContainer)) {
         FontScaleToolbar { Text(stringResource(Res.string.nav_tab_me),Modifier.padding(24.dp),style=MaterialTheme.typography.headlineSmall) }
         Text(stringResource(Res.string.mine_subtitle),Modifier.padding(horizontal=24.dp),style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)

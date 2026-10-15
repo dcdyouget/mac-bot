@@ -42,6 +42,56 @@ class MainConnectionHostIntegrationTest {
     private val json = Json { ignoreUnknownKeys = true }
 
     @Test
+    fun replayBarrierCannotAcknowledgeMissingEvents() = runBlocking {
+        val server = MockWebServer()
+        server.enqueue(upgrade { socket, request ->
+            if (request.string("method") == "session.resume") {
+                socket.send(response(request.id(), buildJsonObject { put("mode", "replay") }))
+                socket.send(event("sync.done", buildJsonObject { put("seq", 2) }))
+            }
+        })
+        server.start()
+        val client = HttpClient(OkHttp) { install(WebSockets) }
+        val scope = kotlinx.coroutines.CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val store = InMemoryLastSeqStore()
+        val connection = MainConnection(client, host(server), identity(), store, scope)
+        try {
+            connection.start()
+            val status = withTimeout(5_000) { connection.snapshot.first { it.status == ConnectionStatus.CONNECTED || it.error != null } }
+            assertTrue(status.status != ConnectionStatus.CONNECTED)
+            assertEquals(0L, store.get("integration"))
+        } finally { connection.stop(); scope.cancel(); client.close(); server.close() }
+    }
+
+    @Test
+    fun liveGapDoesNotSkipTheMissingSequence() = runBlocking {
+        val server = MockWebServer()
+        val socketReady = CompletableDeferred<WebSocket>()
+        server.enqueue(upgrade { socket, request ->
+            if (request.string("method") == "session.resume") {
+                socket.send(response(request.id(), buildJsonObject { put("mode", "replay") }))
+                socket.send(event("sync.done", buildJsonObject { put("seq", 0) }))
+                socketReady.complete(socket)
+            }
+        })
+        server.start()
+        val client = HttpClient(OkHttp) { install(WebSockets) }
+        val scope = kotlinx.coroutines.CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val store = InMemoryLastSeqStore()
+        val received = Channel<MainEvent>(Channel.UNLIMITED)
+        val connection = MainConnection(client, host(server), identity(), store, scope, onEvent = { received.send(it) })
+        try {
+            connection.start()
+            withTimeout(5_000) { connection.status.first { it == ConnectionStatus.CONNECTED } }
+            socketReady.await().send(event("sync.cursor", buildJsonObject { put("seq", 2) }, 2))
+            withTimeout(5_000) { connection.snapshot.first { it.lastSeq == 2L || it.error != null } }
+            assertEquals(0L, store.get("integration"))
+            assertEquals(0L, connection.snapshot.value.lastSeq)
+            assertTrue(received.drain().none { it is MainEvent.Persistent })
+        } finally { connection.stop(); scope.cancel(); client.close(); server.close() }
+    }
+
+    @Test
     fun bootstrapResponseRaceFlushesPersistentEventAndCursor() {
         runBlocking {
         val server = MockWebServer()
@@ -117,7 +167,7 @@ class MainConnectionHostIntegrationTest {
             val store = InMemoryLastSeqStore()
             val received = Channel<MainEvent>(Channel.UNLIMITED)
             val connection = MainConnection(
-                client, host(server), identity(), store, scope,
+                client, host(server).copy(lastSeq = 1), identity(), store, scope,
                 onEvent = { received.send(it) },
             )
             try {
@@ -543,7 +593,7 @@ class MainConnectionHostIntegrationTest {
     private fun JsonObject.id(): String = string("id") ?: error("missing id")
     private fun JsonObject.params(): JsonObject = this["params"]?.jsonObject ?: buildJsonObject { }
 
-    private fun Channel<ConnectionDiagnostic>.drain(): List<ConnectionDiagnostic> = buildList {
+    private fun <T> Channel<T>.drain(): List<T> = buildList {
         while (true) add(tryReceive().getOrNull() ?: break)
     }
 }

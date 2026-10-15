@@ -26,21 +26,26 @@ object RpcStateReducer {
             if (result[plural] is JsonArray && method == listMethod) {
                 val objects = if (plural == "questions") QuestionListResult(result).questions.map { it.raw } else result.objects(plural)
                 next = when (plural) {
-                    "bots" -> next.copy(bots = objects); "chats" -> next.copy(chats = objects); "projects" -> next.copy(projects = objects)
-                    "approvals" -> next.copy(approvals = objects)
+                    "bots" -> next.copy(bots = if (params["include_hidden"] == JsonPrimitive(true)) objects else mergeById(next.bots.filter { it["hidden"] == JsonPrimitive(true) }, objects))
+                    // Chat has no archived flag; an unfiltered response is the only
+                    // authoritative whole-cache replacement.
+                    "chats" -> next.copy(chats = if (params["include_archived"] == JsonPrimitive(true)) objects else mergeById(next.chats, objects))
+                    "projects" -> next.copy(projects = if (params["status"] is JsonArray) mergeById(next.projects, objects) else objects)
+                    "approvals" -> next.copy(approvals = if (params["state"] is JsonArray) mergeById(next.approvals, objects) else objects)
                     "questions" -> {
                         val chatId = params.str("chat_id")
                         val assignmentId = params.str("assignment_id")
                         if (chatId.isBlank() && assignmentId.isBlank()) next.copy(questions = objects)
                         else {
                             val replaced = next.questions.filterNot { question ->
-                                (chatId.isNotBlank() && question.str("chat_id") == chatId) ||
-                                    (assignmentId.isNotBlank() && question.str("assignment_id") == assignmentId)
+                                (chatId.isBlank() || question.str("chat_id") == chatId) &&
+                                    (assignmentId.isBlank() || question.str("assignment_id") == assignmentId) &&
+                                    ((params["state"] as? JsonArray)?.let { question["state"] in it } ?: true)
                             }
                             next.copy(questions = mergeById(replaced, objects))
                         }
                     }
-                    "skills" -> next.copy(skills = objects); "routines" -> next.copy(routines = objects)
+                    "skills" -> next.copy(skills = objects); "routines" -> next.copy(routines = if (params.str("bot_id").isNotBlank()) mergeById(next.routines, objects) else objects)
                     else -> next
                 }
             }

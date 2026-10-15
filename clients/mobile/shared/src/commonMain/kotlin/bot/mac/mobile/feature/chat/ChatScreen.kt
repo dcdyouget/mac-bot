@@ -118,6 +118,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import bot.mac.mobile.core.network.ScreenConnection
 import bot.mac.mobile.core.network.RandomIdGenerator
+import bot.mac.mobile.core.network.NetworkError
+import kotlinx.coroutines.CancellationException
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.toLocalDateTime
 import kotlin.time.Clock
@@ -178,6 +180,7 @@ fun ChatScreen(
     var attachments by remember(hostId, chatId) { mutableStateOf(emptyList<ChatAttachmentItem>()) }
     var showAttachmentMenu by remember(hostId, chatId) { mutableStateOf(false) }
     var error by remember(hostId, chatId) { mutableStateOf<String?>(null) }
+    var answeringQuestionIds by remember(hostId, chatId) { mutableStateOf(emptySet<String>()) }
     var filePreviews by remember(hostId, chatId) { mutableStateOf(emptyMap<String, String>()) }
     var imagePreviews by remember(hostId, chatId) { mutableStateOf(emptyMap<String, ImageBitmap>()) }
     var draftLoaded by remember(hostId, chatId) { mutableStateOf(false) }
@@ -727,7 +730,7 @@ fun ChatScreen(
                 val nextMessage = displayMessages.getOrNull(messageIndex + 1)
                 val startsNewDay = previousMessage == null || !sameChatDay(previousMessage, message)
                 val hasTimeSeparator = previousMessage != null && hasChatTimeSeparator(previousMessage, message)
-                if (startsNewDay) stickyHeader(key = "$hostId:$chatId:day:${chatDayKey(message.str("created_at"))}") {
+                if (startsNewDay) stickyHeader(key = chatDayHeaderKey(hostId, chatId, chatDayKey(message.str("created_at")), message)) {
                     ChatDayCapsule(message.str("created_at"))
                 }
                 if (hasTimeSeparator) item(key = "$hostId:$chatId:time:${message.str("id")}") {
@@ -746,6 +749,7 @@ fun ChatScreen(
                     hostId = hostId,
                     chatId = chatId,
                     repository = repository,
+                    answeringQuestionIds = answeringQuestionIds,
                     showSender = !followsSameAuthor,
                     showAvatar = !continuesSameAuthor,
                     followsSameAuthor = followsSameAuthor,
@@ -782,12 +786,36 @@ fun ChatScreen(
                     onOpenTrace = openTraceFromChat,
                     onOpenProjectMessage = onOpenProjectMessage,
                     onApproval = { id, decision -> scope.launch { runCatching { repository.call("approval.decide", buildJsonObject { put("approval_id", id); put("decision", decision) }) }.onFailure { error = it.message ?: sendError } } },
-                    onQuestion = { id, index, indexes, text -> scope.launch { runCatching { repository.call("question.answer", buildJsonObject {
-                        put("question_id", id)
-                        index?.let { put("option_index", it) }
-                        indexes?.let { values -> put("option_indexes", buildJsonArray { values.forEach { add(JsonPrimitive(it)) } }) }
-                        text?.let { put("text", it) }
-                    }) }.onFailure { error = it.message ?: sendError } } },
+                    onQuestion = { id, index, indexes, text ->
+                        if (id !in answeringQuestionIds) {
+                            answeringQuestionIds = answeringQuestionIds + id
+                            scope.launch {
+                                try {
+                                    repository.callOnHost(hostId, "question.answer", buildJsonObject {
+                                        put("question_id", id)
+                                        index?.let { put("option_index", it) }
+                                        indexes?.let { values -> put("option_indexes", buildJsonArray { values.forEach { add(JsonPrimitive(it)) } }) }
+                                        text?.let { put("text", it) }
+                                    })
+                                } catch (cancelled: CancellationException) {
+                                    throw cancelled
+                                } catch (failure: Throwable) {
+                                    error = failure.message ?: sendError
+                                    if ((failure as? NetworkError)?.code == "conflict") {
+                                        try {
+                                            repository.callOnHost(hostId, "question.list", buildJsonObject { put("chat_id", chatId) })
+                                        } catch (cancelled: CancellationException) {
+                                            throw cancelled
+                                        } catch (_: Throwable) {
+                                            // Keep the original answer error visible if refresh also fails.
+                                        }
+                                    }
+                                } finally {
+                                    answeringQuestionIds = answeringQuestionIds - id
+                                }
+                            }
+                        }
+                    },
                     onPreviewFile = { file ->
                         scope.launch {
                             val ref = fileRef(file)
@@ -1278,6 +1306,7 @@ internal fun ChatMessageRow(
     onReleaseTakeover: (String) -> Unit,
     onOpenArtifact: (String, String, String?) -> Unit,
     artifactProjectId: String?,
+    answeringQuestionIds: Set<String> = emptySet(),
 ) {
     val palette = LocalMobilePalette.current
     val closeActionsLabel = stringResource(Res.string.common_close)
@@ -1583,10 +1612,11 @@ internal fun ChatMessageRow(
                                 onOpenArtifact = onOpenArtifact,
                                 artifactProjectId = artifactProjectId,
                                 repository = repository,
+                                answeringQuestionIds = answeringQuestionIds,
                             )
                     } else {
                         BlockView(block, state, onApproval, onQuestion, onPreviewFile, onExportFile, filePreviews, imagePreviews,
-                            onOpenTrace, openProjectFromMessage, onProjectAction, onOpenScreen, onOpenChat, onLoopAction, onTakeover, onReleaseTakeover, onOpenArtifact, artifactProjectId, repository)
+                            onOpenTrace, openProjectFromMessage, onProjectAction, onOpenScreen, onOpenChat, onLoopAction, onTakeover, onReleaseTakeover, onOpenArtifact, artifactProjectId, repository, answeringQuestionIds)
                     }
                 }
                 if (assignmentId.isNotBlank() && !isGroupChat) {
@@ -1657,6 +1687,7 @@ private fun MessageQuestionDeck(
     onOpenArtifact: (String, String, String?) -> Unit,
     artifactProjectId: String?,
     repository: MobileRepository,
+    answeringQuestionIds: Set<String>,
 ) {
     val palette = LocalMobilePalette.current
     val previousQuestionLabel = stringResource(Res.string.feature_question_previous)
@@ -1727,7 +1758,7 @@ private fun MessageQuestionDeck(
             }
             questionBlocks.getOrNull(selectedQuestion)?.let { block ->
                 BlockView(block, state, onApproval, onQuestion, onPreviewFile, onExportFile, filePreviews, imagePreviews,
-                    onOpenTrace, onOpenProject, onProjectAction, onOpenScreen, onOpenChat, onLoopAction, onTakeover, onReleaseTakeover, onOpenArtifact, artifactProjectId, repository)
+                    onOpenTrace, onOpenProject, onProjectAction, onOpenScreen, onOpenChat, onLoopAction, onTakeover, onReleaseTakeover, onOpenArtifact, artifactProjectId, repository, answeringQuestionIds)
             }
         }
     }
@@ -1928,6 +1959,7 @@ private fun BlockView(
     onOpenArtifact: (String, String, String?) -> Unit,
     artifactProjectId: String?,
     repository: MobileRepository,
+    answeringQuestionIds: Set<String> = emptySet(),
     outgoingBubble: Boolean = false,
 ) {
     val kind = block.str("type")
@@ -2108,6 +2140,7 @@ private fun BlockView(
                 ?.str("name")?.takeIf(String::isNotBlank) ?: stringResource(Res.string.feature_bot)
             val options = question?.arr("options").orEmpty().map { it.toString().trim('"') }
             val multi = question?.boolean("multi") == true
+            val submitting = questionId in answeringQuestionIds
             var freeText by remember(questionId) { mutableStateOf("") }
             var showFreeText by remember(questionId) { mutableStateOf(false) }
             var selectedOptions by remember(questionId) { mutableStateOf(emptySet<Int>()) }
@@ -2181,6 +2214,7 @@ private fun BlockView(
                             color = if (selected) LocalMobilePalette.current.accentSoft else LocalMobilePalette.current.panel,
                             shape = RoundedCornerShape(10.dp),
                             border = androidx.compose.foundation.BorderStroke(1.dp, if (selected) MaterialTheme.colorScheme.primary.copy(alpha = .48f) else LocalMobilePalette.current.borderSubtle),
+                            enabled = !submitting,
                             onClick = {
                                 if (multi) selectedOptions = if (selected) selectedOptions - index else selectedOptions + index
                                 else onQuestion(questionId, index, null, null)
@@ -2209,12 +2243,12 @@ private fun BlockView(
                         if (selectedOptions.isNotEmpty()) Text(stringResource(Res.string.block_question_selected_n, selectedOptions.size), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Button(
                         onClick = { onQuestion(questionId, null, selectedOptions.sorted(), null) },
-                        enabled = selectedOptions.isNotEmpty(),
+                        enabled = selectedOptions.isNotEmpty() && !submitting,
                         ) { Text(stringResource(Res.string.feature_submit)) }
                     }
                     if (question.boolean("allow_free_text")) {
                         if (!showFreeText) {
-                            TextButton(onClick = { showFreeText = true }, modifier = Modifier.heightIn(min = 44.dp)) {
+                            TextButton(onClick = { showFreeText = true }, enabled = !submitting, modifier = Modifier.heightIn(min = 44.dp)) {
                                 Text(stringResource(Res.string.block_question_other))
                             }
                         } else {
@@ -2222,10 +2256,11 @@ private fun BlockView(
                                 freeText,
                                 { freeText = it },
                                 Modifier.fillMaxWidth().focusRequester(freeTextFocus),
+                                enabled = !submitting,
                                 label = { Text(stringResource(Res.string.feature_answer)) },
                                 supportingText = { Text(stringResource(Res.string.block_question_free_text_hint)) },
                             )
-                            Button(onClick = { onQuestion(questionId, null, null, freeText) }, enabled = freeText.isNotBlank()) { Text(stringResource(Res.string.feature_submit)) }
+                            Button(onClick = { onQuestion(questionId, null, null, freeText) }, enabled = freeText.isNotBlank() && !submitting) { Text(stringResource(Res.string.feature_submit)) }
                         }
                     }
                 }

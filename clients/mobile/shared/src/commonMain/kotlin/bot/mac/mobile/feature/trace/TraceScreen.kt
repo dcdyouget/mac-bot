@@ -40,6 +40,7 @@ import bot.mac.mobile.core.protocol.str
 import bot.mac.mobile.core.design.FontScaleToolbar
 import bot.mac.mobile.core.design.LocalSystemAnimationsEnabled
 import bot.mac.mobile.core.network.NetworkError
+import bot.mac.mobile.core.network.ConnectionStatus
 import bot.mac.mobile.core.state.MobileRepository
 import bot.mac.mobile.core.ui.MarkdownText
 import bot.mac.mobile.core.ui.LucideIcon
@@ -147,11 +148,12 @@ fun TraceScreen(
         }
     }
 
-    LaunchedEffect(streamKey, state.connected) {
-        if (streamKey.isBlank() || !state.connected) return@LaunchedEffect
+    LaunchedEffect(activeHostId, streamKey, state.connected) {
+        val requestHostId = activeHostId
+        if (requestHostId.isBlank() || streamKey.isBlank() || !state.connected) return@LaunchedEffect
         var localStream: String? = null
         try {
-            val result = repository.call("trace.history", buildJsonObject {
+            val result = repository.callOnHost(requestHostId, "trace.history", buildJsonObject {
                 if (assignmentId != null) put("assignment_id", assignmentId) else put("chat_id", chatId)
                 put("tail", true)
                 put("limit", 200)
@@ -161,7 +163,7 @@ fun TraceScreen(
             val last = result.longValue("last_aseq") ?: items.maxOfOrNull { it.longValue("aseq") ?: 0L } ?: 0L
             live = result.boolean("live")
             if (live) {
-                val sub = repository.call("trace.subscribe", buildJsonObject {
+                val sub = repository.callOnHost(requestHostId, "trace.subscribe", buildJsonObject {
                     if (assignmentId != null) put("assignment_id", assignmentId) else put("chat_id", chatId)
                     put("since_aseq", last)
                 })
@@ -175,10 +177,10 @@ fun TraceScreen(
             error = failure.message ?: traceError
         } finally {
             localStream?.let { streamId ->
-                if (repository.state.value.connected) {
+                if (repository.hostStatuses.value[requestHostId]?.status == ConnectionStatus.CONNECTED) {
                     withContext(NonCancellable) {
                         runCatching {
-                            withTimeout(2_000) { repository.call("trace.unsubscribe", buildJsonObject { put("stream", streamId) }) }
+                            withTimeout(2_000) { repository.callOnHost(requestHostId, "trace.unsubscribe", buildJsonObject { put("stream", streamId) }) }
                         }
                     }
                 }
@@ -231,7 +233,7 @@ fun TraceScreen(
             val assignmentStatus = currentAssignment?.str("status")
             val canStop = assignmentStatus in setOf("queued", "working", "waiting_user", "waiting_bot", "blocked")
             Row(Modifier.fillMaxWidth().height(48.dp).padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                androidx.compose.material3.TextButton(enabled = canStop, onClick = { scope.launch { runCatching { repository.call("assignment.stop", buildJsonObject { put("assignment_id", assignmentId) }) }.onFailure { error = it.message } } }) {
+                androidx.compose.material3.TextButton(enabled = canStop, onClick = { val requestHostId = activeHostId; scope.launch { runCatching { repository.callOnHost(requestHostId, "assignment.stop", buildJsonObject { put("assignment_id", assignmentId) }) }.onFailure { if (it is CancellationException) throw it; if (repository.activeHost.value?.id == requestHostId) error = it.message } } }) {
                     Text(stringResource(Res.string.common_stop), color = MaterialTheme.colorScheme.error)
                 }
                 androidx.compose.material3.TextButton(enabled = canStop, onClick = { steerText = "@${currentBotName} " }) {
@@ -344,13 +346,14 @@ fun TraceScreen(
         LazyColumn(state = traceListState, modifier = Modifier.weight(1f).fillMaxWidth().padding(horizontal = 12.dp), verticalArrangement = Arrangement.spacedBy(1.dp)) {
             if (hasMoreBefore && firstAseq != null) item {
                 Button(onClick = {
+                    val requestHostId = activeHostId
                     scope.launch {
-                        runCatching { repository.call("trace.history", buildJsonObject { if (assignmentId != null) put("assignment_id", assignmentId) else put("chat_id", chatId); put("before_aseq", firstAseq); put("limit", 200) }) }
-                            .onSuccess { result ->
+                        runCatching { repository.callOnHost(requestHostId, "trace.history", buildJsonObject { if (assignmentId != null) put("assignment_id", assignmentId) else put("chat_id", chatId); put("before_aseq", firstAseq); put("limit", 200) }) }
+                            .onSuccess { result -> if (repository.activeHost.value?.id == requestHostId) {
                                 firstAseq = result.longValue("first_aseq") ?: result.objects("items").minOfOrNull { it.longValue("aseq") ?: Long.MAX_VALUE }
                                 hasMoreBefore = result.boolean("has_more_before")
-                            }
-                            .onFailure { error = it.message }
+                            } }
+                            .onFailure { if (it is CancellationException) throw it; if (repository.activeHost.value?.id == requestHostId) error = it.message }
                     }
                 }) { Text(stringResource(Res.string.feature_trace_older)) }
             }
@@ -362,11 +365,12 @@ fun TraceScreen(
                     runCollapsed = item.str("run_id") in collapsedRuns,
                     onToggleRun = { runId -> collapsedRuns = if (runId in collapsedRuns) collapsedRuns - runId else collapsedRuns + runId },
                     onFetchFull = { runId, callId ->
+                        val requestHostId = activeHostId
                         scope.launch {
                             val key = "$runId:$callId"
-                            runCatching { repository.fetchText("/api/v1/trace/output", mapOf("run_id" to runId, "call_id" to callId)) }
-                                .onSuccess { fullOutputs = fullOutputs + (key to it) }
-                                .onFailure { error = it.message }
+                            runCatching { repository.fetchTextOnHost(requestHostId, "/api/v1/trace/output", mapOf("run_id" to runId, "call_id" to callId)) }
+                                .onSuccess { if (repository.activeHost.value?.id == requestHostId) fullOutputs = fullOutputs + (key to it) }
+                                .onFailure { if (it is CancellationException) throw it; if (repository.activeHost.value?.id == requestHostId) error = it.message }
                         }
                     })
             }
@@ -391,11 +395,12 @@ fun TraceScreen(
                 if (assignmentStatus == "failed") Button(
                     enabled = state.connected && !retryingAssignment,
                     onClick = {
+                        val requestHostId = activeHostId
                         retryingAssignment = true
                         scope.launch {
-                            runCatching { repository.call("assignment.retry", buildJsonObject { put("assignment_id", assignmentId) }) }
-                                .onSuccess { result -> result.obj("assignment").str("id").takeIf(String::isNotBlank)?.let(onOpenAssignmentTrace) }
-                                .onFailure { error = it.message }
+                            runCatching { repository.callOnHost(requestHostId, "assignment.retry", buildJsonObject { put("assignment_id", assignmentId) }) }
+                                .onSuccess { result -> if (repository.activeHost.value?.id == requestHostId) result.obj("assignment").str("id").takeIf(String::isNotBlank)?.let(onOpenAssignmentTrace) }
+                                .onFailure { if (it is CancellationException) throw it; if (repository.activeHost.value?.id == requestHostId) error = it.message }
                             retryingAssignment = false
                         }
                     },

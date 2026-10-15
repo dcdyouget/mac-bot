@@ -17,6 +17,36 @@ class RpcStateReducerTest {
         protocolJson.parseToJsonElement(value).jsonObject
 
     @Test
+    fun questionFiltersIntersectAndPreserveOtherStates() {
+        val current = MobileState(questions = listOf(
+            objectOf("""{"id":"other-assignment","chat_id":"chat","assignment_id":"other","state":"pending"}"""),
+            objectOf("""{"id":"answered","chat_id":"chat","assignment_id":"task","state":"answered"}"""),
+            objectOf("""{"id":"pending","chat_id":"chat","assignment_id":"task","state":"pending"}"""),
+        ))
+        val next = RpcStateReducer.apply(current, "question.list", objectOf("""{"chat_id":"chat","assignment_id":"task","state":["pending"]}"""), objectOf("""{"questions":[]}"""))
+        assertEquals(setOf("other-assignment", "answered"), next.questions.map { it.str("id") }.toSet())
+    }
+
+    @Test
+    fun filteredListsPreserveEntitiesOutsideTheirResult() {
+        val other = objectOf("""{"id":"other","state":"resolved","bot_id":"b","status":"done","hidden":true}""")
+        val resultItem = objectOf("""{"id":"selected"}""")
+        val current = MobileState(bots = listOf(other), chats = listOf(other), projects = listOf(other), approvals = listOf(other), routines = listOf(other))
+        val cases = listOf(
+            Triple("bot.list", "{}", "bots"),
+            Triple("chat.list", "{}", "chats"),
+            Triple("project.list", "{\"status\":[\"active\"]}", "projects"),
+            Triple("approval.list", "{\"state\":[\"pending\"]}", "approvals"),
+            Triple("routine.list", "{\"bot_id\":\"a\"}", "routines"),
+        )
+        cases.forEach { (method, params, key) ->
+            val next = RpcStateReducer.apply(current, method, objectOf(params), buildJsonObject { put(key, kotlinx.serialization.json.JsonArray(listOf(resultItem))) })
+            val items = when(key) { "bots" -> next.bots; "chats" -> next.chats; "projects" -> next.projects; "approvals" -> next.approvals; else -> next.routines }
+            assertEquals(setOf("other", "selected"), items.map { it.str("id") }.toSet(), method)
+        }
+    }
+
+    @Test
     fun skillListRpcPopulatesThePickerState() {
         val next = RpcStateReducer.apply(
             MobileState(),

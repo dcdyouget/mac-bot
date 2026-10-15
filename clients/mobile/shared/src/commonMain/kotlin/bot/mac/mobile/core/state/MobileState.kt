@@ -68,7 +68,11 @@ interface MobileRepository {
 fun mergeById(old: List<JsonObject>, incoming: List<JsonObject>, key: String = "id"): List<JsonObject> =
     (old + incoming).associateBy { it.str(key) }.values.toList()
 fun mergeMessages(old: List<JsonObject>, incoming: List<JsonObject>): List<JsonObject> =
-    mergeById(old, incoming).sortedBy { it.long("seq") }
+    mergeById(old, incoming).sortedWith(
+        compareBy<JsonObject> { it.long("seq") }
+            .thenBy { it.str("created_at") }
+            .thenBy { it.str("id") },
+    )
 fun traceKey(item: JsonObject): String = item.str("assignment_id").ifBlank { item.str("chat_id") }
 
 object StateReducer {

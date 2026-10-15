@@ -20,6 +20,26 @@ class StateReducerTest {
         assertEquals("final", result.first().str("fallback_text"))
         assertEquals("read", result.first().objects("delivery").single().str("state"))
     }
+    @Test fun pagedHistoryAndOutOfOrderMessageEventsRemainInCanonicalSequenceOrder() {
+        fun message(id: String, seq: Int, timestamp: String) = objectOf(
+            """{"id":"$id","chat_id":"c","seq":$seq,"created_at":"$timestamp"}""",
+        )
+        val historyPage = listOf(
+            message("m3", 3, "2026-10-15T10:00:00Z"),
+            message("m1", 1, "2026-10-15T09:00:00Z"),
+        )
+        val olderPage = listOf(message("m2", 2, "2026-10-14T23:59:00Z"), message("m1", 1, "2026-10-15T09:00:00Z"))
+        var state = RpcStateReducer.apply(MobileState(), "chat.history", objectOf("""{"chat_id":"c"}"""), objectOf(
+            """{"messages":[${historyPage.joinToString(",")}]}""",
+        ))
+        state = RpcStateReducer.apply(state, "chat.history", objectOf("""{"chat_id":"c"}"""), objectOf(
+            """{"messages":[${olderPage.joinToString(",")}]}""",
+        ))
+        state = StateReducer.event(state, "message.created", objectOf("""{"message":{"id":"m4","chat_id":"c","seq":4,"created_at":"2026-10-15T10:01:00Z"}}"""), 4)
+
+        assertEquals(listOf("m1", "m2", "m3", "m4"), state.messages.getValue("c").map { it.str("id") })
+        assertEquals(listOf(1L, 2L, 3L, 4L), state.messages.getValue("c").map { it.long("seq") })
+    }
     @Test fun loadedSkillsFromMessageUpdatedReplaceHistoryAndAreNotInferredFromDeliveryRead() {
         val history = objectOf("""{"id":"m1","chat_id":"c","seq":1,"sender":{"kind":"user"},"delivery":[{"bot_id":"b","state":"read"}]}""")
         val oldServerUpdate = objectOf("""{"message":{"id":"m1","chat_id":"c","seq":1,"sender":{"kind":"user"},"delivery":[{"bot_id":"b","state":"read"}]}}""")

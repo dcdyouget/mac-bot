@@ -11,6 +11,7 @@ import bot.mac.mobile.core.protocol.obj
 import bot.mac.mobile.core.protocol.str
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
@@ -46,6 +47,115 @@ import java.util.concurrent.CountDownLatch
 import java.util.concurrent.atomic.AtomicBoolean
 
 class ClientRepositoryMultiHostTest {
+    @Test
+    fun acknowledgedWriteKeepsRetryIdWhenBootstrapInvalidatesItsSnapshot() = runBlocking {
+        val hostA = TestHost("node-a")
+        val hostB = TestHost("node-b")
+        val snapshotEntered = CompletableDeferred<Unit>()
+        val releaseSnapshot = CompletableDeferred<Unit>()
+        val armSnapshotBlock = AtomicBoolean(false)
+        val (repository, _) = repositoryWithStorage(hostA, hostB, beforeRpcSnapshotPersist = { method ->
+            if (method == "chat.send" && hostA.chatSendAcknowledged.get() && armSnapshotBlock.compareAndSet(true, false)) {
+                snapshotEntered.complete(Unit)
+                releaseSnapshot.await()
+            }
+        })
+        val params = buildJsonObject {
+            put("chat_id", "chat_bootstrap_retry")
+            put("text", "retry after bootstrap")
+            put("mentions", buildJsonArray {})
+        }
+        try {
+            awaitConnected(repository, "a", "b")
+            val firstSocket = withTimeout(2_000) { hostA.sockets.receive() }
+            hostA.drainRequests()
+            armSnapshotBlock.set(true)
+
+            val staleCall = async { runCatching { repository.callOnHost("a", "chat.send", params) }.exceptionOrNull() }
+            val firstRequest = withTimeout(2_000) { hostA.writeRequests.receive() }
+            withTimeout(2_000) { snapshotEntered.await() }
+            assertEquals(1, hostA.chatSendEffects)
+
+            // The actual WebSocket response succeeded, but the repository has not
+            // committed it. A reset now invalidates that request-local state fence.
+            hostA.bootstrapBots = listOf(buildJsonObject { put("id", "fresh-bot"); put("name", "Fresh") })
+            firstSocket.close(1001, "force reset")
+            withTimeout(5_000) {
+                while (hostA.requests.receive().str("method") != "session.resume") Unit
+            }
+            withTimeout(5_000) {
+                repository.hostStates.first { states -> states["a"]?.bots?.any { it.str("id") == "fresh-bot" } == true }
+            }
+            awaitConnected(repository, "a", "b")
+
+            releaseSnapshot.complete(Unit)
+            assertTrue(withTimeout(5_000) { staleCall.await() } is CancellationException)
+            repository.callOnHost("a", "chat.send", params)
+            val retryRequest = withTimeout(2_000) { hostA.writeRequests.receive() }
+            assertEquals(firstRequest.obj("params").str("client_request_id"), retryRequest.obj("params").str("client_request_id"))
+            assertEquals(1, hostA.chatSendEffects, "same request id must represent one server-side effect")
+        } finally {
+            releaseSnapshot.complete(Unit)
+            repository.scope.cancel()
+            hostA.close()
+            hostB.close()
+        }
+    }
+
+    @Test
+    fun delayedInitialListPreservesNewEventAndDeletionTombstone() = runBlocking {
+        for (deleted in listOf(false, true)) {
+            val hostA = TestHost("node-a")
+            val hostB = TestHost("node-b")
+            val repository = repository(hostA, hostB)
+            try {
+                awaitConnected(repository, "a", "b")
+                hostA.blockMemoryListResponse = true
+                hostA.extraMemoryEntries = listOf(buildJsonObject { put("id", "untouched"); put("content", "initial load") })
+                val response = async { repository.callOnHost("a", "memory.user.list", buildJsonObject {}) }
+                withTimeout(5_000) { hostA.memoryListRequestReceived.await() }
+                val data = buildJsonObject {
+                    if (deleted) put("entry_id", "memory-node-a")
+                    else put("entry", buildJsonObject { put("id", "memory-node-a"); put("content", "new event") })
+                    put("quota", buildJsonObject { put("used_chars", if (deleted) 0 else 9) })
+                }
+                withTimeout(2_000) { hostA.sockets.receive() }.send(event(if (deleted) "memory.user.deleted" else "memory.user.updated", data, 1))
+                withTimeout(5_000) { repository.hostStates.first { it["a"]?.lastSeq == 1L } }
+                hostA.releaseMemoryListResponse.complete(Unit)
+                response.await()
+                val entries = repository.hostStates.value.getValue("a").memoryEntries
+                assertEquals("initial load", entries.first { it.str("id") == "untouched" }.str("content"))
+                if (deleted) assertTrue(entries.none { it.str("id") == "memory-node-a" }, "deleted initial entity must not resurrect")
+                else assertEquals("new event", entries.first { it.str("id") == "memory-node-a" }.str("content"))
+                assertEquals(if (deleted) 0L else 9L, repository.hostStates.value.getValue("a").memoryQuota.long("used_chars"))
+            } finally {
+                hostA.releaseMemoryListResponse.complete(Unit)
+                repository.scope.cancel(); hostA.close(); hostB.close()
+            }
+        }
+    }
+
+    @Test
+    fun editingHostKeepsNodeIdentityAndRejectsAnotherNode() = runBlocking {
+        val hostA = TestHost("node-a")
+        val hostB = TestHost("node-b")
+        val repository = repository(hostA, hostB)
+        try {
+            awaitConnected(repository, "a", "b")
+            repository.saveHost("Renamed", listOf(hostB.address()), "", "a")
+            assertEquals("node-a", repository.hosts.value.first { it.id == "a" }.nodeId)
+            withTimeout(5_000) {
+                repository.hostStatuses.first { it["a"]?.error != null }
+            }
+            assertTrue(repository.hostStatuses.value["a"]?.status != ConnectionStatus.CONNECTED)
+            assertNotEquals("node-b", repository.hostStates.value["a"]?.hello?.str("node_id"))
+        } finally {
+            repository.scope.cancel()
+            hostA.close()
+            hostB.close()
+        }
+    }
+
     @Test
     fun editingHostWithBlankPasswordKeepsSavedCredential() = runBlocking {
         val storage = MemoryPersistentStore()
@@ -289,6 +399,60 @@ class ClientRepositoryMultiHostTest {
             assertTrue(repository.state.value.bots.any { it["id"].toString().contains("bot-b") })
             assertEquals(ConnectionStatus.CONNECTED, repository.hostStatuses.value.getValue("a").status)
             assertEquals(ConnectionStatus.CONNECTED, repository.hostStatuses.value.getValue("b").status)
+        } finally {
+            repository.scope.cancel()
+            hostA.close()
+            hostB.close()
+        }
+    }
+
+    @Test
+    fun traceCleanupCallStaysOnCapturedHostAfterActiveHostSwitch(): Unit = runBlocking {
+        val hostA = TestHost("node-a")
+        val hostB = TestHost("node-b")
+        val repository = repository(hostA, hostB)
+        try {
+            awaitConnected(repository, "a", "b")
+            repository.selectHost("b")
+            repository.callOnHost("a", "trace.unsubscribe", buildJsonObject { put("stream", "stream-a") })
+
+            var requestA: JsonObject
+            do { requestA = withTimeout(2_000) { hostA.requests.receive() } }
+            while (requestA.str("method") != "trace.unsubscribe")
+            assertEquals("stream-a", requestA.obj("params").str("stream"))
+            val requestOnB = withTimeoutOrNull(100) {
+                var request: JsonObject
+                do { request = hostB.requests.receive() } while (request.str("method") == "session.resume" || request.str("method") == "bootstrap")
+                request
+            }
+            assertTrue(requestOnB == null || requestOnB.str("method") != "trace.unsubscribe")
+        } finally {
+            repository.scope.cancel()
+            hostA.close()
+            hostB.close()
+        }
+    }
+
+    @Test
+    fun takeoverReleaseAfterHostSwitchUsesOriginalOwnerHostAndBot(): Unit = runBlocking {
+        val hostA = TestHost("node-a")
+        val hostB = TestHost("node-b")
+        val repository = repository(hostA, hostB)
+        try {
+            awaitConnected(repository, "a", "b")
+            repository.selectHost("b")
+            repository.callOnHost("a", "takeover.release", buildJsonObject { put("bot_id", "bot-owned-by-a") })
+
+            var requestA: JsonObject
+            do { requestA = withTimeout(2_000) { hostA.requests.receive() } }
+            while (requestA.str("method") != "takeover.release")
+            assertEquals("bot-owned-by-a", requestA.obj("params").str("bot_id"))
+            val requestOnB = withTimeoutOrNull(100) {
+                var request: JsonObject
+                do { request = hostB.requests.receive() } while (request.str("method") == "session.resume" || request.str("method") == "bootstrap")
+                request
+            }
+            assertTrue(requestOnB == null || requestOnB.str("method") != "takeover.release")
         } finally {
             repository.scope.cancel()
             hostA.close()
@@ -568,6 +732,7 @@ class ClientRepositoryMultiHostTest {
         hostA: TestHost,
         hostB: TestHost,
         beforeSnapshotWrite: (suspend () -> Unit)? = null,
+        beforeRpcSnapshotPersist: (suspend (method: String) -> Unit)? = null,
     ): Pair<ClientRepository, MemoryPersistentStore> {
         val storage = MemoryPersistentStore()
         val credentials = MemoryCredentialStore(mapOf("a" to "dev", "b" to "dev"))
@@ -575,7 +740,7 @@ class ClientRepositoryMultiHostTest {
             SavedHost("a", "A", listOf(hostA.address())),
             SavedHost("b", "B", listOf(hostB.address())),
         )))
-        val repository = ClientRepository(storage, credentials, beforeSnapshotWrite)
+        val repository = ClientRepository(storage, credentials, beforeSnapshotWrite, beforeRpcSnapshotPersist)
         repository.initialize()
         return repository to storage
     }
@@ -602,10 +767,14 @@ class ClientRepositoryMultiHostTest {
         val uploadRequests = Channel<RecordedRequest>(Channel.UNLIMITED)
         val requests = Channel<JsonObject>(Channel.UNLIMITED)
         val writeRequests = Channel<JsonObject>(Channel.UNLIMITED)
+        private val acceptedChatRequestIds = mutableSetOf<String>()
+        @Volatile var chatSendEffects = 0
+        val chatSendAcknowledged = AtomicBoolean(false)
         var blockChatSends = false
         val releaseChatSends = CountDownLatch(1)
         val failNextChatSend = AtomicBoolean(false)
         var bootstrapBots: List<JsonObject> = emptyList()
+        var extraMemoryEntries: List<JsonObject> = emptyList()
         @Volatile var blockMemoryListResponse = false
         val memoryListRequestReceived = CompletableDeferred<Unit>()
         val releaseMemoryListResponse = CompletableDeferred<Unit>()
@@ -631,6 +800,12 @@ class ClientRepositoryMultiHostTest {
 
         fun drainRequests() {
             while (requests.tryReceive().isSuccess) Unit
+        }
+
+        @Synchronized
+        fun acceptChatSend(request: JsonObject) {
+            val clientRequestId = request.obj("params").str("client_request_id")
+            if (acceptedChatRequestIds.add(clientRequestId)) chatSendEffects++
         }
 
         fun address(): String = server.url("/").toString()
@@ -686,6 +861,7 @@ class ClientRepositoryMultiHostTest {
                                 put("id", "memory-$nodeId")
                                 put("content", "$nodeId memory")
                             })
+                            host.extraMemoryEntries.forEach { add(it) }
                         })
                         put("quota", buildJsonObject { put("used_chars", 12); put("limit_chars", 1_500) })
                     }
@@ -712,6 +888,8 @@ class ClientRepositoryMultiHostTest {
                             webSocket.send(response(id, buildJsonObject {}))
                         }.start()
                     } else {
+                        host.acceptChatSend(request)
+                        host.chatSendAcknowledged.set(true)
                         webSocket.send(response(id, buildJsonObject {}))
                     }
                 }

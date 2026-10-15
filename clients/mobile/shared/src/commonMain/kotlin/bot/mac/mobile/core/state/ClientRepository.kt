@@ -55,6 +55,8 @@ private class HostSession(
 ) {
     var monitor: Job? = null
     var refresh: Job? = null
+    var epoch = 0L
+    val pendingRpcs = mutableSetOf<RpcStateFence>()
 }
 
 private class HostPersistence {
@@ -84,6 +86,7 @@ class ClientRepository(
     private val storage: PersistentStore = platformPersistentStore(),
     private val credentials: CredentialStore = platformCredentialStore(),
     internal val beforeSnapshotWrite: (suspend () -> Unit)? = null,
+    internal val beforeRpcSnapshotPersist: (suspend (method: String) -> Unit)? = null,
 ) : MobileRepository {
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val mutex = Mutex()
@@ -186,7 +189,7 @@ class ClientRepository(
         val id = existingId ?: RandomIdGenerator.nextId()
         // An empty password while editing means “keep the existing credential”.
         if (password.isNotEmpty()) credentials.write(id, password)
-        val saved = SavedHost(id, name.trim(), addresses)
+        val saved = SavedHost(id, name.trim(), addresses, _hosts.value.firstOrNull { it.id == id }?.nodeId)
         _hosts.value = _hosts.value.filterNot { it.id == id } + saved
         storage.setHostRecordsJson(protocolJson.encodeToString(_hosts.value))
         if (initialized) startHost(saved)
@@ -294,30 +297,51 @@ class ClientRepository(
     }
 
     override suspend fun callOnHost(hostId: String, method: String, params: JsonObject): JsonObject {
-        val session = hostMutex.withLock { hostSessions[hostId] ?: error("Host is not connected: " + hostId) }
+        val (session, fence, activeHostAtStart) = hostMutex.withLock {
+            val session = hostSessions[hostId] ?: error("Host is not connected: " + hostId)
+            val fence = mutex.withLock { RpcStateFence(_hostStates.value[hostId] ?: MobileState(), session.epoch) }
+            session.pendingRpcs += fence
+            Triple(session, fence, _activeHost.value?.id)
+        }
         val write = method in WRITE_METHODS
         val retryKey = hostId + ":" + method + ":" + params
-        val stableId = if (write) leaseWriteId(retryKey) else null
+        var stableId: String? = null
         try {
+            if (write) stableId = leaseWriteId(retryKey)
             val result = session.connection.request(method, params, write = write, clientRequestId = stableId)
-            if (write) completeWrite(retryKey, stableId!!)
             var snapshot: SnapshotCapture? = null
             hostMutex.withLock {
-                if (hostSessions[hostId] !== session) return@withLock
+                if (hostSessions[hostId] !== session || session.epoch != fence.epoch || fence.overflow) {
+                    throw CancellationException("RPC response belongs to an expired state snapshot")
+                }
                 mutex.withLock {
-                    val updated = RpcStateReducer.apply(_hostStates.value[hostId] ?: MobileState(), method, params, result).copy(error = null)
+                    val updated = reconcileRpc(fence, _hostStates.value[hostId] ?: MobileState(), method, params, result)
                     snapshot = SnapshotCapture(updated, bumpStateRevision(hostId))
                     _hostStates.value = _hostStates.value + (hostId to updated)
                     publishActiveState(hostId, updated)
                 }
             }
-            snapshot?.let { persist(hostId, it, session.persistence) }
+            snapshot?.let {
+                beforeRpcSnapshotPersist?.invoke(method)
+                persist(hostId, it, session.persistence)
+            }
+            // Keep the id leased until the acknowledged result has survived every
+            // local fence. A reset while the response is in flight must leave the
+            // id available for a safe retry, even if the server already applied it.
+            hostMutex.withLock {
+                if (hostSessions[hostId] !== session || session.epoch != fence.epoch || fence.overflow ||
+                    (write && activeHostAtStart == hostId && _activeHost.value?.id != hostId)
+                ) {
+                    throw CancellationException("RPC response belongs to an expired Host view")
+                }
+                if (write) withContext(NonCancellable) { completeWrite(retryKey, stableId!!) }
+            }
             return result
         } catch (cancelled: CancellationException) {
-            if (write) withContext(NonCancellable) { releaseWrite(retryKey, stableId!!) }
+            if (stableId != null) withContext(NonCancellable) { releaseWrite(retryKey, stableId) }
             throw cancelled
         } catch (failure: Throwable) {
-            if (write) releaseWrite(retryKey, stableId!!)
+            if (stableId != null) releaseWrite(retryKey, stableId)
             hostMutex.withLock {
                 if (hostSessions[hostId] === session) {
                     mutex.withLock {
@@ -329,6 +353,8 @@ class ClientRepository(
                 }
             }
             throw failure
+        } finally {
+            withContext(NonCancellable) { hostMutex.withLock { session.pendingRpcs.remove(fence) } }
         }
     }
 
@@ -512,6 +538,8 @@ class ClientRepository(
         var bootstrapSnapshot: SnapshotCapture? = null
         hostMutex.withLock {
             if (hostSessions[session.id] !== session) throw CancellationException("stale host session")
+            if (event is MainEvent.Ephemeral && event.event == "bootstrap") session.epoch++
+            else if (event !is MainEvent.Hello) session.pendingRpcs.forEach { it.record(event) }
             mutex.withLock {
                 val current = _hostStates.value[session.id] ?: MobileState()
                 val next = when (event) {

@@ -95,13 +95,15 @@ import kotlin.math.sqrt
 
 private enum class Quality { AUTO, LOW, HIGH }
 
+data class TakeoverOwner(val hostId: String, val botId: String)
+
 @Composable
 fun ComputerScreen(
     repository: MobileRepository,
     botId: String,
     tabId: String? = null,
     onBack: () -> Unit,
-    onTakeoverOwnerChanged: (String?) -> Unit = {},
+    onTakeoverOwnerChanged: (TakeoverOwner?) -> Unit = {},
 ) {
     LandscapeScreen(enabled = true)
     var quality by remember { mutableStateOf(Quality.AUTO) }
@@ -245,7 +247,7 @@ fun ComputerScreen(
                         scope.launch {
                             val ownerHostId = activeHost?.id ?: return@launch
                             takeoverHostId = ownerHostId
-                            onTakeoverOwnerChanged(ownerHostId)
+                            onTakeoverOwnerChanged(TakeoverOwner(ownerHostId, botId))
                             takeoverError = captureError(requestError) {
                                 repository.callOnHost(ownerHostId, "takeover.start", buildJsonObject { put("bot_id", botId) })
                             }
@@ -508,16 +510,15 @@ internal fun shouldReleaseTakeoverOnNavigation(
     currentBotId: String,
     nextPage: String,
     nextBotId: String,
-    ownerHostId: String?,
+    owner: TakeoverOwner?,
     activeHostId: String?,
-): Boolean = ownerHostId != null && currentPage == "computer" &&
-    (nextPage != "computer" || nextBotId != currentBotId || activeHostId != null && activeHostId != ownerHostId)
+): Boolean = owner != null && currentPage == "computer" && owner.botId == currentBotId &&
+    (nextPage != "computer" || nextBotId != currentBotId || activeHostId != null && activeHostId != owner.hostId)
 
 internal fun shouldReleaseTakeoverOnHostChange(
-    currentPage: String,
-    ownerHostId: String?,
+    owner: TakeoverOwner?,
     activeHostId: String?,
-): Boolean = currentPage == "computer" && ownerHostId != null && activeHostId != null && activeHostId != ownerHostId
+): Boolean = owner != null && activeHostId != null && activeHostId != owner.hostId
 
 private fun List<Offset>.centroid(): Offset = if (isEmpty()) Offset.Zero else Offset(sumOf { it.x.toDouble() }.toFloat() / size, sumOf { it.y.toDouble() }.toFloat() / size)
 private fun distance(first: Offset, second: Offset): Float = sqrt((first.x - second.x) * (first.x - second.x) + (first.y - second.y) * (first.y - second.y))

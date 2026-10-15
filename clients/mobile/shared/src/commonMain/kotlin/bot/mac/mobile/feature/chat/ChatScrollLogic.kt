@@ -1,5 +1,6 @@
 package bot.mac.mobile.feature.chat
 
+import bot.mac.mobile.core.protocol.str
 import kotlinx.serialization.json.JsonObject
 
 internal data class ChatScrollState(
@@ -12,6 +13,15 @@ internal data class ChatMessageScrollAnchor(val messageId: String, val offsetPx:
 internal enum class InitialChatPositionKind { MESSAGE_LINK, TRACE_RETURN }
 
 internal data class InitialChatPosition(val messageId: String, val kind: InitialChatPositionKind)
+
+/** A date can occur in more than one sequence segment when timestamps arrive out of order. */
+internal fun chatDayHeaderKey(hostId: String, chatId: String, dayKey: String, firstMessage: JsonObject): String {
+    val segment = firstMessage.str("id").ifBlank {
+        firstMessage["seq"]?.toString()?.trim('"')?.takeIf { it.isNotBlank() }
+            ?: "message:${firstMessage.hashCode()}"
+    }
+    return "$hostId:$chatId:day:$dayKey:$segment"
+}
 
 /** A saved trace-return position wins over an older route/deep-link target. */
 internal fun resolveInitialChatPosition(

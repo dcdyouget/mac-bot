@@ -228,8 +228,22 @@ class MainConnection(
                 val hello = CompletableDeferred<JsonObject>()
                 val syncDone = CompletableDeferred<Long>()
                 val sessionEvents = SessionEvents()
+                val receiverFailure = CompletableDeferred<Throwable?>()
                 val receiver = launch {
-                    for (frame in incoming) processFrame(frame, hello, syncDone, sessionEvents)
+                    try {
+                        for (frame in incoming) processFrame(frame, hello, syncDone, sessionEvents)
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (failure: Throwable) {
+                        // Do not let a child failure cancel the Ktor session's
+                        // parent job: runLoop must see the actual protocol error
+                        // and reconnect from the last contiguous cursor.
+                        receiverFailure.complete(failure)
+                        hello.completeExceptionally(failure)
+                        syncDone.completeExceptionally(failure)
+                    } finally {
+                        receiverFailure.complete(null)
+                    }
                 }
                 val heartbeat = launch {
                     while (isActive) {
@@ -282,8 +296,9 @@ class MainConnection(
                         // replay events arrive before sync.done; wait for the cursor barrier.
                         stage = "sync_done"
                         emitDiagnostic(stage)
-                        withTimeout(requestTimeoutMillis) { syncDone.await() }
+                        val barrier = withTimeout(requestTimeoutMillis) { syncDone.await() }
                         flushBuffered(sessionEvents, cursor)
+                        if (cursor < barrier) throw NetworkError("sequence_gap", "replay ended before its cursor barrier")
                     }
                     stage = "ready"
                     emitDiagnostic(stage)
@@ -294,6 +309,7 @@ class MainConnection(
                         lastSeq = cursor, error = null,
                     ))
                     receiver.join()
+                    receiverFailure.await()?.let { throw it }
                 } finally {
                     ready.value = false
                     lock.withLock { if (activeSessionToken === sessionToken) activeSessionToken = null }
@@ -413,6 +429,7 @@ class MainConnection(
                 return@withLock
             }
             if (seq != null && seq <= currentCursor()) return@withLock
+            if (seq != null) requireNextSequence(seq)
             emitEvent(event)
             if (seq != null) saveSeq(seq)
         }
@@ -427,10 +444,17 @@ class MainConnection(
             for (event in buffered) {
                 val seq = (event as? MainEvent.Persistent)?.seq
                 if (seq != null && (seq <= dropThrough || seq <= currentCursor())) continue
+                if (seq != null) requireNextSequence(seq)
                 emitEvent(event)
                 if (seq != null) saveSeq(seq)
             }
             sessionEvents.buffering = false
+        }
+    }
+
+    private suspend fun requireNextSequence(seq: Long) {
+        if (seq != currentCursor() + 1) {
+            throw NetworkError("sequence_gap", "persistent event sequence is not contiguous")
         }
     }
 

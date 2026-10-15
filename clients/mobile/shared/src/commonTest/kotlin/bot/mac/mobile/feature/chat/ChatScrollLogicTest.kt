@@ -5,6 +5,8 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.put
@@ -67,6 +69,21 @@ class ChatScrollLogicTest {
         assertEquals(1, chatMessageLazyIndex(messages, 0, historyHasMore = false))
         assertEquals(3, chatMessageLazyIndex(messages, 1, historyHasMore = false))
         assertEquals(5, chatMessageLazyIndex(messages, 2, historyHasMore = false))
+    }
+
+    @Test
+    fun repeatedDaySegmentsHaveStableDistinctKeysAfterOutOfOrderTimelineMerge() {
+        val first = buildJsonObject { put("id", "m1"); put("created_at", "2026-10-15T09:00:00Z") }
+        val middle = buildJsonObject { put("id", "m2"); put("created_at", "2026-10-14T23:59:00Z") }
+        val later = buildJsonObject { put("id", "m3"); put("created_at", "2026-10-15T10:00:00Z") }
+
+        val firstKey = chatDayHeaderKey("host-a", "chat_login", "2026-10-15", first)
+        val laterKey = chatDayHeaderKey("host-a", "chat_login", "2026-10-15", later)
+
+        assertEquals("host-a:chat_login:day:2026-10-15:m1", firstKey)
+        assertEquals("host-a:chat_login:day:2026-10-15:m3", laterKey)
+        assertTrue(firstKey != laterKey)
+        assertEquals(firstKey, chatDayHeaderKey("host-a", "chat_login", "2026-10-15", first))
     }
 
     @Test
