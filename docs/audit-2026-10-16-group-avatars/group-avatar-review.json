@@ -1,0 +1,9 @@
+{
+  "date": "2026-10-16",
+  "scope": "Independent visual recheck of frozen GroupAvatar z-index change using real GroupAvatar.tsx, clients/mac/app/src/styles.css, design/prototype/base.css and orderedGroupMemberIds model in a temporary Vite/React page.",
+  "screenshot": "/tmp/macbot-audit-20261016/group-avatar-final.png",
+  "matrix": "1, 2, 3, 4, 5, 6 members across sizes 24, 32, 40, 48, 52.",
+  "result": "PASS for the requested z-index adjustment: Main avatar glasses are fully visible in 2- and 3-member stacks at all rendered sizes. Four-member grid and 5+ grid with +N overflow remain unchanged and render correctly.",
+  "accessibility": "Earlier DOM capture of the same component matrix found role=img and non-empty aria-label on all 30 rendered avatars; this z-index-only change does not affect markup.",
+  "limitations": "This is a headless browser preview of the actual component/styles and member ordering helper, not a Tauri native window or live RPC-backed conversation. No native bundle was rebuilt for this z-index-only change."
+}

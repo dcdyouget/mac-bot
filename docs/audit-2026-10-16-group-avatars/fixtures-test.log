@@ -1,0 +1,16 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.11s
+     Running tests/fixtures.rs (/tmp/macbot-audit-20261015-iEFvBx/protocol-verify-target/debug/deps/fixtures-ee7042a8322a15b2)
+
+running 10 tests
+test project_scenarios_keep_lead_and_members_in_sync_with_group_chats ... ok
+test settings_secret_parameter_roundtrips_outside_the_settings_patch ... ok
+test nested_settings_patch_preserves_partial_and_nullable_fields ... ok
+test workbench_result_decodes_and_serializes_as_flat_protocol_shape ... ok
+test loaded_skills_roundtrip_and_legacy_messages_default_to_empty ... ok
+test heatmap_result_decodes_flat_protocol_shapes_without_field_loss ... ok
+test fixture_objects_roundtrip_without_field_loss ... ok
+test login_scenario_lines_are_protocol_event_frames ... ok
+test login_scenario_preserves_ordered_workflow_and_cursors ... ok
+test fixture_blocks_trace_events_and_frames_roundtrip_without_field_loss ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s

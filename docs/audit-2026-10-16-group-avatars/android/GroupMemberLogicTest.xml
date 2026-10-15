@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="bot.mac.mobile.feature.group.GroupMemberLogicTest" tests="5" skipped="0" failures="0" errors="0" timestamp="2026-10-15T18:51:08.306Z" hostname="gongshaiedeMini" time="0.032">
+  <properties/>
+  <testcase name="memberUsesItsCurrentAssignmentOrFallsBackToTheLatestActiveTask" classname="bot.mac.mobile.feature.group.GroupMemberLogicTest" time="0.024"/>
+  <testcase name="groupAvatarPutsLeadFirstAndReservesFourthCellForOverflow" classname="bot.mac.mobile.feature.group.GroupMemberLogicTest" time="0.002"/>
+  <testcase name="groupAvatarUsesCurrentChatMembershipBeforeProjectAndAnnouncement" classname="bot.mac.mobile.feature.group.GroupMemberLogicTest" time="0.004"/>
+  <testcase name="currentChatMembershipDoesNotResurrectRemovedAnnouncementMembers" classname="bot.mac.mobile.feature.group.GroupMemberLogicTest" time="0.0"/>
+  <testcase name="missingMemberStateIsDerivedFromItsProjectAssignment" classname="bot.mac.mobile.feature.group.GroupMemberLogicTest" time="0.001"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>
