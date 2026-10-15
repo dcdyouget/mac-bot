@@ -13,13 +13,13 @@ function hasControlCharacter(value: string): boolean {
 }
 
 export function normalizeArtifactPath(path: string): string {
-  if (!path || path.length > 4096 || hasControlCharacter(path)) throw new Error('Invalid artifact path')
+  if (path.length > 4096 || hasControlCharacter(path)) throw new Error('Invalid artifact path')
+  if (!path || path === '/') return '/'
   const absolute = path.startsWith('/')
   const parts = path.split('/').filter((part) => part && part !== '.')
   if (parts.some((part) => part === '..')) throw new Error('Artifact path escapes the project')
   const normalized = `${absolute ? '/' : ''}${parts.join('/')}`
-  if (!normalized || normalized === '/') throw new Error('Invalid artifact path')
-  return normalized
+  return normalized || '/'
 }
 
 export function joinArtifactPath(directory: string, basename: string): string {
@@ -27,7 +27,7 @@ export function joinArtifactPath(directory: string, basename: string): string {
     throw new Error('Invalid artifact file name')
   }
   const base = normalizeArtifactPath(directory)
-  return `${base === '/' ? '' : base}/${basename}`
+  return base === '/' ? basename : `${base}/${basename}`
 }
 
 export function parentArtifactPath(path: string, root: string): string | null {

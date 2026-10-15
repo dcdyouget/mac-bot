@@ -167,6 +167,10 @@
 | chat.composer.attach.image | 图片… |
 | chat.composer.attach.screenshot | 截图 |
 | chat.composer.attach.from_home | 从 Home 选择… |
+| chat.message.editing | 正在编辑上一条消息 |
+| chat.message.edit_hint | 保存后会替换原消息。 |
+| chat.message.cancel_edit | 取消编辑 |
+| chat.message.save_edit | 保存编辑 |
 | chat.mention.title | 提及成员 |
 | chat.mention.everyone | everyone |
 | chat.mention.steer_hint | 工作中 · 插话 |
@@ -225,6 +229,9 @@
 | block.question.you_replied | 你回复了 |
 | block.question.your_reply | 你的回复 |
 | block.question.tap_to_submit | 点一项就提交 |
+| block.question.free_text_only | 自由回答 |
+| block.question.unavailable | 此问题无法安全关联，不能提交答案。 |
+| block.question.refresh_hint | 请刷新会话后重试。 |
 | chat.queue.hint | {bots} 正在干活，这条消息不会打断{count, plural, one {它} other {它们}}，会在交付前看到 |
 | chat.queue.at_now | @{bot} 立即生效 |
 | chat.delivery.main_received | 秘书长 已收到 |
@@ -322,6 +329,8 @@
 | artifact.directory.up | 上一级 |
 | artifact.directory.empty | 此文件夹为空 |
 | artifact.directory.choose_file | 选择文件以预览 |
+| artifact.directory.attach_file | 选择此文件 |
+| artifact.preview.finder_local_copy | 在 Finder 中显示本地副本 |
 | artifact.directory.file_loading | 正在读取文件… |
 | artifact.directory.file_error | 无法预览文件 |
 | artifact.directory.binary | 此文件类型暂不支持预览 |
@@ -521,6 +530,8 @@
 | skills.new.desc | 描述（Bot 根据它决定什么时候用） |
 | skills.new.draft_hint | 草稿：Bot 生成的技能先放在「草稿」里，你点「发布」后才对所有 Bot 生效 |
 | skills.new.create | 创建并编辑 SKILL.md |
+| skills.remote_conflict | 此技能已在其他位置更新，你的草稿仍保留。 |
+| skills.remote_reload | 重新加载远端版本 |
 
 ## bot · Bot 详情与设置
 

@@ -44,16 +44,16 @@ interface VersionContent {
 }
 
 export type ArtifactCopyKey =
-  | 'common.back' | 'common.retry' | 'common.copy_path' | 'common.copied' | 'common.copy_failed' | 'common.provided_by' | 'common.updated_at' | 'group.artifacts'
+  | 'common.back' | 'common.open' | 'common.retry' | 'common.copy_path' | 'common.copied' | 'common.copy_failed' | 'common.provided_by' | 'common.updated_at' | 'group.artifacts' | 'chat.composer.attach.from_home'
   | 'common.preview' | 'artifact.preview.tabs.preview' | 'artifact.preview.tabs.source' | 'artifact.preview.tabs.history'
   | 'artifact.preview.list_title' | 'artifact.preview.version' | 'artifact.preview.loading'
   | 'artifact.preview.load_error' | 'artifact.preview.no_versions' | 'artifact.preview.no_content'
   | 'artifact.preview.load_more' | 'artifact.preview.loading_more' | 'artifact.preview.version_size'
-  | 'artifact.preview.reveal_finder' | 'artifact.preview.open_url' | 'artifact.preview.empty'
+  | 'artifact.preview.reveal_finder' | 'artifact.preview.finder_local_copy' | 'artifact.preview.open_url' | 'artifact.preview.empty'
   | 'artifact.directory.loading' | 'artifact.directory.load_error' | 'artifact.directory.truncated'
   | 'artifact.directory.up' | 'artifact.directory.empty' | 'artifact.directory.choose_file'
   | 'artifact.directory.file_loading' | 'artifact.directory.file_error' | 'artifact.directory.binary'
-  | 'artifact.directory.preview' | 'artifact.directory.source' | 'artifact.directory.size'
+  | 'artifact.directory.preview' | 'artifact.directory.source' | 'artifact.directory.size' | 'artifact.directory.attach_file'
 
 export interface ArtifactPageProps {
   hostScope: string
@@ -62,7 +62,9 @@ export interface ArtifactPageProps {
   artifacts: ProjectArtifact[]
   botNames: Record<string, string>
   initialArtifactId?: string | null
+  homePicker?: boolean
   onBack: () => void
+  onSelectHomeFile?: (path: string, name: string, size: number) => void
   onRevealInFinder?: (artifact: ProjectArtifact) => void | Promise<void>
   t: (key: ArtifactCopyKey) => string
 }
@@ -166,7 +168,7 @@ export function MarkdownPreview({ content, variant = 'artifact' }: { content: st
   return <div className={`artifact-markdown${variant === 'message' ? ' message-markdown message-text-block' : ''}`}>{blocks}</div>
 }
 
-export function ArtifactPage({ hostScope, projectId, projectName, artifacts, botNames, initialArtifactId = null, onBack, onRevealInFinder, t }: ArtifactPageProps) {
+export function ArtifactPage({ hostScope, projectId, projectName, artifacts, botNames, initialArtifactId = null, homePicker = false, onBack, onSelectHomeFile, onRevealInFinder, t }: ArtifactPageProps) {
   const [selectedArtifactId, setSelectedArtifactId] = useState<string | null>(initialArtifactId ?? artifacts[0]?.id ?? null)
   const [activeTab, setActiveTab] = useState<ArtifactTab>('preview')
   const [versions, setVersions] = useState<ArtifactVersion[]>([])
@@ -326,6 +328,14 @@ export function ArtifactPage({ hostScope, projectId, projectName, artifacts, bot
     { id: 'history', copy: 'artifact.preview.tabs.history' },
   ]
 
+  if (homePicker) return <section className="artifact-page">
+    <header className="artifact-toolbar glass-toolbar" data-window-drag-region>
+      <button className="artifact-back" type="button" onClick={onBack} aria-label={t('common.back')}><ArrowLeft size={16} /></button>
+      <div className="artifact-heading"><div className="artifact-breadcrumb"><span>{projectName}</span><span aria-hidden="true">›</span><strong>{t('chat.composer.attach.from_home')}</strong></div></div>
+    </header>
+    <div className="artifact-home-picker"><DirectoryBrowser key={`${hostScope}:${projectId}:home-picker`} hostScope={hostScope} projectId={projectId} rootPath="/" onSelectFile={onSelectHomeFile} t={t} /></div>
+  </section>
+
   return <section className="artifact-page">
     <header className="artifact-toolbar glass-toolbar" data-window-drag-region>
       <button className="artifact-back" type="button" onClick={onBack} aria-label={t('common.back')}><ArrowLeft size={16} /></button>
@@ -336,7 +346,7 @@ export function ArtifactPage({ hostScope, projectId, projectName, artifacts, bot
       {selectedArtifact?.kind === 'file' && <nav className="artifact-view-tabs" aria-label={t('group.artifacts')}>
         {tabs.map((tab) => <button key={tab.id} type="button" className={activeTab === tab.id ? 'active' : ''} aria-pressed={activeTab === tab.id} onClick={() => setActiveTab(tab.id)}>{t(tab.copy)}</button>)}
       </nav>}
-      <button className="artifact-toolbar-action" type="button" onClick={() => void revealInFinder()} disabled={!selectedArtifact || !onRevealInFinder || selectedArtifact.kind === 'url'}><Folder size={14} />{t('artifact.preview.reveal_finder')}</button>
+      <button className="artifact-toolbar-action" type="button" onClick={() => void revealInFinder()} disabled={!selectedArtifact || !onRevealInFinder || selectedArtifact.kind !== 'file'}><Folder size={14} />{t('artifact.preview.finder_local_copy')}</button>
       <button className="artifact-toolbar-action" type="button" onClick={() => void copyPath()} disabled={!selectedArtifact}><Copy size={14} />{copyState === 'copied' ? t('common.copied') : copyState === 'failed' ? t('common.copy_failed') : t('common.copy_path')}</button>
     </header>
     <div className="artifact-workspace">
@@ -388,11 +398,12 @@ export function ArtifactPage({ hostScope, projectId, projectName, artifacts, bot
 type DirectoryPage = { entries: ArtifactDirectoryEntry[]; truncated: boolean }
 type FilePreview = { content: string; content_encoding: 'utf8' | 'base64'; mime: string; size: number }
 
-function DirectoryBrowser({ hostScope, projectId, rootPath, onRevealPath, t }: {
+function DirectoryBrowser({ hostScope, projectId, rootPath, onRevealPath, onSelectFile, t }: {
   hostScope: string
   projectId: string
   rootPath: string
   onRevealPath?: (path: string) => void | Promise<void>
+  onSelectFile?: (path: string, name: string, size: number) => void
   t: ArtifactPageProps['t']
 }) {
   const root = normalizeArtifactPath(rootPath)
@@ -425,7 +436,7 @@ function DirectoryBrowser({ hostScope, projectId, rootPath, onRevealPath, t }: {
     setTruncated(false)
     setSelectedPath(null)
     setFilePreview(null)
-    void invoke<DirectoryPage>('list_artifact_directory', { projectId, path: directoryPath })
+    void invoke<DirectoryPage>('list_artifact_directory', { projectId, path: directoryPath === '/' ? '' : directoryPath })
       .then((page) => {
         const current = scopeRef.current
         if (listRequestRef.current !== requestId || current.hostScope !== scope.hostScope || current.projectId !== scope.projectId || current.directoryPath !== scope.directoryPath) return
@@ -539,7 +550,8 @@ function DirectoryBrowser({ hostScope, projectId, rootPath, onRevealPath, t }: {
             <button type="button" className={fileTab === 'preview' ? 'active' : ''} aria-pressed={fileTab === 'preview'} onClick={() => setFileTab('preview')}>{t('artifact.directory.preview')}</button>
             <button type="button" className={fileTab === 'source' ? 'active' : ''} aria-pressed={fileTab === 'source'} onClick={() => setFileTab('source')}>{t('artifact.directory.source')}</button>
           </div>
-          <button className="artifact-toolbar-action" type="button" disabled={!onRevealPath} onClick={() => void revealSelectedPath()}><Folder size={13} />{t('artifact.preview.reveal_finder')}</button>
+          {onRevealPath && <button className="artifact-toolbar-action" type="button" onClick={() => void revealSelectedPath()}><Folder size={13} />{t('artifact.preview.finder_local_copy')}</button>}
+          {onSelectFile && <button className="artifact-toolbar-action" type="button" disabled={!activeEntry || fileLoading} onClick={() => activeEntry && onSelectFile(selectedPath, activeEntry.name, activeEntry.size)}><Check size={13} />{t('artifact.directory.attach_file')}</button>}
           <button className="artifact-toolbar-action" type="button" onClick={() => void copySelectedPath()}><Copy size={13} />{copyState === 'copied' ? t('common.copied') : copyState === 'failed' ? t('common.copy_failed') : t('common.copy_path')}</button>
         </header>
         <div className="artifact-file-content">

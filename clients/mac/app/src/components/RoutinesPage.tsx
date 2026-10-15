@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent } from 'react'
 import { AlertCircle, Check, Clock3, LoaderCircle, Play, Plus, Trash2, X } from 'lucide-react'
+import { mergeRoutineRunHistory } from './routineRunHistory.model'
 import './RoutinesPage.css'
 
 export type RoutineSchedule = { cron: string; label: string }
@@ -73,6 +74,7 @@ type Props = {
   onSetEnabled: (routineId: string, enabled: boolean) => Promise<void>
   onTestRun: (routineId: string) => Promise<RoutineRun>
   onLoadRuns?: (routineId: string) => Promise<RoutineRun[]>
+  runRefreshRevision?: number
   onDelete: (routineId: string) => Promise<void>
   onOpenTrace: (assignmentId: string, run: RoutineRun) => void
   t: (key: RoutineCopyKey) => string
@@ -107,12 +109,12 @@ export function RoutinesPage(props: Props) {
   const visibleRoutines = useMemo(() => props.routines.filter((routine) => (
     filter === 'all' || (filter === 'running' ? routine.enabled : !routine.enabled)
   )), [filter, props.routines])
-  const runHistory = useMemo(() => {
-    if (!active) return []
-    const byId = new Map<string, RoutineRun>()
-    for (const run of [...(props.runs[active.id] ?? []), ...(loadedRuns[active.id] ?? []), ...testRuns.filter((run) => run.routine_id === active.id)]) byId.set(run.id, run)
-    return [...byId.values()].sort((left, right) => Date.parse(right.started_at) - Date.parse(left.started_at)).slice(0, 20)
-  }, [active, props.runs, loadedRuns, testRuns])
+  const runHistory = useMemo(() => active ? mergeRoutineRunHistory(
+    testRuns.filter((run) => run.routine_id === active.id),
+    loadedRuns[active.id] ?? [],
+    props.runs[active.id] ?? [],
+    active.last_run,
+  ) : [], [active, props.runs, loadedRuns, testRuns])
 
   useEffect(() => {
     if (!props.selectedRoutineId || appliedSelectionRequest.current === props.selectionRequest) return
@@ -140,11 +142,12 @@ export function RoutinesPage(props: Props) {
   useEffect(() => {
     if (!activeId || !onLoadRuns) return
     let current = true
-    void onLoadRuns(activeId).then((runs) => {
+    const refreshTimer = window.setTimeout(() => { void onLoadRuns(activeId).then((runs) => {
       if (current) setLoadedRuns((items) => ({ ...items, [activeId]: runs }))
     }).catch((reason: unknown) => { if (current) setActionError(String(reason)) })
-    return () => { current = false }
-  }, [activeId, onLoadRuns])
+    }, props.runRefreshRevision === undefined ? 0 : 350)
+    return () => { current = false; window.clearTimeout(refreshTimer) }
+  }, [activeId, onLoadRuns, props.runRefreshRevision])
 
   if (props.loading) return <main className="routines-page"><RoutineLoading t={props.t} /></main>
 

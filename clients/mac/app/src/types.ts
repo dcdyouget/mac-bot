@@ -87,6 +87,9 @@ export type LocalPreferences = {
 export type NotificationPreferenceKey = 'need_you' | 'review' | 'dm_mention' | 'all_group'
 
 export type BridgeState = {
+  revision?: number
+  bootstrap_revision?: number
+  routine_revision?: number
   connection: 'disconnected' | 'connecting' | 'connected'
   error: string | null
   node_id: string | null

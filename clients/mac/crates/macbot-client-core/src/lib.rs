@@ -279,6 +279,7 @@ struct RequestCommand {
     method: String,
     params: Value,
     response: oneshot::Sender<Result<Value>>,
+    emit_bootstrap: bool,
 }
 
 #[derive(Debug)]
@@ -346,9 +347,25 @@ impl Client {
     pub fn try_request(
         &self,
         method: impl Into<String>,
-        mut params: Value,
+        params: Value,
     ) -> oneshot::Receiver<Result<Value>> {
-        let method = method.into();
+        self.enqueue_request(method.into(), params, false)
+    }
+
+    /// Publish the recovery snapshot on the ordered event stream, before any
+    /// later protocol events. Callers must keep draining `events` while waiting.
+    pub async fn resync(&self) -> Result<Value> {
+        self.enqueue_request("bootstrap".into(), json!({}), true)
+            .await
+            .map_err(|_| CoreError::Closed)?
+    }
+
+    fn enqueue_request(
+        &self,
+        method: String,
+        mut params: Value,
+        emit_bootstrap: bool,
+    ) -> oneshot::Receiver<Result<Value>> {
         if is_write_method(&method) {
             add_idempotency_key(&mut params);
         }
@@ -361,6 +378,7 @@ impl Client {
             method,
             params,
             response,
+            emit_bootstrap,
         });
         let sender = self.command_tx.clone();
         tokio::spawn(async move {
@@ -452,9 +470,11 @@ async fn run_worker(
             }
         }
 
-        let mut endpoints = config.addresses.clone();
-        if endpoints.is_empty() {
-            endpoints.push(config.endpoint.clone());
+        let mut endpoints = vec![config.endpoint.clone()];
+        for address in &config.addresses {
+            if !endpoints.contains(address) {
+                endpoints.push(address.clone());
+            }
         }
         let connected = {
             let mut last_error = None;
@@ -1088,6 +1108,9 @@ async fn run_connected(
                                                 &mut out_of_order,
                                                 bootstrap,
                                             );
+                                            if request.emit_bootstrap {
+                                                let _ = events.send(ClientEvent::Bootstrap(bootstrap.clone())).await;
+                                            }
                                         }
                                     }
                                     let _ = request.response.send(result);
@@ -2336,6 +2359,7 @@ mod tests {
                 method: "ping".into(),
                 params: json!({}),
                 response,
+                emit_bootstrap: false,
             }))
             .await
             .unwrap();
@@ -2412,6 +2436,7 @@ mod tests {
                 method: "ping".into(),
                 params: json!({}),
                 response,
+                emit_bootstrap: false,
             }))
             .await
             .unwrap();
@@ -2739,6 +2764,7 @@ mod tests {
                 method: "chat.send".into(),
                 params,
                 response,
+                emit_bootstrap: false,
             },
             Instant::now(),
         ));
@@ -2818,6 +2844,87 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(bootstrap["seq"], 3);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn resync_snapshot_precedes_the_next_live_event() {
+        let listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+        let endpoint = format!("127.0.0.1:{}", listener.local_addr().unwrap().port());
+        let server = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            let mut socket = accept_async(stream).await.unwrap();
+            loop {
+                if let Some(Ok(Message::Text(text))) = socket.next().await {
+                    let request: Value = serde_json::from_str(&text).unwrap();
+                    assert_eq!(request["method"], "bootstrap");
+                    socket.send(Message::Text(json!({"v":1,"kind":"res","id":request["id"],"ok":true,"result":{"seq":10,"bots":[],"chats":[],"projects":[],"settings":{},"pending":{},"hello":{"node_id":"n"}}}).to_string())).await.unwrap();
+                    socket.send(Message::Text(json!({"v":1,"kind":"evt","seq":11,"event":"sync.cursor","data":{"seq":11}}).to_string())).await.unwrap();
+                    while socket.next().await.is_some() {}
+                    break;
+                }
+            }
+        });
+        let (mut socket, _) = connect_async(websocket_url(&endpoint, "/ws").unwrap())
+            .await
+            .unwrap();
+        let (command_tx, mut commands) = mpsc::channel(8);
+        let client = Client { command_tx };
+        let (events, mut received) = mpsc::channel(8);
+        let worker = tokio::spawn(async move {
+            run_connected(
+                Duration::from_secs(1),
+                &mut socket,
+                &mut commands,
+                &events,
+                &mut VecDeque::new(),
+                &mut 0,
+            )
+            .await
+            .unwrap();
+        });
+        let request_client = client.clone();
+        let request = tokio::spawn(async move { request_client.resync().await.unwrap() });
+        let mut state = AppState::default();
+        state.needs_resync = true;
+        match timeout(Duration::from_secs(2), received.recv())
+            .await
+            .unwrap()
+            .unwrap()
+        {
+            ClientEvent::Bootstrap(value) => state.apply_bootstrap(value),
+            event => panic!("expected ordered recovery snapshot, got {event:?}"),
+        }
+        match timeout(Duration::from_secs(2), received.recv())
+            .await
+            .unwrap()
+            .unwrap()
+        {
+            ClientEvent::Protocol(event) => state.apply_event(event),
+            event => panic!("expected live event, got {event:?}"),
+        }
+        assert!(!state.needs_resync);
+        assert_eq!(state.last_seq, 11);
+        assert_eq!(request.await.unwrap()["seq"], 10);
+        client.close().await;
+        worker.await.unwrap();
+        server.await.unwrap();
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn primary_endpoint_is_tried_before_address_fallbacks() {
+        let endpoint = loopback_server("node_primary", "reset", true).await;
+        let mut config = ClientConfig::new(&endpoint, "dev");
+        config.addresses = vec!["127.0.0.1:1".into()];
+        let mut handle = Client::spawn(config);
+        let event = timeout(Duration::from_secs(2), handle.events.recv())
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(
+            matches!(event, ClientEvent::Connected { endpoint: ref actual, .. } if actual == &endpoint),
+            "{event:?}"
+        );
+        handle.client.close().await;
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

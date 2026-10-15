@@ -46,7 +46,7 @@ Tauri bridge 使用 `macbot-desktop-services` 读写 Host、凭据、本地偏�
 
 界面和交互遵循 [DESIGN.md](../../docs/DESIGN.md) 第 4 章，协议遵循 [PROTOCOL.md](../../docs/PROTOCOL.md)。编译需要 Xcode 的 Metal 工具链（本机已安装）。
 
-桌面主题 token、消息块与交互细则同步采用新版 `design/` 规范。外观支持浅色、深色和跟随系统，并提供遵循 macOS「降低透明度」设置的半透明材质开关。唯一提示音源为 `design/sounds/04-bubble-pop.wav`；通知 API 使用 `afconvert` 转出的 `BubblePop.caf`（IMA4），位于 App 的 `Contents/Resources/` 根目录。远程 Home 浏览使用 Host 的文件 API；客户端没有远程打开 Finder 的能力，因此提供路径复制。
+桌面主题 token、消息块与交互细则同步采用新版 `design/` 规范。外观支持浅色、深色和跟随系统，并提供遵循 macOS「降低透明度」设置的半透明材质开关。唯一提示音源为 `design/sounds/04-bubble-pop.wav`；通知 API 使用 `afconvert` 转出的 `BubblePop.caf`（IMA4），位于 App 的 `Contents/Resources/` 根目录。项目 Home 的「打开」和聊天附件菜单中的「从 Home 选择」使用当前 Host 的远程文件列表；附件由 Host 读取并上传到同一 Host，单文件上限为 100 MB。产物的 Finder 操作会先把远程文件下载到 Mac Bot 的应用缓存，再在 Finder 中显示该本地副本；服务端 Home 路径不会作为本机路径打开。
 
 Tauri 诊断导出包含应用/系统版本、连接状态、当前 Host 名称、脱敏后的 Host 地址，以及最近客户端连接/传输错误类别；不包含实体数量、消息正文或凭据。旧 GPUI 客户端的通知偏好保存在本机私有设置目录，登录时启动通过用户 LaunchAgent 实现；GPUI 只支持整窗系统模糊，降低透明度开启时半透明主题自动退回不透明。
 

@@ -1,3 +1,4 @@
+import { prepareSendAttempt, acceptBridgeSnapshot, type SendAttempt } from './components/reliableSend.model'
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Channel, invoke, isTauri } from '@tauri-apps/api/core'
 import { currentMonitor, getCurrentWindow, PhysicalPosition, PhysicalSize, primaryMonitor } from '@tauri-apps/api/window'
@@ -5,7 +6,7 @@ import { getVersion } from '@tauri-apps/api/app'
 import { listen } from '@tauri-apps/api/event'
 import { AlertCircle, AtSign, Check, ChevronDown, ChevronRight, Command, Menu, MessageCircle, Monitor, PanelRight, Plus, Search, Send, Settings, Shield, Sparkles, Workflow, Clock3, Trash2, Edit3, Folder, X, Paperclip, Zap } from 'lucide-react'
 import { t, type CopyKey } from './i18n'
-import { emptyState, type Announcement, type BridgeState, type Chat, type HostRecord, type Json, type LocalPreferences, type Message, type NotificationPreferenceKey, type PendingMessage, type Question } from './types'
+import { emptyState, type Announcement, type BridgeState, type Chat, type HostRecord, type Json, type LocalPreferences, type Message, type NotificationPreferenceKey, type Question } from './types'
 import { BlockedBlock, BotDmReferenceBlock, CompletionCard, DelegationLine, FallbackCard, FileBlock, LinkPreviewBlock, LoopPausedBlock, MessageImageBlock, ProjectCard, ProgressRow, ReviewCard, SkillMessageDeliveryStatus, SkillMessageLoadedStatus, SkillMessageText, SystemNotice, TakeoverRequestBlock, TaskCard, type ArtifactRef, type MessageFilePreview, type MessageFileRef } from './components/MessageBlocks'
 import { WorkbenchPage } from './components/WorkbenchPage'
 import { DashboardPage } from './components/DashboardPage'
@@ -42,6 +43,8 @@ import { ChatSkillPicker } from './components/ChatSkillPicker'
 import { getChatSkillPickerItems, shouldRefreshSkillsOnPickerOpen } from './components/chatSkillPickerModel'
 import { makeSkillCreateIntent, type SkillCreateIntent } from './components/skillCreateIntent'
 import { chatSendMentions, messageAssignmentId, messageRenderMode, messageShortcutAction, quoteSendFields, shouldSendOnCommandEnter, userHasReaction } from './components/messageActions.model'
+import { mergeApprovalRecords, mergeQuestionRecords } from './components/canonicalHistory.model'
+import { previousEditableMessage } from './components/previousMessageEdit.model'
 import { findForcedSkillTextBlockIndex, getRenderableSkillNames, getValidLoadedSkills, parseForcedSkillText } from './components/skillMessage.model'
 import { mainBotDisplayName } from './components/mainBotDisplayName.model'
 import { GroupAvatar } from './components/GroupAvatar'
@@ -54,7 +57,7 @@ type AppPage = 'chat' | 'workbench' | 'dashboard' | 'routines' | 'skills' | 'mem
 type TraceReturnPage = Exclude<AppPage, 'trace' | 'computer' | 'artifact'>
 type TraceRoute = { assignmentId: string; hostScope: string; returnPage: TraceReturnPage; returnChatId: string; returnSelectedAssignment: string | null; returnScrollPosition: ChatScrollPosition | null }
 type ComputerRoute = { botId: string; hostScope: string; returnPage: Exclude<AppPage, 'computer' | 'artifact'>; returnChatId: string; returnSelectedAssignment: string | null; requestId: string; tabId?: string }
-type ArtifactRoute = { hostScope: string; projectId: string; projectName: string; homePath: string; artifacts: ProjectArtifact[]; artifactId: string; returnPage: Exclude<AppPage, 'artifact'>; returnChatId: string }
+type ArtifactRoute = { hostScope: string; projectId: string; projectName: string; artifacts: ProjectArtifact[]; artifactId: string; homePicker?: boolean; returnPage: Exclude<AppPage, 'artifact'>; returnChatId: string }
 type ScreenState = { bot_id: string; driver: ComputerDriver; tabs: ComputerTab[]; width: number; height: number }
 type ComputerConnectionEvent = { status?: string; bot_id?: string; generation?: number; error?: string | null }
 type ComputerStateEvent = { generation?: number; state?: ScreenState }
@@ -230,6 +233,7 @@ function App() {
   const [artifactRoute, setArtifactRoute] = useState<ArtifactRoute | null>(null)
   const [mentionBotId, setMentionBotId] = useState<string | null>(null)
   const [draftsByChat, setDraftsByChat] = useState<Record<string, string>>({})
+  const [editingMessage, setEditingMessage] = useState<{ hostScope: string; chatId: string; messageId: string } | null>(null)
   const [slashPicker, setSlashPicker] = useState<SlashPickerState | null>(null)
   const [slashSelectedIndex, setSlashSelectedIndex] = useState(0)
   const [composerSkill, setComposerSkill] = useState<SkillRecord | null>(null)
@@ -291,6 +295,9 @@ function App() {
   const nativeContextPanelWindowQueueRef = useRef<Promise<void>>(Promise.resolve())
   const contextPanelIdentityRef = useRef(`${hostScope}:${activePage}`)
   const hostScopeRef = useRef(hostScope)
+  const sendAttemptRef = useRef<SendAttempt | null>(null)
+  const sendingOperationRef = useRef(0)
+  const selectedChatRef = useRef(selectedChat)
   const stateRef = useRef(state)
   const traceRouteRef = useRef(traceRoute)
   const computerRouteRef = useRef(computerRoute)
@@ -480,9 +487,6 @@ function App() {
   useEffect(() => {
     let active = true
     void invoke<HostRecord[]>('list_hosts').then((hosts) => { if (active) { setSavedHosts(hosts); setHostListLoaded(true) } }).catch((error: unknown) => { if (active) { setHostError(String(error)); setHostListLoaded(true) } })
-    void invoke<Record<string, PendingMessage>>('get_pending_messages').then((pendingMessages) => {
-      if (active) setState((current) => ({ ...current, pending_messages: pendingMessages }))
-    }).catch((error: unknown) => { if (active) setState((current) => ({ ...current, error: String(error) })) })
     void invoke<LocalPreferences>('get_local_preferences').then((preferences) => {
       if (!active) return
       setLocalPreferences(preferences)
@@ -558,6 +562,10 @@ function App() {
     setCreateGroupOpen(false)
     setGroupCreateError(null)
     setSendError(null)
+    setMentionBotId(null)
+    setSending(false)
+    sendAttemptRef.current = null
+    sendingOperationRef.current += 1
     setAttachmentMenuOpen(false)
     setAttachments([])
     setDraggingFiles(false)
@@ -572,7 +580,7 @@ function App() {
   useEffect(() => {
     let unlisten: (() => void) | undefined
     void listen<BridgeState>('bridge-state', (event) => {
-      setState(event.payload)
+      setState((current) => acceptBridgeSnapshot(current, event.payload))
       const scope = event.payload.node_id ?? hostScopeRef.current
       setHistoryQuestions((current) => ({ ...current, [scope]: { ...current[scope], ...event.payload.questions } }))
       setHistoryApprovals((current) => ({ ...current, [scope]: { ...current[scope], ...event.payload.approvals } }))
@@ -589,7 +597,7 @@ function App() {
       unlisten = dispose
       try {
         const snapshot = await invoke<BridgeState>('get_bridge_state')
-        setState(snapshot)
+        setState((current) => acceptBridgeSnapshot(current, snapshot))
         if (snapshot.connection === 'connected') setShowConnect(false)
       } catch (error) {
         setState((current) => ({ ...current, error: String(error) }))
@@ -1154,7 +1162,7 @@ function App() {
       attempts += 1
       void invoke<BridgeState>('get_bridge_state').then((snapshot) => {
         if (!alive) return
-        setState(snapshot)
+        setState((current) => acceptBridgeSnapshot(current, snapshot))
         if (snapshot.connection === 'connected') {
           setShowConnect(false)
           setConnecting(false)
@@ -1182,6 +1190,7 @@ function App() {
   const mainBot = bots.find((bot) => bot.is_main) ?? bots[0]
   const currentChat = chats.find((chat) => chat.id === selectedChat) ?? chats.find((chat) => chat.kind === 'main') ?? chats[0]
   const currentChatId = currentChat?.id
+  selectedChatRef.current = currentChatId ?? ''
   const currentDraftKey = currentChatId ? chatDraftKey(hostScope, currentChatId) : ''
   const draft = currentDraftKey ? draftsByChat[currentDraftKey] ?? '' : ''
   const setDraft = (value: string) => {
@@ -1193,6 +1202,11 @@ function App() {
   }
   const currentMainBotId = mainBotIdForChat(currentChat, state.bots)
   useEffect(() => { setFocusedMessageId(null) }, [currentChat?.id])
+  useEffect(() => {
+    if (!editingMessage || (editingMessage.hostScope === hostScope && editingMessage.chatId === currentChat?.id)) return
+    setEditingMessage(null)
+    setDraftsByChat((current) => setChatDraft(current, editingMessage.hostScope, editingMessage.chatId, ''))
+  }, [editingMessage, hostScope, currentChat?.id])
   const currentChatBotId = currentChat?.bot_id ?? (currentChat?.kind === 'main' ? mainBot?.id : null)
   const skillTargetBotId = mentionBotId ?? currentChatBotId ?? mainBot?.id ?? null
   const skillTargetBotName = skillTargetBotId ? state.bots[skillTargetBotId]?.name ?? t('common.bot') : t('common.bot')
@@ -1304,8 +1318,8 @@ function App() {
         [cacheKey]: historyResult.status === 'fulfilled' && (chatHistoryResponseIsComplete(history) || current[cacheKey] === true),
       }))
       setQuestionListSucceededByChat((current) => ({ ...current, [cacheKey]: questionResult.status === 'fulfilled' }))
-      setHistoryQuestions((current) => ({ ...current, [scope]: { ...current[scope], ...Object.fromEntries(questionList.map((question) => [question.id, question])) } }))
-      setHistoryApprovals((current) => ({ ...current, [scope]: { ...current[scope], ...Object.fromEntries(approvalList.filter((approval) => approval.id).map((approval) => [String(approval.id), approval])) } }))
+      setHistoryQuestions((current) => ({ ...current, [scope]: mergeQuestionRecords(current[scope], Object.fromEntries(questionList.map((question) => [question.id, question]))) }))
+      setHistoryApprovals((current) => ({ ...current, [scope]: mergeApprovalRecords(current[scope], Object.fromEntries(approvalList.filter((approval) => approval.id).map((approval) => [String(approval.id), approval]))) }))
       setState((current) => {
         return { ...current, error: loadError?.status === 'rejected' ? String(loadError.reason) : current.error }
       })
@@ -1313,7 +1327,7 @@ function App() {
       if (active) setHistoryLoadingChat((loadingChat) => loadingChat === chatId ? null : loadingChat)
     })
     return () => { active = false }
-  }, [currentChat?.id, state.connection, hostScope])
+  }, [currentChat?.id, state.connection, state.bootstrap_revision, hostScope])
 
   useEffect(() => {
     if (!memorySourceTarget || memorySourceTarget.scope !== hostScope || currentChat?.id !== memorySourceTarget.chatId) return
@@ -1343,7 +1357,7 @@ function App() {
   const queueHintVisible = queueHintAssignments.length > 0 && !mentionBotId && !quoteTarget?.botId && !/@[\p{L}\p{N}_-]+/u.test(draft)
   const configuredTaskLimit = Number(state.bots[String(currentChat?.bot_id ?? '')]?.max_parallel ?? 3)
   const currentBotTaskLimit = Number.isFinite(configuredTaskLimit) ? Math.max(1, Math.min(8, configuredTaskLimit)) : 3
-  const currentApprovals = (Object.values({ ...state.approvals, ...historyApprovals[hostScope] }) as Record<string, Json>[]).filter((approval) => approval.state === 'pending')
+  const currentApprovals = (Object.values(mergeApprovalRecords(historyApprovals[hostScope], state.approvals)) as Record<string, Json>[]).filter((approval) => approval.state === 'pending')
   const approvalChatTargets = new Map<string, Record<string, Json>[]>()
   for (const approval of currentApprovals) {
     const targetIds = new Set<string>()
@@ -1360,7 +1374,7 @@ function App() {
     const summary = String(approvals[0].summary ?? approvals[0].tool ?? t('follow.pending_approval'))
     return { label: t('sidebar.approval_line').replace('{summary}', summary), count: approvals.length }
   }
-  const currentQuestions = useMemo(() => ({ ...state.questions, ...historyQuestions[hostScope] }), [state.questions, historyQuestions, hostScope])
+  const currentQuestions = useMemo(() => mergeQuestionRecords(historyQuestions[hostScope], state.questions), [state.questions, historyQuestions, hostScope])
   const currentHistoryComplete = state.connection === 'connected' && currentChat?.id
     ? questionFallbackAllowed(
       historyCompletenessByChat[historyCacheKey(hostScope, currentChat.id)] === true,
@@ -1372,7 +1386,7 @@ function App() {
     [currentDisplayMessages, currentChat?.id, currentQuestions, currentHistoryComplete],
   )
   const scopedHistoryApprovals = historyApprovals[hostScope]
-  const currentApprovalRecords = useMemo(() => ({ ...state.approvals, ...scopedHistoryApprovals }), [state.approvals, scopedHistoryApprovals])
+  const currentApprovalRecords = useMemo(() => mergeApprovalRecords(scopedHistoryApprovals, state.approvals), [state.approvals, scopedHistoryApprovals])
   const currentProjectId = typeof currentChat?.project_id === 'string' ? currentChat.project_id : null
   const currentProject = currentProjectId ? state.projects[currentProjectId] : undefined
   const currentProjectIdRef = useRef(currentProjectId)
@@ -1676,6 +1690,26 @@ function App() {
         if (event.key === 'Tab') event.preventDefault()
       }
     }
+    if (event.key === 'Escape' && editingMessage) {
+      event.preventDefault()
+      setDraftForChat(editingMessage.chatId, '')
+      setEditingMessage(null)
+      return
+    }
+    if (event.key === 'ArrowUp' && !event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey && !draft.trim() && currentChat) {
+      const previous = previousEditableMessage(currentMessages)
+      if (previous) {
+        event.preventDefault()
+        setEditingMessage({ hostScope, chatId: currentChat.id, messageId: previous.id })
+        setDraftForChat(currentChat.id, previous.text)
+        setComposerSkill(null)
+        setMentionBotId(null)
+        setQuoteTarget(null)
+        setSlashPicker(null)
+        requestAnimationFrame(() => composerTextareaRef.current?.setSelectionRange(previous.text.length, previous.text.length))
+      }
+      return
+    }
     if (event.key === 'Backspace' && composerSkill && event.currentTarget.selectionStart === 0 && event.currentTarget.selectionEnd === 0) {
       event.preventDefault()
       setComposerSkill(null)
@@ -1825,6 +1859,7 @@ function App() {
           'x-file-name': encodeURIComponent(file.name.split(/[\\/]/).pop() ?? file.name),
           'x-mime-type': file.type || 'application/octet-stream',
           'x-upload-id': requestId,
+          'x-host-id': scope,
         },
       })
       assertHostScope(hostScopeRef.current, scope)
@@ -1841,7 +1876,7 @@ function App() {
     }
   }
 
-  async function uploadNativeAttachment(localId: string, source: 'home' | 'screenshot', homePath?: string) {
+  async function uploadNativeAttachment(localId: string, source: 'home' | 'screenshot', projectId?: string, remotePath?: string) {
     const scope = hostScope
     const requestId = crypto.randomUUID()
     setAttachments((current) => current.map((item) => item.localId === localId
@@ -1860,8 +1895,8 @@ function App() {
         }))
       })
       const result = source === 'home'
-        ? await invoke<AttachmentUploadResult | null>('pick_and_upload_home_attachment', { homePath, uploadId: requestId })
-        : await invoke<AttachmentUploadResult | null>('capture_and_upload_screenshot', { uploadId: requestId })
+        ? await invoke<AttachmentUploadResult>('upload_project_attachment', { projectId, path: remotePath, uploadId: requestId, hostId: scope })
+        : await invoke<AttachmentUploadResult | null>('capture_and_upload_screenshot', { uploadId: requestId, hostId: scope })
       assertHostScope(hostScopeRef.current, scope)
       if (!result) {
         setAttachments((current) => current.filter((item) => item.localId !== localId))
@@ -1882,26 +1917,24 @@ function App() {
     }
   }
 
-  function addNativeAttachment(source: 'home' | 'screenshot') {
-    const homePath = source === 'home' && typeof currentProject?.home_path === 'string' ? currentProject.home_path : undefined
-    if (source === 'home' && !homePath) return
+  function addNativeAttachment(source: 'screenshot') {
     const localId = crypto.randomUUID()
     setAttachmentMenuOpen(false)
     setAttachments((current) => [...current, {
       localId,
-      name: t(source === 'home' ? 'chat.composer.attach.from_home' : 'chat.composer.attach.screenshot'),
+      name: t('chat.composer.attach.screenshot'),
       size: 0,
       nativeSource: source,
-      ...(homePath ? { homePath } : {}),
       status: 'preparing',
       progress: 0,
     }])
-    void uploadNativeAttachment(localId, source, homePath)
+    void uploadNativeAttachment(localId, source)
   }
 
   function retryChatAttachment(item: ChatAttachment) {
     if (item.file) void uploadChatAttachment(item.localId, item.file)
-    else if (item.nativeSource) void uploadNativeAttachment(item.localId, item.nativeSource, item.homePath)
+    else if (item.nativeSource === 'screenshot') void uploadNativeAttachment(item.localId, item.nativeSource)
+    else if (item.nativeSource === 'home' && item.projectId && item.remotePath) void uploadNativeAttachment(item.localId, item.nativeSource, item.projectId, item.remotePath)
   }
 
   function addChatAttachments(files: FileList | File[]) {
@@ -2142,6 +2175,10 @@ function App() {
     setCreateGroupOpen(false)
     setGroupCreateError(null)
     setSendError(null)
+    setMentionBotId(null)
+    setSending(false)
+    sendAttemptRef.current = null
+    sendingOperationRef.current += 1
     setAttachmentMenuOpen(false)
     setAttachments([])
     setSlashPicker(null)
@@ -2811,7 +2848,6 @@ function App() {
       hostScope: scope,
       projectId,
       projectName: result.project.name ?? projectId,
-      homePath: typeof result.project.home_path === 'string' ? result.project.home_path : '',
       artifacts,
       artifactId,
       returnPage,
@@ -2820,6 +2856,33 @@ function App() {
     setBotPanelId(null)
     setActivePage('artifact')
     return true
+  }
+
+  function openHomePicker() {
+    const projectId = currentProjectId
+    if (!projectId || typeof currentProject?.home_path !== 'string' || !currentProject.home_path) return
+    const scope = hostScopeRef.current
+    const returnPage = activePage === 'artifact' ? artifactRoute?.returnPage ?? 'chat' : activePage
+    const returnChatId = activePage === 'artifact' ? artifactRoute?.returnChatId ?? selectedChat : selectedChat
+    setAttachmentMenuOpen(false)
+    setArtifactRoute({ hostScope: scope, projectId, projectName: currentProject.name ?? projectId, artifacts: [], artifactId: '', homePicker: true, returnPage, returnChatId })
+    setBotPanelId(null)
+    setActivePage('artifact')
+  }
+
+  function selectHomeAttachment(path: string, name: string, size: number) {
+    const route = artifactRoute
+    const scope = hostScopeRef.current
+    if (!route?.homePicker || route.hostScope !== scope) return
+    const localId = crypto.randomUUID()
+    setAttachments((current) => [...current, { localId, name, size, nativeSource: 'home', projectId: route.projectId, remotePath: path, status: 'preparing', progress: 0 }])
+    setArtifactRoute(null)
+    setActivePage(route.returnPage)
+    if (route.returnPage === 'chat') {
+      setSelectedChat(route.returnChatId)
+      localStorage.setItem(`${SELECTED_CHAT_STORAGE_KEY}:${scope}`, route.returnChatId)
+    }
+    void uploadNativeAttachment(localId, 'home', route.projectId, path)
   }
 
   async function openArtifactReference(artifact: ArtifactRef) {
@@ -3028,6 +3091,10 @@ function App() {
     setCreateGroupOpen(false)
     setGroupCreateError(null)
     setSendError(null)
+    setMentionBotId(null)
+    setSending(false)
+    sendAttemptRef.current = null
+    sendingOperationRef.current += 1
     setAttachmentMenuOpen(false)
     setAttachments([])
     setSlashPicker(null)
@@ -3045,29 +3112,54 @@ function App() {
 
   async function sendMessage(event: React.FormEvent) {
     event.preventDefault()
+    if (editingMessage) {
+      const edit = editingMessage
+      const text = draft.trim()
+      if (!text || !currentChat || edit.hostScope !== hostScope || edit.chatId !== currentChat.id || sending || state.connection !== 'connected') return
+      const scope = edit.hostScope
+      const operation = ++sendingOperationRef.current
+      setSending(true)
+      setSendError(null)
+      try {
+        const result = await invoke<{ message: Message }>('protocol_request', { method: 'message.edit', params: { message_id: edit.messageId, text } })
+        assertHostScope(hostScopeRef.current, scope)
+        updateMessageFromAction(scope, result.message)
+        if (sendingOperationRef.current !== operation) return
+        if (selectedChatRef.current === edit.chatId) {
+          setDraftForChat(edit.chatId, '')
+          setEditingMessage(null)
+        }
+      } catch (error) {
+        if (hostScopeRef.current === scope && sendingOperationRef.current === operation) setSendError(String(error))
+      } finally {
+        if (hostScopeRef.current === scope && sendingOperationRef.current === operation) setSending(false)
+      }
+      return
+    }
     const sendChatId = currentChat?.id
     const readyAttachments = attachments.filter((item) => item.status === 'ready' && item.uploadId)
     const messageText = composerSkill ? `/${composerSkill.name}${draft.trim() ? ` ${draft.trim()}` : ''}` : draft.trim()
-    if (!currentChat || (!draft.trim() && !readyAttachments.length) || attachments.some((item) => item.status === 'preparing' || item.status === 'uploading') || sending || state.connection !== 'connected') return
+    if (!currentChat || (!messageText && !readyAttachments.length) || attachments.some((item) => item.status === 'preparing' || item.status === 'uploading') || sending || state.connection !== 'connected') return
     const quoteFields = quoteSendFields(quoteTarget)
     const scope = hostScope
+    const operation = ++sendingOperationRef.current
     setSending(true)
     setSendError(null)
     try {
-      if (mentionBotId || quoteTarget || readyAttachments.length || composerSkill) {
-        await invoke('protocol_request', { method: 'chat.send', params: {
-          chat_id: currentChat.id,
-          text: messageText,
-          mentions: chatSendMentions(mentionBotId, quoteTarget),
-          ...(quoteFields.quote ? { quote: quoteFields.quote, quote_mode: quoteFields.quote_mode } : {}),
-          ...(readyAttachments.length ? { attachments: readyAttachments.map((item) => item.uploadId) } : {}),
-          client_request_id: crypto.randomUUID(),
-        } })
-      } else {
-        await invoke('send_message', { chatId: currentChat.id, text: messageText })
-      }
+      const attempt = prepareSendAttempt(sendAttemptRef.current, scope, {
+        chat_id: currentChat.id,
+        text: messageText,
+        mentions: chatSendMentions(mentionBotId, quoteTarget),
+        ...(quoteFields.quote ? { quote: quoteFields.quote, quote_mode: quoteFields.quote_mode } : {}),
+        ...(readyAttachments.length ? { attachments: readyAttachments.map((item) => item.uploadId!) } : {}),
+      }, () => crypto.randomUUID())
+      sendAttemptRef.current = attempt
+      await invoke('send_message', { hostId: scope, params: attempt.params })
       assertHostScope(hostScopeRef.current, scope)
+      if (sendingOperationRef.current !== operation) return
+      sendAttemptRef.current = null
       if (sendChatId) setDraftForChat(sendChatId, '')
+      if (selectedChatRef.current !== sendChatId) return
       setMentionBotId(null)
       setComposerSkill(null)
       setSlashPicker(null)
@@ -3076,9 +3168,9 @@ function App() {
       const sentIds = new Set(readyAttachments.map((item) => item.uploadId))
       setAttachments((current) => current.filter((item) => !sentIds.has(item.uploadId)))
     } catch (error) {
-      if (hostScopeRef.current === scope) setSendError(String(error))
+      if (hostScopeRef.current === scope && sendingOperationRef.current === operation) setSendError(String(error))
     } finally {
-      setSending(false)
+      if (hostScopeRef.current === scope && sendingOperationRef.current === operation) setSending(false)
     }
   }
 
@@ -3269,6 +3361,7 @@ function App() {
         <div className="composer-box">
           <AttachmentTray items={attachments} onRemove={(localId) => setAttachments((current) => current.filter((item) => item.localId !== localId))} onRetry={retryChatAttachment} />
           {sendError && <div className="chat-entry-error" role="alert">{t('chat.send.failed').replace('{error}', sendError)}</div>}
+          {editingMessage?.hostScope === hostScope && editingMessage.chatId === currentChat?.id && <div className="chat-composer-quote chat-composer-edit"><div><strong>{t('chat.message.editing')}</strong><span>{t('chat.message.edit_hint')}</span></div><button type="button" aria-label={t('chat.message.cancel_edit')} onClick={() => { setDraftForChat(editingMessage.chatId, ''); setEditingMessage(null) }}>{t('chat.message.cancel_edit')}</button></div>}
           {quoteTarget && <div className="chat-composer-quote"><div><strong>{t(quoteTarget.mode === 'reply' ? 'chat.message.replying_to' : 'chat.message.quoting').replace('{sender}', quoteTarget.senderName)}</strong><span>{quoteTarget.excerpt}</span></div><button type="button" aria-label={t('chat.message.cancel_quote')} onClick={() => setQuoteTarget(null)}><X size={14} /></button></div>}
           {mentionBotId && <div className="composer-mention-chip"><AtSign size={13} />{t('chat.queue.at_now').replace('{bot}', state.bots[mentionBotId]?.name ?? t('common.bot'))}<button type="button" aria-label={t('common.close')} onClick={() => setMentionBotId(null)}>×</button></div>}
           {queueHintVisible && <div className="chat-queue-hint"><Clock3 size={13} /><span>{t('chat.queue.hint').replace('{bots}', queueHintAssignments.map((assignment) => state.bots[String(assignment.bot_id)]?.name ?? t('common.bot')).join('、')).replace('{count, plural, one {它} other {它们}}', queueHintAssignments.length === 1 ? '它' : '它们')}</span>{queueHintAssignments.map((assignment) => <button type="button" key={String(assignment.id)} onClick={() => setMentionBotId(String(assignment.bot_id))}>{t('chat.queue.at_now').replace('{bot}', state.bots[String(assignment.bot_id)]?.name ?? t('common.bot'))}</button>)}</div>}
@@ -3277,8 +3370,8 @@ function App() {
             {composerSkill && <div className="chat-composer-skill-chip"><Zap size={13} /><span>/{composerSkill.name}</span><button type="button" aria-label={t('common.close')} onMouseDown={(event) => event.preventDefault()} onClick={() => setComposerSkill(null)}><X size={12} /></button></div>}
             <textarea ref={composerTextareaRef} value={draft} onChange={(event) => { setSendError(null); updateSlashPickerFromCaret(event.target.value, event.target.selectionStart) }} onClick={(event) => updateSlashPickerFromCaret(event.currentTarget.value, event.currentTarget.selectionStart)} onKeyUp={(event) => { if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) updateSlashPickerFromCaret(event.currentTarget.value, event.currentTarget.selectionStart) }} onKeyDown={handleComposerKeyDown} placeholder={currentChat ? ((currentChat.kind === 'project' || currentChat.project_id) ? t('chat.composer.placeholder.group').replace('{group}', chatTitle(currentChat)) : t('chat.composer.placeholder.dm').replace('{name}', chatTitle(currentChat))) : t('chat.empty.select')} disabled={!currentChat || state.connection !== 'connected'} rows={2} />
           </div>
-          <div className="composer-actions"><div className="composer-attachment-anchor"><button type="button" className="composer-tool" aria-label={t('chat.composer.attach.file')} title={t('chat.composer.attach.file')} disabled={!currentChat || state.connection !== 'connected'} onClick={() => setAttachmentMenuOpen((open) => !open)}><Plus size={17} /></button>{attachmentMenuOpen && <AttachmentMenu onFiles={() => { setAttachmentMenuOpen(false); attachmentInputRef.current?.click() }} onImages={() => { setAttachmentMenuOpen(false); imageInputRef.current?.click() }} onScreenshot={() => addNativeAttachment('screenshot')} onHome={() => addNativeAttachment('home')} homeAvailable={typeof currentProject?.home_path === 'string' && currentProject.home_path.length > 0} onClose={() => setAttachmentMenuOpen(false)} />}</div><span className="composer-hint"><Command size={11} /> ↵ 发送</span>
-            <button type="submit" className="send-button" disabled={(!draft.trim() && !attachments.some((item) => item.status === 'ready' && item.uploadId)) || attachments.some((item) => item.status === 'preparing' || item.status === 'uploading') || sending || !currentChat || state.connection !== 'connected'} aria-label={t('common.send')}><Send size={16} /></button></div>
+          <div className="composer-actions"><div className="composer-attachment-anchor"><button type="button" className="composer-tool" aria-label={t('chat.composer.attach.file')} title={t('chat.composer.attach.file')} disabled={!currentChat || state.connection !== 'connected'} onClick={() => setAttachmentMenuOpen((open) => !open)}><Plus size={17} /></button>{attachmentMenuOpen && <AttachmentMenu onFiles={() => { setAttachmentMenuOpen(false); attachmentInputRef.current?.click() }} onImages={() => { setAttachmentMenuOpen(false); imageInputRef.current?.click() }} onScreenshot={() => addNativeAttachment('screenshot')} onHome={openHomePicker} homeAvailable={typeof currentProject?.home_path === 'string' && currentProject.home_path.length > 0} onClose={() => setAttachmentMenuOpen(false)} />}</div><span className="composer-hint"><Command size={11} /> ↵ 发送</span>
+            <button type="submit" className="send-button" disabled={(!draft.trim() && !editingMessage && !composerSkill && !attachments.some((item) => item.status === 'ready' && item.uploadId)) || attachments.some((item) => item.status === 'preparing' || item.status === 'uploading') || sending || !currentChat || state.connection !== 'connected'} aria-label={t(editingMessage ? 'chat.message.save_edit' : 'common.send')}><Send size={16} /></button></div>
           <input ref={attachmentInputRef} type="file" multiple hidden onChange={(event) => { if (event.currentTarget.files) addChatAttachments(event.currentTarget.files); event.currentTarget.value = '' }} />
           <input ref={imageInputRef} type="file" accept="image/*" multiple hidden onChange={(event) => { if (event.currentTarget.files) addChatAttachments(event.currentTarget.files); event.currentTarget.value = '' }} />
         </div>
@@ -3374,7 +3467,7 @@ function App() {
             {announcementError && <div className="announcement-error" role="alert">{announcementError}</div>}
             <div className="announcement-editor-actions"><button type="button" onClick={() => { setAnnouncementEditing(false); setAnnouncementDraft(announcement.text); setAnnouncementConflict(null); setAnnouncementError(null) }}>{t('common.cancel')}</button><button type="button" disabled={announcementSaving || Boolean(announcementConflict)} onClick={() => void saveAnnouncement()}>{announcementSaving ? t('host.connecting') : t('common.save')}</button></div>
           </div> : announcement.text ? <MarkdownPreview content={announcement.text} /> : <div className="announcement-detail">{t('group.announcement.empty')}</div>)}
-          {typeof currentProject?.home_path === 'string' && <div className="project-home-path"><Folder size={13} /><code>{currentProject.home_path}</code><button type="button" onClick={() => void navigator.clipboard?.writeText(String(currentProject.home_path))}>{t('common.copy_path')}</button></div>}
+          {typeof currentProject?.home_path === 'string' && <div className="project-home-path"><Folder size={13} /><code>{currentProject.home_path}</code><button type="button" onClick={openHomePicker}>{t('common.open')}</button><button type="button" onClick={() => void navigator.clipboard?.writeText(String(currentProject.home_path))}>{t('common.copy_path')}</button></div>}
         </section>
         <PendingDecisionSection decisions={currentDecisions} bots={state.bots} projects={state.projects} chats={chats} onOpenDecision={openPendingDecision} />
         <section className="follow-section"><div className="section-label">{t('group.members')}<span className="panel-section-count">{announcement?.members.length ?? 0}</span></div>
@@ -3436,6 +3529,8 @@ function App() {
       artifacts={artifactRoute.artifacts}
       botNames={Object.fromEntries(Object.values(state.bots).map((bot) => [bot.id, bot.name ?? bot.id]))}
       initialArtifactId={artifactRoute.artifactId}
+      homePicker={artifactRoute.homePicker}
+      onSelectHomeFile={selectHomeAttachment}
       onBack={() => {
         const route = artifactRoute
         setArtifactRoute(null)
@@ -3445,7 +3540,7 @@ function App() {
           localStorage.setItem(`${SELECTED_CHAT_STORAGE_KEY}:${hostScopeRef.current}`, route.returnChatId)
         }
       }}
-      onRevealInFinder={artifactRoute.homePath ? (artifact) => invoke('reveal_in_finder', { homePath: artifactRoute.homePath, relativePath: artifact.path_or_url }).then(() => undefined) : undefined}
+      onRevealInFinder={(artifact) => invoke('download_project_file_and_reveal', { projectId: artifactRoute.projectId, path: artifact.path_or_url }).then(() => undefined)}
       t={(key) => t(key as CopyKey)}
     />}
     {activePage === 'trace' && <TracePage
@@ -3500,9 +3595,10 @@ function App() {
       onToggleFullscreen={() => setComputerFullscreen((value) => !value)}
       t={(key) => t(key as CopyKey)}
     />}
-    {activePage === 'workbench' && <WorkbenchPage state={state} onOpenChat={openWorkbenchChat} onTrace={(assignmentId) => openTrace(assignmentId)} onMention={mentionAssignmentBot} onRefresh={() => { void invoke<BridgeState>('get_bridge_state').then(setState).catch((error: unknown) => setState((current) => ({ ...current, error: String(error) }))) }} />}
-    {activePage === 'dashboard' && <DashboardPage />}
+    {activePage === 'workbench' && <WorkbenchPage key={`${hostScope}:${state.connection}`} state={state} onOpenChat={openWorkbenchChat} onTrace={(assignmentId) => openTrace(assignmentId)} onMention={mentionAssignmentBot} onRefresh={() => { void invoke<BridgeState>('get_bridge_state').then((snapshot) => setState((current) => acceptBridgeSnapshot(current, snapshot))).catch((error: unknown) => setState((current) => ({ ...current, error: String(error) }))) }} />}
+    {activePage === 'dashboard' && <DashboardPage key={hostScope} connected={state.connection === 'connected'} />}
     {activePage === 'routines' && <RoutinesPage key={hostScope}
+      runRefreshRevision={state.routine_revision}
       selectedRoutineId={searchRoutineTarget?.scope === hostScope ? searchRoutineTarget.id : null} selectionRequest={searchRoutineRequest}
       routines={routinesDataScope === hostScope ? routines : []}
       bots={Object.values(state.bots).map((bot): RoutineBot => ({ id: bot.id, name: bot.name ?? bot.id, is_main: bot.is_main }))}
@@ -3539,7 +3635,7 @@ function App() {
       onUploadZip={async (file) => {
         const scope = hostScope
         assertHostScope(hostScopeRef.current, scope)
-        const uploadId = await invoke<string>('upload_skill_zip', new Uint8Array(await file.arrayBuffer()), { headers: { 'x-file-name': encodeURIComponent(file.name) } })
+        const uploadId = await invoke<string>('upload_skill_zip', new Uint8Array(await file.arrayBuffer()), { headers: { 'x-file-name': encodeURIComponent(file.name), 'x-host-id': scope } })
         assertHostScope(hostScopeRef.current, scope)
         return uploadId
       }}

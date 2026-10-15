@@ -2,7 +2,6 @@
 use std::sync::atomic::Ordering;
 use std::{
     collections::{BTreeMap, BTreeSet, VecDeque},
-    io::Read,
     path::{Component, Path, PathBuf},
     process::Command,
     sync::{atomic::AtomicBool, Arc, Mutex},
@@ -44,56 +43,6 @@ const MAX_ARTIFACT_DIRECTORY_ENTRIES: usize = 5_000;
 // parser has already allocated the incoming JPEG before this native limit runs.
 const MAX_SCREEN_JPEG_BYTES: usize = 8 * 1024 * 1024;
 
-fn resolve_project_artifact_path(home_path: &str, artifact_path: &str) -> Result<PathBuf, String> {
-    if !Path::new(home_path).is_absolute() {
-        return Err("项目 Home 必须是绝对路径".into());
-    }
-    if artifact_path.trim().is_empty() {
-        return Err("产物路径不能为空".into());
-    }
-
-    let artifact = Path::new(artifact_path);
-    if !artifact.is_absolute() {
-        let mut has_normal_component = false;
-        for component in artifact.components() {
-            match component {
-                Component::Normal(_) => has_normal_component = true,
-                Component::CurDir => {}
-                Component::ParentDir | Component::RootDir | Component::Prefix(_) => {
-                    return Err("产物路径不能离开项目 Home".into());
-                }
-            }
-        }
-        if !has_normal_component {
-            return Err("产物路径不能为空".into());
-        }
-    } else if artifact
-        .components()
-        .any(|component| matches!(component, Component::ParentDir | Component::Prefix(_)))
-    {
-        return Err("产物路径不能离开项目 Home".into());
-    }
-
-    let home = Path::new(home_path)
-        .canonicalize()
-        .map_err(|error| format!("无法解析项目 Home：{error}"))?;
-    if !home.is_dir() {
-        return Err("项目 Home 不是目录".into());
-    }
-    let requested = if artifact.is_absolute() {
-        artifact.to_path_buf()
-    } else {
-        home.join(artifact)
-    };
-    let target = requested
-        .canonicalize()
-        .map_err(|error| format!("无法解析产物路径：{error}"))?;
-    if target == home || !target.starts_with(&home) {
-        return Err("产物路径必须位于项目 Home 内部".into());
-    }
-    Ok(target)
-}
-
 fn validate_artifact_file_path(path: &str) -> Result<(), String> {
     if path.is_empty() || path.len() > 4096 || path.chars().any(char::is_control) {
         return Err("产物文件路径无效".into());
@@ -105,6 +54,14 @@ fn validate_artifact_file_path(path: &str) -> Result<(), String> {
         return Err("产物文件路径不能离开项目目录".into());
     }
     Ok(())
+}
+
+fn validate_artifact_directory_path(path: &str) -> Result<(), String> {
+    if path.is_empty() {
+        Ok(())
+    } else {
+        validate_artifact_file_path(path)
+    }
 }
 
 fn validate_message_file_path(path: &str) -> Result<(), String> {
@@ -181,101 +138,54 @@ fn file_ref_url(
     Ok(url.into())
 }
 
-fn resolve_home_attachment_path(home: &Path, selected: &Path) -> Result<PathBuf, String> {
-    if !home.is_absolute() || !selected.is_absolute() {
-        return Err("Home 与所选文件路径必须是绝对路径".into());
-    }
-    let home = home
-        .canonicalize()
-        .map_err(|error| format!("无法解析项目 Home：{error}"))?;
-    if !home.is_dir() {
-        return Err("项目 Home 不是目录".into());
-    }
-    let selected = selected
-        .canonicalize()
-        .map_err(|error| format!("无法解析所选文件：{error}"))?;
-    if !selected.starts_with(&home) {
-        return Err("所选文件超出项目 Home".into());
-    }
-    let metadata =
-        std::fs::metadata(&selected).map_err(|error| format!("无法读取文件信息：{error}"))?;
-    if !metadata.is_file() {
-        return Err("请选择文件，不能选择文件夹".into());
-    }
-    if metadata.len() == 0 {
-        return Err("不能上传空附件".into());
-    }
-    if metadata.len() > MAX_UPLOAD_BYTES as u64 {
-        return Err("附件不能超过 100 MB".into());
-    }
-    Ok(selected)
-}
-
-fn authorized_project_home(
-    home_path: &str,
-    projects: &BTreeMap<String, Value>,
-) -> Result<PathBuf, String> {
-    let home_directory = std::env::var_os("HOME").map(PathBuf::from);
-    let requested = expand_home_path(home_path, home_directory.as_deref())?
-        .canonicalize()
-        .map_err(|error| format!("无法解析项目 Home：{error}"))?;
-    let is_current_host_project = projects.values().any(|project| {
-        project
-            .get("home_path")
-            .and_then(Value::as_str)
-            .and_then(|path| expand_home_path(path, home_directory.as_deref()).ok())
-            .and_then(|path| path.canonicalize().ok())
-            .is_some_and(|path| path == requested)
-    });
-    if !is_current_host_project {
-        return Err("项目 Home 不属于当前连接的 Host".into());
-    }
-    Ok(requested)
-}
-
-fn expand_home_path(home_path: &str, home_directory: Option<&Path>) -> Result<PathBuf, String> {
-    if home_path == "~" || home_path.starts_with("~/") {
-        let home_directory = home_directory.ok_or_else(|| "无法确定当前用户 Home".to_string())?;
-        let suffix = home_path.strip_prefix("~/").unwrap_or("");
-        return Ok(home_directory.join(suffix));
-    }
-    if !Path::new(home_path).is_absolute() {
-        return Err("项目 Home 必须是绝对路径或以 ~/ 开头".into());
-    }
-    Ok(PathBuf::from(home_path))
-}
-
 #[tauri::command]
-fn reveal_in_finder(
+async fn download_project_file_and_reveal(
+    app: AppHandle,
     bridge: State<'_, SharedBridge>,
-    home_path: String,
-    relative_path: String,
-) -> Result<(), String> {
-    let data = bridge
-        .0
-        .lock()
-        .map_err(|_| "客户端状态不可用".to_string())?;
-    if data.connection != "connected" {
-        return Err("尚未连接 Bot 主机".into());
+    project_id: String,
+    path: String,
+) -> Result<String, String> {
+    validate_artifact_file_path(&path)?;
+    let context = artifact_http_context(&bridge, &project_id)?;
+    let (bytes, _) =
+        fetch_artifact_http(&context, &path, false, MAX_UPLOAD_BYTES, "下载文件").await?;
+    if bytes.is_empty() {
+        return Err("无法打开空文件".into());
     }
-    let home = authorized_project_home(&home_path, &data.state.projects)?;
-    let target = resolve_project_artifact_path(
-        home.to_str()
-            .ok_or_else(|| "项目 Home 路径无效".to_string())?,
-        &relative_path,
-    )?;
+    verify_artifact_http_context(&bridge, &context)?;
+    let name = path
+        .rsplit('/')
+        .next()
+        .filter(|name| !name.is_empty() && name.len() <= 255 && !name.chars().any(char::is_control))
+        .ok_or_else(|| "远程文件名无效".to_string())?;
+    let cache_dir = app
+        .path()
+        .app_cache_dir()
+        .map_err(|error| format!("无法获取本地缓存目录：{error}"))?
+        .join("remote-files");
+    std::fs::create_dir_all(&cache_dir)
+        .map_err(|error| format!("无法创建本地文件缓存：{error}"))?;
+    let mut display_name = name.to_owned();
+    while format!("{}-{display_name}", Uuid::nil()).len() > 240 {
+        display_name.pop();
+    }
+    let target = cache_dir.join(format!("{}-{display_name}", Uuid::new_v4()));
+    std::fs::write(&target, bytes).map_err(|error| format!("无法保存远程文件副本：{error}"))?;
     #[cfg(target_os = "macos")]
     {
         Command::new("/usr/bin/open")
             .arg("-R")
-            .arg(target)
+            .arg(&target)
             .status()
-            .map_err(|error| format!("无法在 Finder 中显示产物：{error}"))
+            .map_err(|error| format!("无法在 Finder 中显示本地副本：{error}"))
             .and_then(|status| {
                 if status.success() {
-                    Ok(())
+                    Ok(target.to_string_lossy().into_owned())
                 } else {
-                    Err(format!("Finder 无法显示产物（退出码 {:?}）", status.code()))
+                    Err(format!(
+                        "Finder 无法显示本地副本（退出码 {:?}）",
+                        status.code()
+                    ))
                 }
             })
     }
@@ -302,6 +212,9 @@ struct BridgeData {
     buffered_trace_bytes: usize,
     trace_buffer_overflow: bool,
     connection_generation: u64,
+    resync_requested: bool,
+    bootstrap_revision: u64,
+    routine_revision: u64,
     trace_cleanup: Option<PendingTraceCleanup>,
     screen_sessions: BTreeMap<u64, ScreenSession>,
     screen_generation: u64,
@@ -328,6 +241,9 @@ impl Default for BridgeData {
             buffered_trace_bytes: 0,
             trace_buffer_overflow: false,
             connection_generation: 0,
+            resync_requested: false,
+            bootstrap_revision: 0,
+            routine_revision: 0,
             trace_cleanup: None,
             screen_sessions: BTreeMap::new(),
             screen_generation: 0,
@@ -491,6 +407,9 @@ const MAX_BUFFERED_TRACE_BYTES: usize = 1024 * 1024;
 
 #[derive(Clone, Serialize)]
 struct BridgeSnapshot {
+    revision: u64,
+    bootstrap_revision: u64,
+    routine_revision: u64,
     connection: &'static str,
     error: Option<String>,
     server_version: Option<String>,
@@ -517,7 +436,11 @@ fn map_values(values: &std::collections::BTreeMap<String, Value>) -> Map<String,
 }
 
 fn snapshot(data: &BridgeData) -> BridgeSnapshot {
+    static NEXT_REVISION: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
     BridgeSnapshot {
+        revision: NEXT_REVISION.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
+        bootstrap_revision: data.bootstrap_revision,
+        routine_revision: data.routine_revision,
         connection: data.connection,
         error: data.error.clone(),
         server_version: data.server_version.clone(),
@@ -791,6 +714,10 @@ fn memory_protocol_event_payload(
         return None;
     }
     Some(json!({ "host_scope": host_scope?, "event": event, "data": data }))
+}
+
+fn affects_routine_history(event: &str) -> bool {
+    matches!(event, "routine.run" | "routine.updated" | "routine.deleted")
 }
 
 fn connection_is_current(data: &BridgeData, generation: u64) -> bool {
@@ -1185,13 +1112,20 @@ fn approval_notification_message(approval: &Value) -> Option<Value> {
 }
 
 fn persist_outbox(data: &BridgeData) {
-    let Some(host) = &data.active_host else {
-        return;
-    };
-    let Some(node_id) = host.node_id.as_deref() else {
-        return;
-    };
-    let _ = outbox::save(&host.id, node_id, &data.pending_messages);
+    let _ = persist_outbox_required(data);
+}
+
+fn persist_outbox_required(data: &BridgeData) -> Result<(), String> {
+    let host = data
+        .active_host
+        .as_ref()
+        .ok_or_else(|| "尚未保存 Bot 主机".to_string())?;
+    let node_id = host
+        .node_id
+        .as_deref()
+        .ok_or_else(|| "Bot 主机身份不可用".to_string())?;
+    outbox::save(&host.id, node_id, &data.pending_messages)
+        .map_err(|error| format!("无法保存待发消息：{error}"))
 }
 
 fn pending_message(params: &Value) -> Value {
@@ -1487,6 +1421,7 @@ async fn connect_to_host(
             data.active_chat_id = None;
         }
         data.connection_generation = data.connection_generation.wrapping_add(1);
+        data.resync_requested = false;
         data.connection = "connecting";
         data.error = None;
         clear_negotiated_versions(&mut data);
@@ -1528,9 +1463,10 @@ async fn connect_to_host(
         config.node_id = host.node_id.clone();
         if let Ok(data) = bridge.0.lock() {
             config.last_seq = data.state.last_seq;
-            config.has_cached_state = data.state.hello.as_ref().is_some_and(|hello| {
-                hello.get("node_id").and_then(Value::as_str) == host.node_id.as_deref()
-            });
+            config.has_cached_state = !data.state.needs_resync
+                && data.state.hello.as_ref().is_some_and(|hello| {
+                    hello.get("node_id").and_then(Value::as_str) == host.node_id.as_deref()
+                });
         }
     }
     let handle = Client::spawn(config);
@@ -1623,6 +1559,9 @@ async fn connect_to_host(
                         }
                     }
                     ClientEvent::Bootstrap(bootstrap) => {
+                        data.resync_requested = false;
+                        data.bootstrap_revision = data.bootstrap_revision.wrapping_add(1);
+                        data.error = None;
                         data.state.apply_bootstrap(bootstrap);
                         persist_cache(&data);
                     }
@@ -1635,6 +1574,9 @@ async fn connect_to_host(
                             ) && protocol_event.seq.is_some_and(|seq| seq > old_seq);
                         let event_name = protocol_event.event.clone();
                         let event_data = protocol_event.data.clone();
+                        if affects_routine_history(&event_name) {
+                            data.routine_revision = data.routine_revision.wrapping_add(1);
+                        }
                         let notification_message = match event_name.as_str() {
                             "message.created" => event_data.get("message").cloned(),
                             "approval.requested" => event_data
@@ -1759,13 +1701,63 @@ async fn connect_to_host(
                     }
                 }
             }
+            request_resync_if_needed(&app_handle, &bridge_state, generation);
             emit_snapshot(&app_handle, &bridge_state);
             if retry_after_event {
-                retry_pending_messages(&app_handle, &bridge_state, generation).await;
+                let retry_app = app_handle.clone();
+                let retry_bridge = bridge_state.clone();
+                tauri::async_runtime::spawn(async move {
+                    retry_pending_messages(&retry_app, &retry_bridge, generation).await;
+                });
             }
         }
     });
     Ok(())
+}
+
+// The event consumer must never await bootstrap: the core publishes its
+// snapshot in-order on that same event stream before resolving the request.
+fn request_resync_if_needed(app: &AppHandle, bridge: &SharedBridge, generation: u64) {
+    let client = {
+        let Ok(mut data) = bridge.0.lock() else {
+            return;
+        };
+        if !connection_is_current(&data, generation)
+            || data.connection != "connected"
+            || !data.state.needs_resync
+            || data.resync_requested
+        {
+            return;
+        }
+        let Some(client) = data.client.clone() else {
+            return;
+        };
+        data.resync_requested = true;
+        client
+    };
+    let bridge = bridge.clone();
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        loop {
+            match client.resync().await {
+                Ok(_) => return,
+                Err(error) => {
+                    if let Ok(mut data) = bridge.0.lock() {
+                        if !connection_is_current(&data, generation) {
+                            return;
+                        }
+                        data.error = Some(error.to_string());
+                        let _ = app.emit("bridge-state", snapshot(&data));
+                    }
+                }
+            }
+            tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+            let Ok(data) = bridge.0.lock() else { return };
+            if !connection_is_current(&data, generation) || !data.state.needs_resync {
+                return;
+            }
+        }
+    });
 }
 
 async fn clear_trace_for_host_switch(
@@ -2521,46 +2513,96 @@ async fn screen_input(
 async fn send_message(
     app: AppHandle,
     bridge: State<'_, SharedBridge>,
-    chat_id: String,
-    text: String,
+    host_id: String,
+    params: Value,
 ) -> Result<(), String> {
-    let shared_bridge = bridge.inner().clone();
-    let (client, request_id, params) = {
+    submit_chat_message(&app, &bridge, Some(&host_id), params)
+        .await
+        .map(|_| ())
+}
+
+fn queue_chat_message(data: &mut BridgeData, params: Value) -> Result<(String, Value), String> {
+    let request_id = params
+        .get("client_request_id")
+        .and_then(Value::as_str)
+        .filter(|id| !id.is_empty())
+        .ok_or_else(|| "消息请求缺少标识".to_string())?
+        .to_owned();
+    if let Some(existing) = data.pending_messages.get_mut(&request_id) {
+        if existing["in_flight"] == true {
+            return Err("消息正在发送，请稍后重试".into());
+        }
+        existing["in_flight"] = json!(true);
+        return Ok((request_id, existing["retry_params"].clone()));
+    }
+    data.pending_messages
+        .insert(request_id.clone(), pending_message(&params));
+    Ok((request_id, params))
+}
+
+fn send_result_is_final(result: &macbot_client_core::Result<Value>) -> bool {
+    result.is_ok()
+        || matches!(
+            result,
+            Err(macbot_client_core::CoreError::Server { .. }
+                | macbot_client_core::CoreError::Protocol(_))
+        )
+}
+
+async fn submit_chat_message(
+    app: &AppHandle,
+    bridge: &SharedBridge,
+    expected_host: Option<&str>,
+    mut params: Value,
+) -> Result<Value, String> {
+    let (client, generation, request_id, params) = {
         let mut data = bridge
             .0
             .lock()
             .map_err(|_| "客户端状态不可用".to_string())?;
+        if data.connection != "connected"
+            || expected_host.is_some_and(|id| {
+                data.active_host.as_ref().map(|host| host.id.as_str()) != Some(id)
+            })
+        {
+            return Err("Bot 主机已切换或断开，请重试".into());
+        }
         let client = data
             .client
             .clone()
             .ok_or_else(|| "尚未连接 Bot 主机".to_string())?;
-        let request_id = Uuid::new_v4().to_string();
+        let object = params
+            .as_object_mut()
+            .ok_or_else(|| "消息参数无效".to_string())?;
+        object
+            .entry("client_request_id")
+            .or_insert_with(|| json!(Uuid::new_v4().to_string()));
         let locale = system_client_locale();
-        let params = inject_client_locale(
-            json!({
-                "chat_id": chat_id,
-                "text": text,
-                "mentions": [],
-                "client_request_id": request_id,
-            }),
-            locale.as_deref(),
-        );
-        data.pending_messages
-            .insert(request_id.clone(), pending_message(&params));
-        persist_outbox(&data);
-        (client, request_id, params)
+        let params = inject_client_locale(params, locale.as_deref());
+        let (request_id, params) = queue_chat_message(&mut data, params)?;
+        if let Err(error) = persist_outbox_required(&data) {
+            data.pending_messages.remove(&request_id);
+            return Err(error);
+        }
+        let _ = app.emit("bridge-state", snapshot(&data));
+        (client, data.connection_generation, request_id, params)
     };
     let result = client.request("chat.send", params).await;
-    if let Ok(mut data) = shared_bridge.0.lock() {
-        if result.is_ok() {
-            data.pending_messages.remove(&request_id);
-        } else if let Some(message) = data.pending_messages.get_mut(&request_id) {
-            message["in_flight"] = json!(false);
-        }
-        persist_outbox(&data);
-        let _ = app.emit("bridge-state", snapshot(&data));
+    let mut data = bridge
+        .0
+        .lock()
+        .map_err(|_| "客户端状态不可用".to_string())?;
+    if !apply_retry_result(
+        &mut data,
+        generation,
+        &request_id,
+        send_result_is_final(&result),
+    ) {
+        return Err("Bot 主机已切换，原消息仍由原主机确认".into());
     }
-    result.map(|_| ()).map_err(|error| error.to_string())
+    persist_outbox(&data);
+    let _ = app.emit("bridge-state", snapshot(&data));
+    result.map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -2616,7 +2658,12 @@ async fn retry_pending_messages(app: &AppHandle, bridge: &SharedBridge, generati
         };
         let result = client.request("chat.send", next.2).await;
         if let Ok(mut data) = bridge.0.lock() {
-            if !apply_retry_result(&mut data, generation, &next.1, result.is_ok()) {
+            if !apply_retry_result(
+                &mut data,
+                generation,
+                &next.1,
+                send_result_is_final(&result),
+            ) {
                 return;
             }
             persist_outbox(&data);
@@ -2729,27 +2776,57 @@ async fn set_window_material(app: AppHandle, translucent: bool) -> Result<(), St
 
 #[tauri::command]
 async fn protocol_request(
+    app: AppHandle,
     bridge: State<'_, SharedBridge>,
     method: String,
     params: Value,
 ) -> Result<Value, String> {
-    let params = if method == "chat.send" {
-        let locale = system_client_locale();
-        inject_client_locale(params, locale.as_deref())
-    } else {
-        params
+    if method == "chat.send" {
+        return submit_chat_message(&app, &bridge, None, params).await;
+    }
+    let (client, generation) = {
+        let data = bridge
+            .0
+            .lock()
+            .map_err(|_| "客户端状态不可用".to_string())?;
+        if data.connection != "connected" {
+            return Err("尚未连接 Bot 主机".into());
+        }
+        (
+            data.client
+                .clone()
+                .ok_or_else(|| "尚未连接 Bot 主机".to_string())?,
+            data.connection_generation,
+        )
     };
-    let client = bridge
+    let result = client.request(&method, params).await;
+    verify_connection_generation(&bridge, generation)?;
+    result.map_err(|error| error.to_string())
+}
+
+fn request_generation(bridge: &SharedBridge, expected_host: Option<&str>) -> Result<u64, String> {
+    let data = bridge
         .0
         .lock()
-        .map_err(|_| "客户端状态不可用".to_string())?
-        .client
-        .clone()
-        .ok_or_else(|| "尚未连接 Bot 主机".to_string())?;
-    client
-        .request(&method, params)
-        .await
-        .map_err(|error| error.to_string())
+        .map_err(|_| "客户端状态不可用".to_string())?;
+    if data.connection != "connected"
+        || expected_host
+            .is_some_and(|id| data.active_host.as_ref().map(|host| host.id.as_str()) != Some(id))
+    {
+        return Err("Bot 主机已切换或断开，请重试".into());
+    }
+    Ok(data.connection_generation)
+}
+
+fn verify_connection_generation(bridge: &SharedBridge, generation: u64) -> Result<(), String> {
+    let data = bridge
+        .0
+        .lock()
+        .map_err(|_| "客户端状态不可用".to_string())?;
+    if !connection_is_current(&data, generation) {
+        return Err("Bot 主机已切换，请重试".into());
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -3392,7 +3469,7 @@ async fn read_bounded_response(
         .is_some_and(|length| length > max_bytes as u64)
     {
         return Err(format!(
-            "{label}超过预览上限（{} MiB）",
+            "{label}超过允许大小上限（{} MiB）",
             max_bytes / (1024 * 1024)
         ));
     }
@@ -3408,7 +3485,7 @@ async fn read_bounded_response(
         let chunk = chunk.map_err(|error| format!("读取{label}失败：{error}"))?;
         if body.len().saturating_add(chunk.len()) > max_bytes {
             return Err(format!(
-                "{label}超过预览上限（{} MiB）",
+                "{label}超过允许大小上限（{} MiB）",
                 max_bytes / (1024 * 1024)
             ));
         }
@@ -3503,7 +3580,7 @@ async fn list_artifact_directory(
     project_id: String,
     path: String,
 ) -> Result<Value, String> {
-    validate_artifact_file_path(&path)?;
+    validate_artifact_directory_path(&path)?;
     let context = artifact_http_context(&bridge, &project_id)?;
     let (body, _) =
         fetch_artifact_http(&context, &path, true, MAX_ARTIFACT_LIST_BYTES, "目录列表").await?;
@@ -3623,6 +3700,12 @@ async fn upload_chat_attachment(
     request: Request<'_>,
 ) -> Result<Value, String> {
     let headers = request.headers();
+    let generation = request_generation(
+        &bridge,
+        headers
+            .get("x-host-id")
+            .and_then(|value| value.to_str().ok()),
+    )?;
     let encoded_file_name = headers
         .get("x-file-name")
         .and_then(|value| value.to_str().ok());
@@ -3639,7 +3722,8 @@ async fn upload_chat_attachment(
         client_upload_id,
     )?;
     let (endpoint, password) = attachment_upload_target(&bridge)?;
-    upload_chat_attachment_bytes(
+    verify_connection_generation(&bridge, generation)?;
+    let result = upload_chat_attachment_bytes(
         &app,
         endpoint,
         password,
@@ -3648,7 +3732,9 @@ async fn upload_chat_attachment(
         client_upload_id,
         bytes,
     )
-    .await
+    .await;
+    verify_connection_generation(&bridge, generation)?;
+    result
 }
 
 struct TemporaryScreenshot(PathBuf);
@@ -3700,36 +3786,6 @@ fn capture_screenshot() -> Result<Option<Vec<u8>>, String> {
     }
 }
 
-fn home_attachment_context(
-    bridge: &State<'_, SharedBridge>,
-    home_path: &str,
-) -> Result<(PathBuf, String, String), String> {
-    let (home, host, endpoint) = {
-        let data = bridge
-            .0
-            .lock()
-            .map_err(|_| "客户端状态不可用".to_string())?;
-        if data.connection != "connected" {
-            return Err("请先连接 Bot 主机".into());
-        }
-        let home = authorized_project_home(home_path, &data.state.projects)?;
-        let host = data
-            .active_host
-            .clone()
-            .ok_or_else(|| "当前连接没有已保存的主机凭证".to_string())?;
-        let endpoint = host
-            .addresses
-            .first()
-            .cloned()
-            .ok_or_else(|| "当前主机没有可用地址".to_string())?;
-        (home, host, endpoint)
-    };
-    let password = HostStore::load()
-        .and_then(|store| store.password(&host))
-        .map_err(|error| format!("无法读取主机凭证：{error}"))?;
-    Ok((home, endpoint, password))
-}
-
 fn screenshot_attachment_context(
     bridge: &State<'_, SharedBridge>,
 ) -> Result<(String, String), String> {
@@ -3743,52 +3799,50 @@ fn validate_upload_id(upload_id: &str) -> Result<(), String> {
 }
 
 #[tauri::command]
-async fn pick_and_upload_home_attachment(
+async fn upload_project_attachment(
     app: AppHandle,
     bridge: State<'_, SharedBridge>,
-    home_path: String,
+    project_id: String,
+    path: String,
     upload_id: String,
-) -> Result<Option<Value>, String> {
+    host_id: String,
+) -> Result<Value, String> {
     validate_upload_id(&upload_id)?;
-    let (home, endpoint, password) = home_attachment_context(&bridge, &home_path)?;
-    let Some(file_path) = app
-        .dialog()
-        .file()
-        .set_directory(home.clone())
-        .blocking_pick_file()
-    else {
-        return Ok(None);
-    };
-    let selected_path = file_path
-        .into_path()
-        .map_err(|error| format!("无法读取所选文件路径：{error}"))?;
-    let selected_path = resolve_home_attachment_path(&home, &selected_path)?;
-    let file_name = selected_path
-        .file_name()
-        .and_then(|name| name.to_str())
+    let generation = request_generation(&bridge, Some(&host_id))?;
+    validate_artifact_file_path(&path)?;
+    let context = artifact_http_context(&bridge, &project_id)?;
+    if context.host_id != host_id || context.generation != generation {
+        return Err("Bot 主机已切换，请重新选择文件".into());
+    }
+    let (bytes, mime_type) =
+        fetch_artifact_http(&context, &path, false, MAX_UPLOAD_BYTES, "附件").await?;
+    if bytes.is_empty() {
+        return Err("不能上传空附件".into());
+    }
+    let file_name = path
+        .rsplit('/')
+        .next()
         .filter(|name| !name.is_empty())
         .ok_or_else(|| "所选文件名无效".to_string())?
         .to_owned();
     if file_name.len() > 255 || file_name.chars().any(char::is_control) {
         return Err("所选文件名无效".into());
     }
-    let file = std::fs::File::open(&selected_path)
-        .map_err(|error| format!("无法读取所选文件：{error}"))?;
-    let mut bytes = Vec::new();
-    file.take(MAX_UPLOAD_BYTES as u64 + 1)
-        .read_to_end(&mut bytes)
-        .map_err(|error| format!("无法读取所选文件：{error}"))?;
-    if bytes.is_empty() || bytes.len() > MAX_UPLOAD_BYTES {
-        return Err("附件大小必须在 1 字节到 100 MB 之间".into());
-    }
-    let mime_type = mime_guess::from_path(&selected_path)
-        .first_or_octet_stream()
-        .to_string();
-    upload_chat_attachment_bytes(
-        &app, endpoint, password, file_name, mime_type, upload_id, bytes,
+    verify_connection_generation(&bridge, generation)?;
+    verify_artifact_http_context(&bridge, &context)?;
+    let result = upload_chat_attachment_bytes(
+        &app,
+        context.endpoint.clone(),
+        context.password.clone(),
+        file_name,
+        mime_type,
+        upload_id,
+        bytes,
     )
-    .await
-    .map(Some)
+    .await;
+    verify_connection_generation(&bridge, generation)?;
+    verify_artifact_http_context(&bridge, &context)?;
+    result
 }
 
 #[tauri::command]
@@ -3796,13 +3850,16 @@ async fn capture_and_upload_screenshot(
     app: AppHandle,
     bridge: State<'_, SharedBridge>,
     upload_id: String,
+    host_id: String,
 ) -> Result<Option<Value>, String> {
     validate_upload_id(&upload_id)?;
+    let generation = request_generation(&bridge, Some(&host_id))?;
     let (endpoint, password) = screenshot_attachment_context(&bridge)?;
     let Some(bytes) = capture_screenshot()? else {
         return Ok(None);
     };
-    upload_chat_attachment_bytes(
+    verify_connection_generation(&bridge, generation)?;
+    let result = upload_chat_attachment_bytes(
         &app,
         endpoint,
         password,
@@ -3811,8 +3868,9 @@ async fn capture_and_upload_screenshot(
         upload_id,
         bytes,
     )
-    .await
-    .map(Some)
+    .await;
+    verify_connection_generation(&bridge, generation)?;
+    result.map(Some)
 }
 
 #[tauri::command]
@@ -3820,6 +3878,13 @@ async fn upload_skill_zip(
     bridge: State<'_, SharedBridge>,
     request: Request<'_>,
 ) -> Result<String, String> {
+    let generation = request_generation(
+        &bridge,
+        request
+            .headers()
+            .get("x-host-id")
+            .and_then(|value| value.to_str().ok()),
+    )?;
     let encoded_file_name = request
         .headers()
         .get("x-file-name")
@@ -3854,6 +3919,7 @@ async fn upload_skill_zip(
         .file_name(file_name)
         .mime_str("application/zip")
         .map_err(|error| error.to_string())?;
+    verify_connection_generation(&bridge, generation)?;
     let response = reqwest::Client::new()
         .post(url)
         .bearer_auth(password)
@@ -3867,6 +3933,7 @@ async fn upload_skill_zip(
         .json::<Value>()
         .await
         .map_err(|error| format!("无法读取技能包上传响应：{error}"))?;
+    verify_connection_generation(&bridge, generation)?;
     uploaded_skill_id(&body)
 }
 
@@ -3908,7 +3975,7 @@ pub fn run() {
             connect_saved_host,
             list_hosts,
             remove_host,
-            reveal_in_finder,
+            download_project_file_and_reveal,
             send_message,
             protocol_request,
             save_usage_csv,
@@ -3921,7 +3988,7 @@ pub fn run() {
             list_artifact_directory,
             read_artifact_file,
             read_message_file,
-            pick_and_upload_home_attachment,
+            upload_project_attachment,
             capture_and_upload_screenshot,
             trace_subscribe,
             trace_unsubscribe,
@@ -3966,18 +4033,17 @@ mod tests {
     use super::{
         activate_trace_subscription, apply_retry_result, approval_notification_message,
         artifact_file_preview, artifact_file_url, artifact_http_context_is_current,
-        authorized_project_home, chat_attachment_payload, clear_negotiated_versions,
-        close_window_action, connection_is_current, diagnostics_text, drain_pending_deep_links,
-        encode_screen_frame, enqueue_message_deep_link, expand_home_path, fetch_artifact_http,
-        fetch_message_file_http, file_ref_url, finish_trace_unsubscribe, inject_client_locale,
-        memory_protocol_event_payload, message_file_http_context_is_current, negotiated_versions,
-        normalize_bcp47_locale, notification_preference_storage_key, parse_message_deep_link,
-        pending_message, redact_endpoint, resolve_home_attachment_path,
-        resolve_project_artifact_path, retain_trace_cleanup, route_trace_event,
-        screen_connection_payload, screen_generation_matches, should_reopen_main_window,
-        skill_upload_payload, snapshot, system_settings_url, trace_subscription_state,
-        trace_tauri_event, tray_menu_copy, update_check_result, uploaded_chat_attachment,
-        uploaded_skill_id, validate_artifact_file_path, validate_message_file_path,
+        chat_attachment_payload, clear_negotiated_versions, close_window_action,
+        connection_is_current, diagnostics_text, drain_pending_deep_links, encode_screen_frame,
+        enqueue_message_deep_link, fetch_artifact_http, fetch_message_file_http, file_ref_url,
+        finish_trace_unsubscribe, inject_client_locale, memory_protocol_event_payload,
+        message_file_http_context_is_current, negotiated_versions, normalize_bcp47_locale,
+        notification_preference_storage_key, parse_message_deep_link, pending_message,
+        redact_endpoint, retain_trace_cleanup, route_trace_event, screen_connection_payload,
+        screen_generation_matches, should_reopen_main_window, skill_upload_payload, snapshot,
+        system_settings_url, trace_subscription_state, trace_tauri_event, tray_menu_copy,
+        update_check_result, uploaded_chat_attachment, uploaded_skill_id,
+        validate_artifact_directory_path, validate_artifact_file_path, validate_message_file_path,
         validate_message_file_scope, validate_screen_input, write_diagnostics, ArtifactHttpContext,
         BridgeData, CloseWindowAction, DeepLinkDispatch, FileRefRoot, HostRecord, InvokeBody,
         MessageDeepLink, MessageFileHttpContext, PendingTraceCleanup, ScreenFrame, ScreenPoint,
@@ -3994,6 +4060,55 @@ mod tests {
     use std::path::PathBuf;
     use std::thread;
     use uuid::Uuid;
+
+    #[test]
+    fn rich_chat_queue_reuses_frozen_params_on_manual_retry() {
+        let mut data = BridgeData::default();
+        let original = json!({"client_request_id":"operation-1","chat_id":"chat-1", "text":"/skill hello", "mentions":[{"kind":"bot","bot_id":"b"}], "quote":"m1", "quote_mode":"reference", "attachments":["upload-1"], "client_locale":"zh-CN"});
+        let (id, queued) = super::queue_chat_message(&mut data, original.clone()).unwrap();
+        assert_eq!(queued, original);
+        assert!(super::queue_chat_message(&mut data, original.clone()).is_err());
+        assert!(apply_retry_result(&mut data, 0, &id, false));
+        let mut changed = original.clone();
+        changed["client_locale"] = json!("en-US");
+        let (_, retried) = super::queue_chat_message(&mut data, changed).unwrap();
+        assert_eq!(retried, original);
+        assert_eq!(data.pending_messages.len(), 1);
+        assert_eq!(data.pending_messages[&id]["retry_params"], original);
+    }
+
+    #[test]
+    fn native_requests_reject_late_responses_even_after_switching_back() {
+        let bridge = super::SharedBridge::default();
+        bridge.0.lock().unwrap().connection_generation = 7;
+        assert!(super::verify_connection_generation(&bridge, 7).is_ok());
+        bridge.0.lock().unwrap().connection_generation = 9;
+        assert!(super::verify_connection_generation(&bridge, 7).is_err());
+    }
+
+    #[test]
+    fn bridge_snapshots_have_monotonic_revisions_and_expose_bootstrap_refresh() {
+        let mut data = BridgeData::default();
+        let before = snapshot(&data);
+        data.bootstrap_revision = 1;
+        data.state
+            .apply_bootstrap(json!({"seq":5,"pending":{},"bots":[],"chats":[],"projects":[]}));
+        let after = snapshot(&data);
+        assert!(after.revision > before.revision);
+        assert_eq!(after.bootstrap_revision, 1);
+        assert_eq!(after.routine_revision, 0);
+        assert!(after.messages.is_empty());
+    }
+
+    #[test]
+    fn only_routine_events_advance_the_run_history_revision() {
+        for event in ["routine.run", "routine.updated", "routine.deleted"] {
+            assert!(super::affects_routine_history(event));
+        }
+        for event in ["trace.item", "typing", "message.created", "bot.updated"] {
+            assert!(!super::affects_routine_history(event));
+        }
+    }
 
     #[test]
     fn memory_protocol_events_are_forwarded_with_host_scope_only() {
@@ -4212,21 +4327,6 @@ mod tests {
     }
 
     #[test]
-    fn artifact_path_resolves_inside_project_home() {
-        let root = TempDir::new();
-        let home = root.0.join("project");
-        fs::create_dir_all(home.join("product")).unwrap();
-        fs::write(home.join("product/prd.md"), "content").unwrap();
-
-        let resolved =
-            resolve_project_artifact_path(home.to_str().unwrap(), "product/prd.md").unwrap();
-        assert_eq!(
-            resolved,
-            home.canonicalize().unwrap().join("product/prd.md")
-        );
-    }
-
-    #[test]
     fn artifact_http_paths_reject_traversal_and_control_characters() {
         assert!(validate_artifact_file_path("code/src/main.rs").is_ok());
         assert!(validate_artifact_file_path("/srv/project/code/main.rs").is_ok());
@@ -4261,6 +4361,22 @@ mod tests {
         assert_eq!(MAX_ARTIFACT_PREVIEW_BYTES, 5 * 1024 * 1024);
         assert_eq!(MAX_ARTIFACT_LIST_BYTES, 4 * 1024 * 1024);
         assert_eq!(MAX_ARTIFACT_DIRECTORY_ENTRIES, 5_000);
+    }
+
+    #[test]
+    fn project_home_root_listing_uses_empty_remote_path_and_rejects_traversal() {
+        validate_artifact_directory_path("").unwrap();
+        assert!(validate_artifact_directory_path("../outside").is_err());
+        let url = artifact_file_url("https://host.test", "project-1", "", true).unwrap();
+        let parsed = url::Url::parse(&url).unwrap();
+        assert_eq!(parsed.path(), "/api/v1/files/list");
+        let query = parsed
+            .query_pairs()
+            .into_owned()
+            .collect::<BTreeMap<_, _>>();
+        assert_eq!(query.get("root").map(String::as_str), Some("project"));
+        assert_eq!(query.get("root_id").map(String::as_str), Some("project-1"));
+        assert_eq!(query.get("path").map(String::as_str), Some(""));
     }
 
     fn mock_files_http(body: Vec<u8>, mime: &'static str) -> (String, thread::JoinHandle<String>) {
@@ -4386,7 +4502,7 @@ mod tests {
             "文件",
         ))
         .unwrap_err();
-        assert!(error.contains("预览上限"));
+        assert!(error.contains("允许大小上限"));
         let _request = server.join().unwrap();
         let preview = artifact_file_preview(vec![0, 255], "application/octet-stream".into());
         assert_eq!(preview["content_encoding"], "base64");
@@ -4552,39 +4668,6 @@ mod tests {
     }
 
     #[test]
-    fn reveal_requires_a_home_path_owned_by_the_current_host() {
-        let root = TempDir::new();
-        let home = root.0.join("project");
-        let other = root.0.join("other");
-        fs::create_dir_all(&home).unwrap();
-        fs::create_dir_all(&other).unwrap();
-        let mut projects = BTreeMap::new();
-        projects.insert(
-            "project-id".to_string(),
-            json!({ "home_path": home.to_str().unwrap() }),
-        );
-
-        assert_eq!(
-            authorized_project_home(home.to_str().unwrap(), &projects).unwrap(),
-            home.canonicalize().unwrap()
-        );
-        assert!(authorized_project_home(other.to_str().unwrap(), &projects).is_err());
-        assert!(authorized_project_home("", &projects).is_err());
-    }
-
-    #[test]
-    fn project_home_expands_tilde_without_accepting_relative_paths() {
-        let home = PathBuf::from("/Users/tester");
-        assert_eq!(
-            expand_home_path("~/MacBot/projects/demo", Some(&home)).unwrap(),
-            home.join("MacBot/projects/demo")
-        );
-        assert_eq!(expand_home_path("~", Some(&home)).unwrap(), home);
-        assert!(expand_home_path("relative/path", Some(&home)).is_err());
-        assert!(expand_home_path("~someone/path", Some(&home)).is_err());
-    }
-
-    #[test]
     fn bridge_snapshot_exposes_negotiated_versions_and_clears_them_for_host_switch() {
         let mut bridge = BridgeData::default();
         let hello = json!({
@@ -4699,106 +4782,6 @@ mod tests {
             SystemPermission::ScreenRecording
         );
         assert!(serde_json::from_str::<SystemPermission>("\"https://example.com\"").is_err());
-    }
-
-    #[test]
-    fn home_attachment_selection_stays_inside_project_and_enforces_file_limits() {
-        let root = TempDir::new();
-        let home = root.0.join("project");
-        let outside = root.0.join("outside");
-        fs::create_dir_all(&home).unwrap();
-        fs::create_dir_all(&outside).unwrap();
-        fs::write(home.join("note.txt"), "safe").unwrap();
-        fs::write(outside.join("secret.txt"), "secret").unwrap();
-
-        assert_eq!(
-            resolve_home_attachment_path(&home, &home.join("note.txt")).unwrap(),
-            home.canonicalize().unwrap().join("note.txt")
-        );
-        assert!(resolve_home_attachment_path(&home, &outside.join("secret.txt")).is_err());
-        assert!(resolve_home_attachment_path(&home, &home).is_err());
-        assert!(resolve_home_attachment_path(PathBuf::from("relative").as_path(), &home).is_err());
-
-        let oversized = home.join("large.bin");
-        fs::File::create(&oversized)
-            .unwrap()
-            .set_len(100 * 1024 * 1024 + 1)
-            .unwrap();
-        assert!(resolve_home_attachment_path(&home, &oversized).is_err());
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn home_attachment_selection_rejects_symlink_escape() {
-        use std::os::unix::fs::symlink;
-
-        let root = TempDir::new();
-        let home = root.0.join("project");
-        let outside = root.0.join("outside");
-        fs::create_dir_all(&home).unwrap();
-        fs::create_dir_all(&outside).unwrap();
-        fs::write(outside.join("secret.txt"), "secret").unwrap();
-        symlink(&outside, home.join("linked")).unwrap();
-
-        assert!(resolve_home_attachment_path(&home, &home.join("linked/secret.txt")).is_err());
-    }
-
-    #[test]
-    fn artifact_path_rejects_absolute_traversal_empty_and_missing_paths() {
-        let root = TempDir::new();
-        let home = root.0.join("project");
-        fs::create_dir_all(&home).unwrap();
-
-        assert!(resolve_project_artifact_path(home.to_str().unwrap(), "../outside").is_err());
-        assert!(
-            resolve_project_artifact_path(home.to_str().unwrap(), home.to_str().unwrap()).is_err()
-        );
-        assert!(resolve_project_artifact_path(home.to_str().unwrap(), "./").is_err());
-        assert!(resolve_project_artifact_path(home.to_str().unwrap(), "missing.txt").is_err());
-    }
-
-    #[test]
-    fn artifact_path_accepts_absolute_targets_only_inside_project_home() {
-        let root = TempDir::new();
-        let home = root.0.join("project");
-        let nested = home.join("code/src/main.rs");
-        let outside = root.0.join("outside.txt");
-        fs::create_dir_all(nested.parent().unwrap()).unwrap();
-        fs::write(&nested, "fn main() {}\n").unwrap();
-        fs::write(&outside, "outside\n").unwrap();
-
-        assert_eq!(
-            resolve_project_artifact_path(home.to_str().unwrap(), nested.to_str().unwrap())
-                .unwrap(),
-            nested.canonicalize().unwrap(),
-        );
-        assert!(
-            resolve_project_artifact_path(home.to_str().unwrap(), outside.to_str().unwrap())
-                .is_err()
-        );
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn artifact_path_rejects_symlinks_that_escape_project_home() {
-        use std::os::unix::fs::symlink;
-
-        let root = TempDir::new();
-        let home = root.0.join("project");
-        let outside = root.0.join("outside");
-        fs::create_dir_all(&home).unwrap();
-        fs::create_dir_all(&outside).unwrap();
-        fs::write(outside.join("secret.txt"), "secret").unwrap();
-        symlink(&outside, home.join("linked")).unwrap();
-
-        assert!(
-            resolve_project_artifact_path(home.to_str().unwrap(), "linked/secret.txt").is_err()
-        );
-        assert!(resolve_project_artifact_path(
-            home.to_str().unwrap(),
-            home.join("linked/secret.txt").to_str().unwrap(),
-        )
-        .is_err());
     }
 
     #[test]

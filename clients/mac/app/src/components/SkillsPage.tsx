@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { AlertCircle, Check, ChevronDown, FileText, Folder, Globe, Package, Plus, Search, Sparkles, ToggleLeft, ToggleRight, X } from 'lucide-react'
 import { t, type CopyKey } from '../i18n'
 import { resolveSkillCreateIntent, type SkillCreateIntent } from './skillCreateIntent'
@@ -74,6 +74,7 @@ export function SkillsPage(props: SkillsPageProps) {
   const [deletedSkills, setDeletedSkills] = useState<Record<string, true>>({})
   const [detail, setDetail] = useState<SkillDetail | null>(null)
   const [content, setContent] = useState('')
+  const [remoteConflict, setRemoteConflict] = useState<SkillDetail | null>(null)
   const [preview, setPreview] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -85,6 +86,10 @@ export function SkillsPage(props: SkillsPageProps) {
   const [zipFile, setZipFile] = useState<File | null>(null)
   const [subdir, setSubdir] = useState('')
   const [disableBotId, setDisableBotId] = useState('')
+  const detailRef = useRef<SkillDetail | null>(detail)
+  const contentRef = useRef(content)
+  detailRef.current = detail
+  contentRef.current = content
 
   useEffect(() => {
     const query = resolveSkillCreateIntent(createIntent, hostScope)
@@ -100,6 +105,11 @@ export function SkillsPage(props: SkillsPageProps) {
     setNewOpen(true)
     onCreateIntentHandled?.(intentId)
   }, [createIntent, hostScope, onCreateIntentHandled])
+
+  useEffect(() => {
+    setSkillOverrides({})
+    setDeletedSkills({})
+  }, [skills])
 
   const visibleSkills = useMemo(() => {
     const byName: Record<string, SkillRecord> = Object.fromEntries(skills.map((skill) => [skill.name, skill]))
@@ -121,21 +131,32 @@ export function SkillsPage(props: SkillsPageProps) {
     if (!selectedName || !filteredSkills.some((skill) => skill.name === selectedName)) setSelectedName(filteredSkills[0].name)
   }, [filteredSkills, selectedName])
 
+  const selected = visibleSkills.find((skill) => skill.name === selectedName) ?? null
+  const selectedUpdatedAt = selected?.updated_at
   useEffect(() => {
     let active = true
     if (!selectedName) return () => { active = false }
-    setDetail(null)
+    const baseline = detailRef.current?.name === selectedName ? detailRef.current : null
+    if (!baseline) {
+      setDetail(null)
+      setRemoteConflict(null)
+    }
     setError(null)
     void onGet(selectedName).then((value) => {
       if (!active) return
+      const currentDetail = detailRef.current?.name === selectedName ? detailRef.current : null
+      const hasUnsavedContent = Boolean(currentDetail && contentRef.current !== currentDetail.content)
+      if (hasUnsavedContent && currentDetail && value.content !== currentDetail.content) {
+        setRemoteConflict(value)
+        return
+      }
       setDetail(value)
-      setContent(value.content)
+      if (!hasUnsavedContent) setContent(value.content)
+      setRemoteConflict(null)
       setDisableBotId(value.disabled_bot_ids[0] ?? '')
     }).catch((reason: unknown) => { if (active) setError(String(reason)) })
     return () => { active = false }
-  }, [selectedName, onGet])
-
-  const selected = visibleSkills.find((skill) => skill.name === selectedName) ?? null
+  }, [selectedName, selectedUpdatedAt, onGet])
   const unsaved = detail !== null && content !== detail.content
   const readOnly = selected?.source === 'builtin'
   const disabledForBot = selected && disableBotId && selected.disabled_bot_ids.includes(disableBotId)
@@ -147,7 +168,7 @@ export function SkillsPage(props: SkillsPageProps) {
   }
 
   async function saveContent() {
-    if (!detail || readOnly) return
+    if (!detail || readOnly || remoteConflict) return
     await run(async () => {
       const updated = await onUpdate(detail.name, content)
       setSkillOverrides((current) => ({ ...current, [updated.name]: updated }))
@@ -214,6 +235,14 @@ export function SkillsPage(props: SkillsPageProps) {
     })
   }
 
+  function reloadRemoteDetail() {
+    if (!remoteConflict) return
+    setDetail(remoteConflict)
+    setContent(remoteConflict.content)
+    setDisableBotId(remoteConflict.disabled_bot_ids[0] ?? '')
+    setRemoteConflict(null)
+  }
+
   return <section className="skills-page">
     <aside className="skills-list-column">
       <header className="skills-list-toolbar" data-window-drag-region><strong>{copy('skills.title', '技能')}</strong><button className="skills-button skills-button-primary" type="button" onClick={() => setNewOpen(true)}><Plus size={14} />新建</button></header>
@@ -233,6 +262,7 @@ export function SkillsPage(props: SkillsPageProps) {
     <main className="skills-detail">
       {loadError && <div className="skills-error" role="alert"><AlertCircle size={15} /><span>{loadError}</span><button type="button" onClick={() => void onReload()}>重试</button></div>}
       {error && <div className="skills-error" role="alert"><AlertCircle size={15} /><span>{error}</span></div>}
+      {remoteConflict && <div className="skills-error" role="alert"><AlertCircle size={15} /><span>{copy('skills.remote_conflict', '此技能已在其他位置更新，你的草稿仍保留。')}</span><button type="button" onClick={reloadRemoteDetail}>{copy('skills.remote_reload', '重新加载远端版本')}</button></div>}
       {!selected && !loading && <div className="skills-empty-detail"><Sparkles size={22} /><span>{skills.length ? '选择一个技能查看详情' : '暂无技能，请新建或导入'}</span></div>}
       {selected && <>
         <header className="skills-detail-toolbar" data-window-drag-region>
@@ -246,7 +276,7 @@ export function SkillsPage(props: SkillsPageProps) {
         </header>
         {!detail && <div className="skills-loading-detail">{loading ? '正在读取技能…' : '正在读取 SKILL.md…'}</div>}
         {detail && <div className="skills-detail-scroll">
-          <div className="skills-editor-heading"><strong>SKILL.md</strong><div className="skills-editor-actions"><div className="skills-segments"><button type="button" className={!preview ? 'active' : ''} onClick={() => setPreview(false)}>编辑</button><button type="button" className={preview ? 'active' : ''} onClick={() => setPreview(true)}>预览</button></div>{unsaved && !preview && !readOnly && <button type="button" className="skills-button skills-button-primary" disabled={busy} onClick={() => void saveContent()}>保存</button>}</div></div>
+          <div className="skills-editor-heading"><strong>SKILL.md</strong><div className="skills-editor-actions"><div className="skills-segments"><button type="button" className={!preview ? 'active' : ''} onClick={() => setPreview(false)}>编辑</button><button type="button" className={preview ? 'active' : ''} onClick={() => setPreview(true)}>预览</button></div>{unsaved && !preview && !readOnly && <button type="button" className="skills-button skills-button-primary" disabled={busy || Boolean(remoteConflict)} onClick={() => void saveContent()}>保存</button>}</div></div>
           {preview ? <pre className="skills-content skills-preview">{content}</pre> : <textarea className="skills-content skills-textarea" spellCheck={false} value={content} readOnly={readOnly} onChange={(event) => setContent(event.target.value)} aria-label="SKILL.md 内容" />}
           {!!detail.files.length && <section className="skills-section"><h3>{copy('skills.attached_files', '附带文件')}</h3><div className="skills-files">{detail.files.map((file) => <span key={file} className="skills-file-chip"><FileText size={12} /><code>{file}</code></span>)}</div></section>}
           {bots.length > 0 && <section className="skills-section"><h3>{copy('skills.disable_for', '对个别 Bot 停用')}</h3><label className="skills-select"><select aria-label={copy('skills.disable_for', '对个别 Bot 停用')} value={disableBotId} onChange={(event) => setDisableBotId(event.target.value)}><option value="">无</option>{bots.map((bot) => <option value={bot.id} key={bot.id}>{bot.name}</option>)}</select><ChevronDown size={14} /></label><button type="button" className="skills-disable-bot" disabled={!disableBotId || busy} aria-pressed={Boolean(disabledForBot)} onClick={() => void toggleBotDisabled()}>{disabledForBot ? <Check size={13} /> : null}{disabledForBot ? `已对 ${bots.find((bot) => bot.id === disableBotId)?.name} 停用` : '停用此 Bot'}</button></section>}

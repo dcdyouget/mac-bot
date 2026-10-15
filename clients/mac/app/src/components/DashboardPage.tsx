@@ -22,7 +22,7 @@ type Drill = { bot_id: string } | { project_id: string }
 const RANGE_DAYS: Record<Range, number> = { today: 1, '7d': 7, '30d': 30, '90d': 90 }
 const COLORS = ['--chart-1', '--chart-2', '--chart-3', '--chart-4', '--chart-5', '--chart-6']
 
-export function DashboardPage() {
+export function DashboardPage({ connected = true }: { connected?: boolean }) {
   const [range, setRange] = useState<Range>('30d')
   const [heatMode, setHeatMode] = useState<'calendar' | 'weekhour'>('calendar')
   const [dimension, setDimension] = useState<Dimension>('model')
@@ -37,6 +37,7 @@ export function DashboardPage() {
   const windowRange = useMemo(() => getRange(range), [range])
 
   useEffect(() => {
+    if (!connected) return
     let alive = true
     setLoading(true)
     setError(null)
@@ -60,7 +61,7 @@ export function DashboardPage() {
       if (breakdownResult.status === 'fulfilled') setBreakdown(breakdownResult.value as Breakdown)
     }).finally(() => { if (alive) setLoading(false) })
     return () => { alive = false }
-  }, [windowRange, heatMode, dimension, metric, drill])
+  }, [connected, windowRange, heatMode, dimension, metric, drill])
 
   const totalTokens = Number(summary?.current.input_tokens ?? 0) + Number(summary?.current.output_tokens ?? 0)
   const previousTokens = Number(summary?.previous.input_tokens ?? 0) + Number(summary?.previous.output_tokens ?? 0)

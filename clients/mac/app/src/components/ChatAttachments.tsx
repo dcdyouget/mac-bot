@@ -9,7 +9,8 @@ export type ChatAttachment = {
   size: number
   file?: File
   nativeSource?: 'home' | 'screenshot'
-  homePath?: string
+  projectId?: string
+  remotePath?: string
   status: 'preparing' | 'uploading' | 'ready' | 'error'
   progress: number
   requestId?: string

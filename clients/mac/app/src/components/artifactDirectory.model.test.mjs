@@ -3,6 +3,10 @@ import test from 'node:test'
 import { joinArtifactPath, normalizeArtifactPath, parentArtifactPath, sortArtifactEntries } from './artifactDirectory.model.ts'
 
 test('artifact paths normalize separators and append server basenames', () => {
+  assert.equal(normalizeArtifactPath(''), '/')
+  assert.equal(normalizeArtifactPath('/'), '/')
+  assert.equal(joinArtifactPath('/', 'README.md'), 'README.md')
+  assert.equal(parentArtifactPath('folder', '/'), '/')
   assert.equal(normalizeArtifactPath('code/src/'), 'code/src')
   assert.equal(joinArtifactPath('code/src/', 'main.rs'), 'code/src/main.rs')
   assert.equal(joinArtifactPath('/srv/project/code', 'main.rs'), '/srv/project/code/main.rs')
