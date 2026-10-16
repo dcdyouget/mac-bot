@@ -22,7 +22,7 @@ cargo run --manifest-path server/Cargo.toml -p macbotd -- \
 cargo run --manifest-path server/Cargo.toml -p macbotd -- --port 28789
 ```
 
-真实桌面端和 Android 聊天界面验收可显式启用回复生命周期 mock。启动后先让客户端连接，再在任意私聊或项目群发送一条普通消息；服务会按该会话关联的 Bot 回放空占位、两段增量、同 ID 完整回复 A 和新 ID 独立回复 B。每个可见阶段默认间隔 2 秒；截图时可以设为 8000 毫秒。普通 `--mock` 不启用此场景，生命周期控制 RPC 也只在该场景中存在。
+真实桌面端和 Android 聊天界面验收可显式启用回复生命周期 mock。收到并接受用户消息后，服务立即发送一条完整的 ack 消息；间隔一段时间后发送带结构化问题和选项的独立 decision 消息。客户端提交 `question.answer` 后，服务再发送一条独立的 done 总结。三条 Bot 消息各自有新的 ID 和单调递增序号，都会关联源用户消息；不会创建占位消息，也不会发送流式增量。done 是明确标记的 Mock 示例，包含结果与使用方法，并说明没有创建真实文件。默认间隔为 2 秒；截图时可设为 8000 毫秒。普通 `--mock` 保持原样，不启用此场景。
 
 ```sh
 test_root="$(mktemp -d /tmp/macbot-chat-reply.XXXXXX)"
@@ -30,10 +30,10 @@ test_root="$(mktemp -d /tmp/macbot-chat-reply.XXXXXX)"
 cargo run --manifest-path server/Cargo.toml -p macbotd -- \
   --mock --mock-scenario chat-reply-lifecycle --mock-reply-delay-ms 8000 \
   --config "$test_root/config.toml" --home "$test_root/home" \
-  --port 17789 --password dev
+  --port 17791 --password dev
 ```
 
-验收时可在普通 Bot 私聊（例如「产品」）和项目群（例如「登录功能」）各发送“请帮我整理一下登录方案”。A 的正文为“收到，我来处理。”，随后 B 为“这是后续独立消息。”，便于确认 A 已结算后仍然保留。场景也支持在客户端已连接后调用 mock-only `mock.replay_chat_reply_lifecycle`：传入 `chat_id`、同一会话内的用户 `source_message_id`、唯一 `client_request_id` 和可选 `message_id`；`message_id: null` 创建新占位，非空值只接受该会话中匹配用户源消息且仍处于 streaming 的 Bot 占位并复用其 ID。这个 RPC 不属于 PROTOCOL，也不在正式服务的请求路径中注册。
+例如在「产品」私聊或「登录功能」项目群发送一条消息，立即看到“收到，我来处理。”；约 8 秒后出现“邮箱登录需要支持哪些邮箱地址？”及“所有邮箱地址”“仅公司邮箱”选项。选择其一或提交自由文本后，约 8 秒后会出现单独的完成总结。桌面验收可连 `127.0.0.1:17791`；Android 模拟器可另启一份隔离服务，将端口改为 `17792`，并连接 `10.0.2.2:17792`。服务绑定 `0.0.0.0`，可从模拟器访问。场景仅在显式启动参数下启用，控制 RPC `mock.replay_chat_reply_lifecycle` 也只在该场景注册；它需要 `chat_id`、同一会话内的用户 `source_message_id`、唯一 `client_request_id` 和可选 `bot_id`。所有生命周期消息始终使用新 ID，非空 `message_id` 会被拒绝。这个 RPC 不属于 PROTOCOL，也不在正式服务的请求路径中注册。
 
 `~/mac-bot/config.toml` 首次启动时自动创建，文件权限为 0600。可按需取消注释并编辑：
 
@@ -140,7 +140,7 @@ python3 server/macbotd/tests/smoke_packaging.py --pkg target/MacBot-Server.pkg
 
 `server/macbotd/tests/smoke_mock.py` 验证隔离 mock 的协议、事件补发、轨迹游标和画面 ACK。正式模式的 `smoke_runtime.py`、`smoke_collaboration.py`、`smoke_dispatch.py`、`smoke_features.py`、`smoke_screen.py` 使用本机 fake provider 与独立数据目录；运行参数见各脚本 `--help`。开发测试必须显式选择 file secrets 的临时目录，使用不同端口，不连接真实模型。
 
-`smoke_chat_reply_lifecycle.py` 使用真实 production daemon 和本机 fake OpenAI-compatible provider 验证回复占位、后续独立消息、DM 原生流式、双 steer 重启恢复，以及失败/取消收尾；不需要 API key，也不会连接真实模型。每次必须传入一个全新的 `/tmp` home；脚本自行选择 loopback 端口并在退出时关闭临时 daemon/provider：
+`smoke_chat_reply_lifecycle.py` 使用真实 production daemon 和本机 fake OpenAI-compatible provider 验证 DM 与无 @ 群聊的即时完整 ack、结构化 choice question 和 `question.answer` 后同一 run 的新 done 消息；也覆盖 native-only completion 拦截与纠正、相同文本的不同源各自只 ack 一次、两个群的 Bot scope 隔离和伪造 scope 拒绝、steer 即时 ack，以及重启恢复时不重复 ack/run。脚本不需要 API key，也不会连接真实模型。每次必须传入一个全新的 `/tmp` home；脚本自行选择 loopback 端口并在退出时关闭临时 daemon/provider：
 
 ```sh
 cargo build --manifest-path server/Cargo.toml -p macbotd

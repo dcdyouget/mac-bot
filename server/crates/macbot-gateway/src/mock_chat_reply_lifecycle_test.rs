@@ -1,7 +1,9 @@
 use super::*;
 use crate::{Gateway, GatewayConfig};
-use serde_json::json;
-use std::time::{Duration as StdDuration, Instant};
+use serde_json::{json, Value};
+use std::time::Duration as StdDuration;
+
+const STEP_DELAY: StdDuration = StdDuration::from_millis(80);
 
 fn test_gateway() -> (Gateway, tempfile::TempDir) {
     let home = tempfile::tempdir().unwrap();
@@ -13,226 +15,341 @@ fn test_gateway() -> (Gateway, tempfile::TempDir) {
     (gateway, home)
 }
 
-async fn collect_chat_lifecycle(
-    receiver: &mut tokio::sync::broadcast::Receiver<Value>,
-    chat_id: &str,
-    source_message_id: &str,
-    expected_placeholder_id: Option<&str>,
-) -> Vec<Value> {
-    let deadline = Instant::now() + StdDuration::from_secs(5);
-    let mut lifecycle = Vec::new();
-    let mut placeholder_id = expected_placeholder_id.map(str::to_owned);
-    loop {
-        let event = tokio::time::timeout_at(deadline.into(), receiver.recv())
-            .await
-            .expect("mock lifecycle did not finish")
-            .expect("mock event channel closed");
-        let event_name = event.get("event").and_then(Value::as_str).unwrap_or("");
-        let data = event.get("data").cloned().unwrap_or(Value::Null);
-        match event_name {
-            "message.created" => {
-                let Some(message) = data.get("message") else {
-                    continue;
-                };
-                if message.get("chat_id").and_then(Value::as_str) != Some(chat_id)
-                    || message.pointer("/sender/kind").and_then(Value::as_str) != Some("bot")
-                    || message.get("source_message_id").and_then(Value::as_str)
-                        != Some(source_message_id)
-                {
-                    continue;
-                }
-                if message.get("streaming").and_then(Value::as_bool) == Some(true) {
-                    placeholder_id = message.get("id").and_then(Value::as_str).map(str::to_owned);
-                    lifecycle.push(event);
-                } else if message.get("fallback_text").and_then(Value::as_str)
-                    == Some(LIFECYCLE_FOLLOWUP_REPLY)
-                {
-                    lifecycle.push(event);
-                    break;
-                }
-            }
-            "message.delta" => {
-                if data.get("chat_id").and_then(Value::as_str) == Some(chat_id)
-                    && data.get("message_id").and_then(Value::as_str) == placeholder_id.as_deref()
-                {
-                    lifecycle.push(event);
-                }
-            }
-            "message.updated" => {
-                let Some(message) = data.get("message") else {
-                    continue;
-                };
-                if message.get("chat_id").and_then(Value::as_str) == Some(chat_id)
-                    && message.get("id").and_then(Value::as_str) == placeholder_id.as_deref()
-                {
-                    lifecycle.push(event);
-                }
-            }
-            _ => {}
-        }
-    }
-    lifecycle
+async fn messages_for_source(gateway: &Gateway, chat_id: &str, source_id: &str) -> Vec<Value> {
+    gateway
+        .state
+        .inner
+        .read()
+        .await
+        .messages
+        .get(chat_id)
+        .into_iter()
+        .flatten()
+        .filter(|message| {
+            message.get("source_message_id").and_then(Value::as_str) == Some(source_id)
+        })
+        .cloned()
+        .collect()
 }
 
-async fn run_auto_lifecycle(chat_id: &str, expected_bot_id: &str) -> Vec<Value> {
+async fn questions_for_chat(gateway: &Gateway, chat_id: &str) -> Vec<Value> {
+    let state = gateway.state.inner.read().await;
+    extra_get(&state, "questions")
+        .into_iter()
+        .filter(|question| question.get("chat_id").and_then(Value::as_str) == Some(chat_id))
+        .collect()
+}
+
+async fn wait_for_message_count(
+    gateway: &Gateway,
+    chat_id: &str,
+    source_id: &str,
+    expected: usize,
+) -> Vec<Value> {
+    tokio::time::timeout(StdDuration::from_secs(3), async {
+        loop {
+            let messages = messages_for_source(gateway, chat_id, source_id).await;
+            if messages.len() == expected {
+                return messages;
+            }
+            tokio::time::sleep(StdDuration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("lifecycle message did not arrive")
+}
+
+async fn run_lifecycle(chat_id: &str, expected_bot_id: &str, mentions: Value) {
     let (gateway, _home) = test_gateway();
-    let mut receiver = gateway.state.events.subscribe();
     let result = mock_call(
         "chat.send",
         json!({
             "chat_id":chat_id,
-            "text":"验证消息回复生命周期",
+            "text":"验证新的回复生命周期",
+            "mentions":mentions,
             "client_request_id":format!("lifecycle-send-{chat_id}")
         }),
         &gateway.state,
-        Some(StdDuration::from_millis(1)),
+        Some(STEP_DELAY),
     )
     .await
     .unwrap();
-    let source_message_id = result["message"]["id"].as_str().unwrap().to_owned();
-    let events = collect_chat_lifecycle(&mut receiver, chat_id, &source_message_id, None).await;
-    assert_eq!(events.len(), 5);
-    assert_eq!(
-        events
-            .iter()
-            .map(|event| event["event"].as_str().unwrap())
-            .collect::<Vec<_>>(),
-        [
-            "message.created",
-            "message.delta",
-            "message.delta",
-            "message.updated",
-            "message.created"
-        ]
-    );
-    let placeholder = &events[0]["data"]["message"];
-    let placeholder_id = placeholder["id"].as_str().unwrap();
-    assert_eq!(placeholder["chat_id"], chat_id);
-    assert_eq!(placeholder["source_message_id"], source_message_id);
-    assert_eq!(placeholder["sender"]["bot_id"], expected_bot_id);
-    assert_eq!(placeholder["fallback_text"], "");
-    assert_eq!(placeholder["streaming"], true);
-    for delta in [&events[1], &events[2]] {
-        assert_eq!(delta["data"]["chat_id"], chat_id);
-        assert_eq!(delta["data"]["message_id"], placeholder_id);
+    let source = result["message"].clone();
+    let source_id = source["id"].as_str().unwrap();
+
+    // The complete acknowledgement exists before the delayed decision is
+    // created. The mock never creates a streaming placeholder.
+    let immediate = messages_for_source(&gateway, chat_id, source_id).await;
+    assert_eq!(immediate.len(), 1);
+    assert_eq!(immediate[0]["intent"], "ack");
+    assert_eq!(immediate[0]["fallback_text"], LIFECYCLE_ACK_REPLY);
+    assert_eq!(immediate[0]["sender"]["bot_id"], expected_bot_id);
+    assert_eq!(immediate[0]["streaming"], false);
+    assert_eq!(immediate[0]["source_message_id"], source_id);
+    assert!(immediate[0]["seq"].as_u64().unwrap() > source["seq"].as_u64().unwrap());
+    assert_eq!(immediate[0]["blocks"][0]["type"], "text");
+    assert!(!questions_for_chat(&gateway, chat_id)
+        .await
+        .iter()
+        .any(|question| question["text"] == LIFECYCLE_QUESTION_TEXT));
+
+    let messages = wait_for_message_count(&gateway, chat_id, source_id, 2).await;
+    let decision = messages
+        .iter()
+        .find(|message| message["intent"] == "decision")
+        .unwrap();
+    assert_eq!(decision["sender"]["bot_id"], expected_bot_id);
+    assert_eq!(decision["streaming"], false);
+    assert_eq!(decision["source_message_id"], source_id);
+    assert_eq!(decision["blocks"][1]["type"], "question");
+    let question_id = decision["blocks"][1]["question_id"].as_str().unwrap();
+    let questions = questions_for_chat(&gateway, chat_id).await;
+    let question = questions
+        .iter()
+        .find(|question| question["id"] == question_id)
+        .unwrap();
+    assert_eq!(question["bot_id"], expected_bot_id);
+    assert_eq!(question["options"], json!(LIFECYCLE_OPTIONS));
+    assert_eq!(question["allow_free_text"], true);
+    assert_eq!(question["state"], "pending");
+    assert_eq!(question["answer"], Value::Null);
+
+    // A decision waits for the actual protocol answer RPC.
+    mock_call(
+        "question.answer",
+        json!({"question_id":question_id,"option_index":1}),
+        &gateway.state,
+        Some(STEP_DELAY),
+    )
+    .await
+    .unwrap();
+    let messages = wait_for_message_count(&gateway, chat_id, source_id, 3).await;
+    let ack = &messages[0];
+    let decision = &messages[1];
+    let done = &messages[2];
+    assert_eq!(ack["intent"], "ack");
+    assert_eq!(decision["intent"], "decision");
+    assert_eq!(done["intent"], "done");
+    for message in [&ack, &decision, &done] {
+        assert_eq!(message["chat_id"], chat_id);
+        assert_eq!(message["sender"]["bot_id"], expected_bot_id);
+        assert_eq!(message["source_message_id"], source_id);
+        assert_eq!(message["streaming"], false);
     }
-    let final_reply = &events[3]["data"]["message"];
-    assert_eq!(final_reply["id"], placeholder_id);
-    assert_eq!(final_reply["source_message_id"], source_message_id);
-    assert_eq!(final_reply["fallback_text"], LIFECYCLE_FIRST_REPLY);
-    assert_eq!(final_reply["streaming"], false);
-    let followup = &events[4]["data"]["message"];
-    assert_eq!(followup["chat_id"], chat_id);
-    assert_eq!(followup["source_message_id"], source_message_id);
-    assert_eq!(followup["sender"]["bot_id"], expected_bot_id);
-    assert_ne!(followup["id"], placeholder_id);
-    assert_eq!(followup["fallback_text"], LIFECYCLE_FOLLOWUP_REPLY);
-    events
-}
-
-#[tokio::test]
-async fn opt_in_lifecycle_replays_in_an_ordinary_bot_dm_and_a_project_chat() {
-    run_auto_lifecycle("chat_product", "bot_product").await;
-    run_auto_lifecycle("chat_login", "bot_main").await;
-}
-
-#[tokio::test]
-async fn manual_replay_fills_only_the_named_active_placeholder_in_its_chat() {
-    let (gateway, _home) = test_gateway();
-    let source = {
-        let mut state = gateway.state.inner.write().await;
-        send_chat(
-            &mut state,
-            &json!({"chat_id":"chat_product","text":"已有用户消息"}),
-            &gateway.state.home,
-        )
+    let ids = messages
+        .iter()
+        .map(|message| message["id"].as_str().unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        ids.iter().collect::<std::collections::HashSet<_>>().len(),
+        3
+    );
+    let seqs = messages
+        .iter()
+        .map(|message| message["seq"].as_u64().unwrap())
+        .collect::<Vec<_>>();
+    assert!(seqs[0] < seqs[1] && seqs[1] < seqs[2]);
+    assert!(done["fallback_text"]
+        .as_str()
         .unwrap()
-    };
-    let source_message_id = source["message"]["id"].as_str().unwrap().to_owned();
-    let placeholder_id = {
-        let mut state = gateway.state.inner.write().await;
-        create_chat_reply_placeholder(
-            &mut state,
-            "chat_product",
-            &source_message_id,
-            "bot_product",
-            Some("msg_reused_placeholder"),
-        )
+        .contains("仅公司邮箱"));
+    assert!(done["fallback_text"]
+        .as_str()
         .unwrap()
-    };
-    let mut receiver = gateway.state.events.subscribe();
-    let response = mock_call(
+        .contains("Mock 示例结果"));
+    assert!(done["fallback_text"]
+        .as_str()
+        .unwrap()
+        .contains("输入邮箱和密码"));
+    assert!(done["fallback_text"]
+        .as_str()
+        .unwrap()
+        .contains("没有创建真实文件"));
+    assert_eq!(done["blocks"][1]["type"], "completion");
+    assert_eq!(done["blocks"][1]["summary"], done["fallback_text"]);
+
+    // Every lifecycle message is a separate complete message. The source may
+    // receive delivery updates, but Bot replies are never edited or streamed.
+    let state = gateway.state.inner.read().await;
+    let bot_message_ids = ids.into_iter().collect::<std::collections::HashSet<_>>();
+    for event in &state.events {
+        let event_name = event.get("event").and_then(Value::as_str).unwrap_or("");
+        if event_name == "message.delta" {
+            let delta_id = event.pointer("/data/message_id").and_then(Value::as_str);
+            assert!(!delta_id.is_some_and(|id| bot_message_ids.contains(id)));
+        } else if event_name == "message.updated" {
+            let updated_id = event.pointer("/data/message/id").and_then(Value::as_str);
+            assert!(!updated_id.is_some_and(|id| bot_message_ids.contains(id)));
+        }
+    }
+    drop(state);
+
+    // A replay for the same per-Bot source returns the original ack and does
+    // not create a second decision, even with a fresh RPC request id.
+    let replay = mock_call(
         "mock.replay_chat_reply_lifecycle",
         json!({
-            "client_request_id":"lifecycle-manual-replay-1",
-            "chat_id":"chat_product",
-            "source_message_id":source_message_id,
-            "bot_id":"bot_product",
-            "message_id":placeholder_id
+            "client_request_id":format!("lifecycle-replay-{chat_id}"),
+            "chat_id":chat_id,
+            "source_message_id":source_id,
+            "bot_id":expected_bot_id
         }),
         &gateway.state,
-        Some(StdDuration::from_millis(1)),
+        Some(STEP_DELAY),
     )
     .await
     .unwrap();
-    assert_eq!(response["message_id"], placeholder_id);
-    let events = collect_chat_lifecycle(
-        &mut receiver,
-        "chat_product",
-        &source_message_id,
-        Some(&placeholder_id),
+    assert_eq!(replay["ack_message_id"], ack["id"]);
+    assert_eq!(replay["scheduled"], false);
+
+    let unsupported_message_reuse = mock_call(
+        "mock.replay_chat_reply_lifecycle",
+        json!({
+            "client_request_id":format!("lifecycle-reuse-{chat_id}"),
+            "chat_id":chat_id,
+            "source_message_id":source_id,
+            "bot_id":expected_bot_id,
+            "message_id":ack["id"]
+        }),
+        &gateway.state,
+        Some(STEP_DELAY),
+    )
+    .await
+    .unwrap_err();
+    assert!(unsupported_message_reuse.message.contains("always new"));
+    assert_eq!(
+        messages_for_source(&gateway, chat_id, source_id)
+            .await
+            .len(),
+        3
+    );
+
+    let wrong_chat = mock_call(
+        "mock.replay_chat_reply_lifecycle",
+        json!({
+            "client_request_id":format!("lifecycle-wrong-chat-{chat_id}"),
+            "chat_id":"chat_main",
+            "source_message_id":source_id,
+            "bot_id":"bot_main"
+        }),
+        &gateway.state,
+        Some(STEP_DELAY),
+    )
+    .await
+    .unwrap_err();
+    assert!(wrong_chat
+        .message
+        .contains("source message not found in this chat"));
+}
+
+#[tokio::test]
+async fn opt_in_lifecycle_runs_in_a_bot_dm_and_an_accepted_project_chat() {
+    run_lifecycle("chat_product", "bot_product", json!([])).await;
+    run_lifecycle(
+        "chat_login",
+        "bot_code",
+        json!([{"kind":"bot","bot_id":"bot_code","instruction":null}]),
     )
     .await;
-    assert_eq!(events.len(), 4);
-    assert_eq!(
-        events
-            .iter()
-            .map(|event| event["event"].as_str().unwrap())
-            .collect::<Vec<_>>(),
-        [
-            "message.delta",
-            "message.delta",
-            "message.updated",
-            "message.created"
-        ]
-    );
 }
 
 #[tokio::test]
-async fn manual_replay_with_null_message_id_creates_a_new_placeholder() {
+async fn one_group_source_is_consumed_once_per_accepted_bot() {
     let (gateway, _home) = test_gateway();
-    let source = {
-        let mut state = gateway.state.inner.write().await;
-        send_chat(
-            &mut state,
-            &json!({"chat_id":"chat_login","text":"请继续处理群消息"}),
-            &gateway.state.home,
-        )
-        .unwrap()
-    };
-    let source_message_id = source["message"]["id"].as_str().unwrap().to_owned();
-    let mut receiver = gateway.state.events.subscribe();
-    let response = mock_call(
-        "mock.replay_chat_reply_lifecycle",
+    let result = mock_call(
+        "chat.send",
         json!({
-            "client_request_id":"lifecycle-manual-null-1",
             "chat_id":"chat_login",
-            "source_message_id":source_message_id,
-            "bot_id":"bot_main",
-            "message_id":null
+            "text":"请产品和测试一起确认邮箱登录范围",
+            "mentions":[
+                {"kind":"bot","bot_id":"bot_product","instruction":null},
+                {"kind":"bot","bot_id":"bot_test","instruction":null}
+            ],
+            "client_request_id":"lifecycle-multi-bot-source"
         }),
         &gateway.state,
-        Some(StdDuration::from_millis(1)),
+        Some(STEP_DELAY),
     )
     .await
     .unwrap();
-    let placeholder_id = response["message_id"].as_str().unwrap().to_owned();
-    let events =
-        collect_chat_lifecycle(&mut receiver, "chat_login", &source_message_id, None).await;
-    assert_eq!(events.len(), 5);
-    assert_eq!(events[0]["event"], "message.created");
-    assert_eq!(events[0]["data"]["message"]["id"], placeholder_id);
-    assert_eq!(events[0]["data"]["message"]["streaming"], true);
+    let source = result["message"].clone();
+    let source_id = source["id"].as_str().unwrap();
+    let acks = messages_for_source(&gateway, "chat_login", source_id).await;
+    assert_eq!(acks.len(), 2);
+    assert_eq!(acks[0]["intent"], "ack");
+    assert_eq!(acks[1]["intent"], "ack");
+    assert_ne!(acks[0]["id"], acks[1]["id"]);
+    let accepted_bots = acks
+        .iter()
+        .map(|message| message["sender"]["bot_id"].as_str().unwrap())
+        .collect::<std::collections::HashSet<_>>();
+    assert_eq!(
+        accepted_bots,
+        ["bot_product", "bot_test"].into_iter().collect()
+    );
+
+    for bot_id in ["bot_product", "bot_test"] {
+        let replay = mock_call(
+            "mock.replay_chat_reply_lifecycle",
+            json!({
+                "client_request_id":format!("lifecycle-multi-replay-{bot_id}"),
+                "chat_id":"chat_login",
+                "source_message_id":source_id,
+                "bot_id":bot_id
+            }),
+            &gateway.state,
+            Some(STEP_DELAY),
+        )
+        .await
+        .unwrap();
+        let original_ack = acks
+            .iter()
+            .find(|message| message["sender"]["bot_id"] == bot_id)
+            .unwrap();
+        assert_eq!(replay["ack_message_id"], original_ack["id"]);
+        assert_eq!(replay["scheduled"], false);
+    }
+
+    let before_answers = wait_for_message_count(&gateway, "chat_login", source_id, 4).await;
+    assert_eq!(before_answers.len(), 4);
+    let questions = questions_for_chat(&gateway, "chat_login").await;
+    let lifecycle_questions = questions
+        .iter()
+        .filter(|question| question["text"] == LIFECYCLE_QUESTION_TEXT)
+        .filter(|question| accepted_bots.contains(question["bot_id"].as_str().unwrap()))
+        .cloned()
+        .collect::<Vec<_>>();
+    assert_eq!(lifecycle_questions.len(), 2);
+    for (index, question) in lifecycle_questions.iter().enumerate() {
+        mock_call(
+            "question.answer",
+            json!({"question_id":question["id"],"option_index":index}),
+            &gateway.state,
+            Some(STEP_DELAY),
+        )
+        .await
+        .unwrap();
+    }
+    let messages = wait_for_message_count(&gateway, "chat_login", source_id, 6).await;
+    assert_eq!(messages.len(), 6);
+    for bot_id in ["bot_product", "bot_test"] {
+        let bot_messages = messages
+            .iter()
+            .filter(|message| message["sender"]["bot_id"] == bot_id)
+            .collect::<Vec<_>>();
+        assert_eq!(bot_messages.len(), 3);
+        assert_eq!(bot_messages[0]["intent"], "ack");
+        assert_eq!(bot_messages[1]["intent"], "decision");
+        assert_eq!(bot_messages[2]["intent"], "done");
+        assert!(bot_messages
+            .iter()
+            .all(|message| message["source_message_id"] == source_id));
+    }
+    let seqs = messages
+        .iter()
+        .map(|message| message["seq"].as_u64().unwrap())
+        .collect::<Vec<_>>();
+    assert!(seqs.windows(2).all(|pair| pair[0] < pair[1]));
 }
 
 #[tokio::test]
@@ -247,4 +364,24 @@ async fn lifecycle_control_rpc_is_unavailable_in_default_mock() {
     .await
     .unwrap_err();
     assert!(error.message.contains("unknown method"));
+
+    let result = mock_call(
+        "chat.send",
+        json!({
+            "chat_id":"chat_product",
+            "text":"默认 mock 保持原有行为",
+            "client_request_id":"default-mock-no-lifecycle"
+        }),
+        &gateway.state,
+        None,
+    )
+    .await
+    .unwrap();
+    let source_id = result
+        .pointer("/message/id")
+        .and_then(Value::as_str)
+        .unwrap();
+    assert!(messages_for_source(&gateway, "chat_product", source_id)
+        .await
+        .is_empty());
 }

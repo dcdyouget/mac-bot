@@ -1037,7 +1037,11 @@ fn restore_legacy_question_message_links(inner: &mut Inner) {
         .filter(|message| {
             message.question_id.is_none()
                 && message.intent.as_deref() == Some("decision")
-                && !message.options.is_empty()
+                && (!message.options.is_empty()
+                    || message
+                        .mentions
+                        .iter()
+                        .any(|mention| matches!(mention, Mention::User)))
         })
         .filter_map(|message| {
             let private_scope = message.assignment_id.is_none();
@@ -1520,6 +1524,14 @@ impl Inner {
         assignment_id: Option<&str>,
     ) -> Result<()> {
         self.validate_send_msg_target(chat_id, bot_id)?;
+        if bot_id == "user" {
+            if assignment_id.is_some() {
+                return Err(OrchestratorError::Forbidden(
+                    "user messages cannot carry a Bot assignment".into(),
+                ));
+            }
+            return Ok(());
+        }
         if let Some(assignment_id) = assignment_id {
             let assignment = self.assignment(assignment_id)?;
             if assignment.bot_id != bot_id {
@@ -1559,14 +1571,7 @@ impl Inner {
             return Ok(());
         }
 
-        let bot = self.bot(bot_id)?;
-        if chat_id != bot.dm_chat_id && !self.is_bot_dm_target(chat_id, bot_id) {
-            return Err(OrchestratorError::Forbidden(
-                "a private incarnation can only send to its own direct chat or a Bot-to-Bot DM"
-                    .into(),
-            ));
-        }
-        Ok(())
+        self.resolve_send_scope(None, bot_id, chat_id).map(|_| ())
     }
 
     fn validate_send_msg_scope(
@@ -1577,29 +1582,12 @@ impl Inner {
         send_scope_chat_id: &str,
     ) -> Result<()> {
         let scope = self.resolve_send_scope(assignment_id, bot_id, send_scope_chat_id)?;
-        if destination_chat_id == scope {
-            return Ok(());
+        if destination_chat_id != scope {
+            return Err(OrchestratorError::Forbidden(format!(
+                "execution is bound to chat {scope}"
+            )));
         }
-        let assignment_is_project = assignment_id
-            .and_then(|id| self.assignments.get(id))
-            .and_then(|assignment| assignment.project_id.as_deref())
-            .and_then(|project_id| self.projects.get(project_id))
-            .is_some();
-        let scope_is_project = self
-            .projects
-            .values()
-            .any(|project| project.chat_id == send_scope_chat_id);
-        if assignment_is_project || scope_is_project {
-            return Err(OrchestratorError::Forbidden(
-                "a project incarnation can only send to its project chat".into(),
-            ));
-        }
-        if self.is_bot_dm_target(destination_chat_id, bot_id) {
-            return Ok(());
-        }
-        Err(OrchestratorError::Forbidden(format!(
-            "execution is bound to chat {scope}"
-        )))
+        Ok(())
     }
 
     fn is_bot_dm_target(&self, chat_id: &str, bot_id: &str) -> bool {
@@ -3538,13 +3526,11 @@ impl Inner {
         self.validate_send_msg_target(&req.chat_id, &req.bot_id)?;
         let user_direct_chat =
             req.bot_id == "user" && self.bots.values().any(|bot| bot.dm_chat_id == req.chat_id);
-        if req.assignment_id.is_some() {
-            self.validate_send_msg_destination(
-                &req.chat_id,
-                &req.bot_id,
-                req.assignment_id.as_deref(),
-            )?;
-        }
+        self.validate_send_msg_destination(
+            &req.chat_id,
+            &req.bot_id,
+            req.assignment_id.as_deref(),
+        )?;
         if let Some(send_scope_chat_id) = send_scope_chat_id {
             self.validate_send_msg_scope(
                 &req.chat_id,
@@ -3594,13 +3580,12 @@ impl Inner {
                     "decision requires a Bot/user recipient or options".into(),
                 ));
             }
-            if req.assignment_id.is_none() && !req.options.is_empty() {
-                let bot = self.bot(&req.bot_id)?;
-                if bot.dm_chat_id != req.chat_id {
-                    return Err(OrchestratorError::Forbidden(
-                        "a decision without an assignment must target the Bot direct chat".into(),
-                    ));
-                }
+            let mentions_user = req
+                .mentions
+                .iter()
+                .any(|mention| matches!(mention, MentionInput::User(_)));
+            if req.assignment_id.is_none() && (!req.options.is_empty() || mentions_user) {
+                self.resolve_send_scope(None, &req.bot_id, &req.chat_id)?;
             }
         }
         if let (Some(run), Some(call)) = (&req.run_id, &req.call_id) {
@@ -3798,7 +3783,13 @@ impl Inner {
             }
         }
         let mut question_id = None;
-        if req.intent == "decision" && !req.options.is_empty() {
+        let needs_question = req.intent == "decision"
+            && (!req.options.is_empty()
+                || req
+                    .mentions
+                    .iter()
+                    .any(|mention| matches!(mention, MentionInput::User(_))));
+        if needs_question {
             let question = self.create_question_with_multi(
                 QuestionRequest {
                     bot_id: req.bot_id.clone(),
@@ -3806,7 +3797,7 @@ impl Inner {
                     chat_id: req.chat_id.clone(),
                     text: req.text.clone(),
                     options: req.options.clone(),
-                    allow_free_text,
+                    allow_free_text: allow_free_text || req.options.is_empty(),
                 },
                 multi,
             )?;
@@ -4676,15 +4667,7 @@ impl Inner {
                 (assignment_id, false)
             }
             None => {
-                let bot = self
-                    .bots
-                    .get(&r.bot_id)
-                    .ok_or_else(|| OrchestratorError::NotFound(format!("bot {}", r.bot_id)))?;
-                if bot.dm_chat_id != r.chat_id {
-                    return Err(OrchestratorError::Forbidden(
-                        "a question without an assignment must target the bot direct chat".into(),
-                    ));
-                }
+                self.resolve_send_scope(None, &r.bot_id, &r.chat_id)?;
                 (private_question_scope(&r.chat_id), true)
             }
         };
@@ -4786,27 +4769,19 @@ impl Inner {
             }
             assignment = Some(current.clone());
         } else {
-            let bot = self
-                .bots
-                .get(bot_id)
-                .or_else(|| {
-                    (bot_id == "bot_main")
-                        .then(|| self.bots.get("main"))
-                        .flatten()
-                })
-                .ok_or_else(|| OrchestratorError::NotFound(format!("bot {bot_id}")))?;
-            if bot.dm_chat_id != chat_id {
-                return Err(OrchestratorError::Forbidden(
-                    "a private decision must target the Bot direct chat".into(),
-                ));
-            }
+            self.resolve_send_scope(None, bot_id, chat_id)?;
         }
 
         let options = message.options.clone();
+        let needs_question = !options.is_empty()
+            || message
+                .mentions
+                .iter()
+                .any(|mention| matches!(mention, Mention::User));
         let question_scope = assignment_id
             .map(str::to_owned)
             .unwrap_or_else(|| private_question_scope(chat_id));
-        let (existing_question_id, ambiguous_question) = if options.is_empty() {
+        let (existing_question_id, ambiguous_question) = if !needs_question {
             (None, false)
         } else if let Some(question_id) = message
             .question_id
@@ -4873,7 +4848,12 @@ impl Inner {
             };
             let target_status = if answered_question {
                 "working".into()
-            } else if options.is_empty() {
+            } else if options.is_empty()
+                && !message
+                    .mentions
+                    .iter()
+                    .any(|mention| matches!(mention, Mention::User))
+            {
                 if matches!(assignment.status.as_str(), "waiting_user" | "waiting_bot") {
                     assignment.status.clone()
                 } else {
@@ -4898,7 +4878,7 @@ impl Inner {
             }
         }
 
-        if options.is_empty() {
+        if !needs_question {
             return Ok(changed);
         }
 
@@ -6105,6 +6085,141 @@ mod tests {
         let v = o.rpc("bot.create", json!({"name":name}));
         let v = tokio::runtime::Runtime::new().unwrap().block_on(v).unwrap();
         v["bot"]["id"].as_str().unwrap().into()
+    }
+
+    #[test]
+    fn send_msg_assignmentless_dm_done_is_idempotent_and_has_no_placeholder_id() {
+        let orchestrator = Orchestrator::default();
+        let bot_id = bot(&orchestrator, "Direct reply");
+        let chat_id = dm_chat(&orchestrator, &bot_id);
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        let params = json!({
+            "bot_id":bot_id,
+            "chat_id":chat_id,
+            "assignment_id":null,
+            "run_id":"direct-done-run",
+            "call_id":"direct-done-call",
+            "text":"已完成并可直接使用。",
+            "intent":"done"
+        });
+
+        let first = runtime
+            .block_on(orchestrator.rpc("send_msg", params.clone()))
+            .unwrap();
+        let replay = runtime
+            .block_on(orchestrator.rpc("send_msg", params))
+            .unwrap();
+
+        assert_eq!(first["id"], replay["id"]);
+        assert!(!first["id"].as_str().unwrap().starts_with("reply_"));
+        assert_eq!(first["intent"], "done");
+        assert_eq!(first["fallback_text"], "已完成并可直接使用。");
+        assert_eq!(
+            orchestrator.snapshot().unwrap()["messages"]
+                .as_object()
+                .unwrap()
+                .values()
+                .filter(|message| message["id"] == first["id"])
+                .count(),
+            1
+        );
+    }
+
+    #[test]
+    fn user_sender_scope_does_not_resolve_user_as_a_bot() {
+        let orchestrator = Orchestrator::default();
+        let owner_id = bot(&orchestrator, "DM owner");
+        let chat_id = dm_chat(&orchestrator, &owner_id);
+        orchestrator
+            .lock()
+            .unwrap()
+            .validate_send_msg_destination(&chat_id, "user", None)
+            .unwrap();
+    }
+
+    #[test]
+    fn send_msg_text_only_user_decision_creates_answerable_question() {
+        let orchestrator = Orchestrator::default();
+        let bot_id = bot(&orchestrator, "Direct question");
+        let chat_id = dm_chat(&orchestrator, &bot_id);
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        let message = runtime
+            .block_on(orchestrator.rpc(
+                "send_msg",
+                json!({
+                    "bot_id":bot_id,
+                    "chat_id":chat_id,
+                    "assignment_id":null,
+                    "run_id":"direct-question-run",
+                    "call_id":"direct-question-call",
+                    "text":"你希望采用哪种命名？",
+                    "intent":"decision",
+                    "options":[],
+                    "mentions":["user"]
+                }),
+            ))
+            .unwrap();
+
+        let question_id = message["question_id"].as_str().unwrap();
+        let snapshot = orchestrator.snapshot().unwrap();
+        let question = &snapshot["questions"][question_id];
+        assert_eq!(question["options"], json!([]));
+        assert_eq!(question["allow_free_text"], true);
+        let answer = runtime
+            .block_on(orchestrator.rpc(
+                "question.answer",
+                json!({"question_id":question_id,"text":"沿用现有命名"}),
+            ))
+            .unwrap();
+        assert_eq!(answer["question"]["state"], "answered");
+        assert_eq!(answer["question"]["answer"]["text"], "沿用现有命名");
+    }
+
+    #[test]
+    fn main_bot_without_assignment_can_ask_a_question_in_its_bound_project_chat() {
+        let orchestrator = Orchestrator::default();
+        let worker = bot(&orchestrator, "Project question worker");
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        let project = runtime
+            .block_on(orchestrator.rpc(
+                "project.create",
+                json!({"name":"Main group question","member_bot_ids":[worker]}),
+            ))
+            .unwrap();
+        let chat_id = project["chat"]["id"].as_str().unwrap();
+        let message = runtime
+            .block_on(orchestrator.rpc(
+                "send_msg",
+                json!({
+                    "bot_id":"main",
+                    "chat_id":chat_id,
+                    "assignment_id":null,
+                    "_send_scope_chat_id":chat_id,
+                    "run_id":"main-group-question-run",
+                    "call_id":"main-group-question-call",
+                    "text":"先做桌面版还是移动版？",
+                    "intent":"decision",
+                    "options":["桌面版","移动版"],
+                    "mentions":["user"]
+                }),
+            ))
+            .unwrap();
+
+        let question_id = message["question_id"].as_str().unwrap();
+        let reconciled = orchestrator
+            .reconcile_waiting_decision(message["id"].as_str().unwrap(), None, "main", chat_id)
+            .unwrap();
+        assert!(!reconciled);
+        let answer = runtime
+            .block_on(orchestrator.rpc(
+                "question.answer",
+                json!({"question_id":question_id,"option_index":0}),
+            ))
+            .unwrap();
+        assert_eq!(message["chat_id"], chat_id);
+        assert_eq!(message["assignment_id"], Value::Null);
+        assert_eq!(answer["question"]["state"], "answered");
+        assert_eq!(answer["question"]["chat_id"], chat_id);
     }
 
     #[test]
@@ -8646,7 +8761,7 @@ mod tests {
     }
 
     #[test]
-    fn reconcile_decision_rejects_terminal_and_does_not_infer_without_options() {
+    fn reconcile_decision_rejects_terminal_and_restores_text_question_without_options() {
         let source = Orchestrator::default();
         let bot_id = bot(&source, "迁移校验");
         let worker_dm = dm_chat(&source, &bot_id);
@@ -8714,10 +8829,14 @@ mod tests {
             .reconcile_waiting_decision(&message.id, Some(&assignment.id), &bot_id, &worker_dm)
             .unwrap());
         let after = restored.snapshot().unwrap();
-        assert!(after["questions"].as_object().unwrap().is_empty());
+        let questions = after["questions"].as_object().unwrap();
+        assert_eq!(questions.len(), 1);
+        let question = questions.values().next().unwrap();
+        assert_eq!(question["options"], json!([]));
+        assert_eq!(question["allow_free_text"], true);
         assert_eq!(
             after["assignments"][&assignment.id]["status"],
-            "waiting_bot"
+            "waiting_user"
         );
         assert_eq!(
             after["assignments"][&assignment.id]["wait"]["message_id"],

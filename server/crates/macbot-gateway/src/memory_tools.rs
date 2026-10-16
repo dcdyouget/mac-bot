@@ -2622,7 +2622,14 @@ mod tests {
         }
 
         async fn send_group_message(&self, message: Value) -> Result<Value, String> {
-            Ok(message)
+            let mut canonical = message.get("message").cloned().unwrap_or_else(|| json!({}));
+            if let (Some(run_id), Some(call_id)) = (
+                message.pointer("/receipt/run_id").and_then(Value::as_str),
+                message.pointer("/receipt/call_id").and_then(Value::as_str),
+            ) {
+                canonical["id"] = json!(crate::send_policy::server_message_id(run_id, call_id));
+            }
+            Ok(canonical)
         }
 
         async fn validate_send_msg_target(&self, _: &Value) -> Result<(), String> {
@@ -2683,7 +2690,14 @@ mod tests {
         async fn publish_persisted(&self, _event: macbot_store::Event) {}
 
         async fn send_group_message(&self, message: Value) -> Result<Value, String> {
-            Ok(message)
+            let mut canonical = message.get("message").cloned().unwrap_or_else(|| json!({}));
+            if let (Some(run_id), Some(call_id)) = (
+                message.pointer("/receipt/run_id").and_then(Value::as_str),
+                message.pointer("/receipt/call_id").and_then(Value::as_str),
+            ) {
+                canonical["id"] = json!(crate::send_policy::server_message_id(run_id, call_id));
+            }
+            Ok(canonical)
         }
 
         async fn validate_send_msg_target(&self, _: &Value) -> Result<(), String> {
@@ -2719,8 +2733,15 @@ mod tests {
                 }
             } else {
                 Completion {
-                    text: "continued after memory error".into(),
-                    stop_reason: "stop".into(),
+                    tool_calls: vec![ToolCall {
+                        call_id: "memory-snapshot-final".into(),
+                        name: "send_msg".into(),
+                        args: json!({
+                            "intent":"done",
+                            "text":"summary: Continued after the memory storage error. location: no artifact. how to use: Review the result in this conversation."
+                        }),
+                    }],
+                    stop_reason: "tool_calls".into(),
                     ..Default::default()
                 }
             })
@@ -2823,8 +2844,15 @@ mod tests {
         ) -> macbot_providers::Result<Completion> {
             self.requests.lock().unwrap().push(request);
             Ok(Completion {
-                text: "task completed despite full automatic memory".into(),
-                stop_reason: "stop".into(),
+                tool_calls: vec![ToolCall {
+                    call_id: "quota-full-final".into(),
+                    name: "send_msg".into(),
+                    args: json!({
+                        "intent":"done",
+                        "text":"summary: The task completed despite full automatic memory. location: no artifact. how to use: Continue the conversation with the result."
+                    }),
+                }],
+                stop_reason: "tool_calls".into(),
                 ..Default::default()
             })
         }
@@ -2915,7 +2943,10 @@ mod tests {
 
         let outcome = engine.run(request).await.unwrap();
         assert_eq!(outcome.status, "done");
-        assert_eq!(outcome.text, "task completed despite full automatic memory");
+        assert_eq!(
+            outcome.text,
+            "summary: The task completed despite full automatic memory. location: no artifact. how to use: Continue the conversation with the result."
+        );
         let requests = requests.lock().unwrap();
         assert_eq!(requests.len(), 1, "the worker must reach llm.request");
         assert!(requests[0].messages.iter().any(|message| {
@@ -3655,10 +3686,13 @@ mod tests {
         assert_eq!(package.layers[0].level, 0);
         assert!(package.layers[0]
             .content
-            .contains("a group incarnation must remain in its group"));
+            .contains("The server binds every run to one immutable Bot and chat incarnation"));
         assert!(package.layers[0]
             .content
-            .contains("plain assistant text is not a task report"));
+            .contains("all user-visible messages, questions, progress, and final results must go through send_msg"));
+        assert!(package.layers[0]
+            .content
+            .contains("Finish every public conversation run with send_msg intent=done"));
         assert!(package.layers[3].content.contains("m10"));
         assert!(!package.layers[3].content.contains("m0"));
         assert!(package.new_segment);

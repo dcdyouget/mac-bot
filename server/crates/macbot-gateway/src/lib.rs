@@ -51,6 +51,7 @@ mod housekeeping;
 mod memory_tools;
 mod mock;
 mod rate_limit;
+mod send_policy;
 
 mod adapter;
 mod backend;

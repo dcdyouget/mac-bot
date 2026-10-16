@@ -231,7 +231,7 @@ interface Message {
   intent: Intent | null;       // Bot 通过 send_msg 发出的消息才有
   assignment_id: Id | null;    // 这条消息属于哪个任务
   source_message_id?: Id | null; // Bot 回复关联的同一 chat_id 内来源消息（通常为用户消息）；旧消息可省略
-  streaming: boolean;          // Bot 回复尚未完成；空内容表示占位，非空内容立即渲染
+  streaming: boolean;          // 兼容旧流式消息；当前任务的 ack/decision/done 均完整发布为 false
   delivery: Delivery[];        // 用户消息对各 Bot 的认领/消费状态（私聊和群聊），见 4.5
   loaded_skills?: LoadedSkill[]; // 对应用户消息实际加载成功的技能；旧消息可省略
   reactions: Reaction[];
@@ -247,13 +247,13 @@ interface Reaction { emoji: string; by: Sender[] }
 interface Quote { message_id: Id; sender: Sender; excerpt: string /* 最多 120 字的纯文本 */ }
 ```
 
-**群里 Bot 公开发布的内容来自 `send_msg` 工具**（定义见 PLAN 5.3.2）；内部模型文本、思考和工具过程不自动进入群聊。私聊和群聊使用相同的占位及增量显示规则；群消息可以一次完整发布，也可以由服务端对已创建的公开消息发送流式片段。intent 与消息、任务状态的对应关系：
+**私聊和群聊的 Bot 公开消息统一由发送服务发布**（模型工具 `send_msg` 与程序调用共用，见 PLAN 5.3.2）；内部模型文本、思考和工具过程不自动进入会话。接收消息后程序发送完整 `ack`，模型按需发送 `decision`，最终发送新的 `done` 总结；不再创建首回复占位。intent 与消息、任务状态的对应关系：
 
 | intent | 生成的块 | 任务状态 | 其他效果 |
 |--------|---------|---------|---------|
 | `ack` | `text` | 不变（派发时已经是 `working`） | — |
 | `progress` | `progress` | 不变 | — |
-| `decision` | `text`；带选项时为 `question` | `waiting_user` 或 `waiting_bot` | 被 @ 的 Bot 收到一个回答问题的任务；@ 了用户时推送 |
+| `decision` | `text`；带选项或明确向用户提问时为 `question` | `waiting_user` 或 `waiting_bot` | 被 @ 的 Bot 收到一个回答问题的任务；@ 了用户时推送 |
 | `done` | `completion` | `done` | 被 @ 的 Bot 收到新任务（交接）；@主 Bot 时主 Bot 被唤醒，去汇总并提醒用户验收 |
 | `blocked` | `blocked` | `blocked` | 主 Bot 被唤醒跟进；@ 了用户时推送 |
 
@@ -265,11 +265,13 @@ interface Delivery { bot_id: Id; assignment_id: Id | null; state: "queued" | "de
 
 每条消息都有独立的 `id`，并以不可变的 `chat_id` 归属一个对话。用户私聊只由该私聊对应的 Bot 消费；群聊沿用当前路由规则，各 Bot 的消费状态分别记录在 `delivery`，不能用一个全局布尔值代替。普通私聊的 `assignment_id` 可以为 null。`queued` 表示等待处理，`delivered` 表示已认领/交给对应运行，`read` 表示已经纳入模型上下文；这些状态不表示回答已完成。
 
-Bot 开始处理用户消息时，服务端先持久化一条同对话的 Bot 回复占位，发出 `message.created`：`source_message_id` 指向用户消息，`streaming=true`，内容为空。同一用户消息被多个 Bot 处理时，每个 Bot 使用自己的占位 ID。首条回复以这个 ID 发送 `message.delta` 或 `message.updated`，不得再追加重复气泡；后续独立回复使用新 ID。同一次发送的重试与同一运行的恢复必须复用已存在的占位；用户明确重试失败任务而产生的新运行有自己的消息生命周期。
+Bot 明确认领来源消息后，服务端初始化或复用固定 `(bot_id, chat_id)` 的分身，通过统一发送入口创建完整的 `ack` 消息（`streaming=false`、`source_message_id` 指向同对话来源），发出 `message.created`。收到确认必须早于该来源的模型/工具工作；同一来源被多个 Bot 处理时，各 Bot 有各自的确认。发送重试和运行恢复不重复确认。
 
-客户端按 `chat_id` 与 `message_id` 同时匹配增量；只对已知、尚未结束的 Bot 消息追加片段。只有空的未完成消息显示「…」；内容一到即显示内容，不能因 `streaming=true` 隐藏正文。**每一条消息**流式结束时，`message.updated` 用该条消息的完整正文替换增量并设置 `streaming=false`，之后迟到的 delta 不再追加。这里不是将整次任务的最终答案更新到首回复：例如首条「收到」填入占位 A，后续「已完成」必须新建 B，并保留 A。工具消息之后的自然语言回复也使用新的消息 ID。失败或取消时，服务端也要结算未完成的占位，不能永久留在等待状态。
+后续问题、申请与完成总结各自创建新消息 ID，服务端分配递增的对话内 `seq`。`question.answer` 更新问题状态并恢复原运行；卡片状态更新不等于将问题消息改写为完成总结。完成摘要由模型通过 `send_msg(done)` 提交，普通模型文本不自动成为公开回复或成功报告。客户端只根据规范消息与事件渲染，不参与模型选择和发送路由。
 
-用户在群里 @ 一个正在干活或正在挂起等待的 Bot 时，这条消息会作为 steer 进入它的任务。服务端**不会立即生成回复**，而是通过 `message.updated` 依次更新 `delivery`：
+兼容性：保留 `streaming` / `message.delta`，客户端仍只对同时匹配 `chat_id` 和消息 ID 的未结束 Bot 消息接收增量；完整 `message.updated` 替换该条增量，迟到片段被忽略。旧空占位可以继续显示等待状态，但正常新任务不再产生这种占位。失败、取消或旧运行恢复须结算遗留未完成消息，不能永久等待或覆盖已经完成的内容。
+
+用户在群里 @ 一个正在干活或正在挂起等待的 Bot 时，这条消息会作为 steer 进入它的任务。服务端程序发送幂等收到确认；实际任务按现有步骤边界消费输入，通过 `message.updated` 依次更新 `delivery`：
 - `queued`：已收到，Bot 正在执行当前步骤。
 - `delivered`：已经注入任务，下一次模型调用就会看到。
 - `read`：这次模型调用已经包含了这条消息。

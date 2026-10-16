@@ -490,6 +490,19 @@ impl DurableRuntime {
         self.submissions.get(&format!("{run_id}:{call_id}"))
     }
 
+    /// Return durable send_msg receipts for one run so gateway recovery can
+    /// distinguish an old placeholder with an admitted side effect from an
+    /// abandoned empty placeholder. The caller must replay protected receipts
+    /// before it retires their legacy message rows.
+    pub fn send_msg_receipts_for_run<'a>(
+        &'a self,
+        run_id: &'a str,
+    ) -> impl Iterator<Item = &'a SendMsgReceipt> + 'a {
+        self.submissions
+            .values()
+            .filter(move |receipt| receipt.run_id == run_id)
+    }
+
     fn persist_job(&mut self, job: Job) -> Result<(), DurableError> {
         validate_id("job", &job.id)?;
         self.store

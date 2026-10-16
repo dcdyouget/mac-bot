@@ -4055,6 +4055,9 @@ impl ProductionBackend {
     /// the durable receipt, so replay retains the `run_id:call_id` key instead
     /// of creating a second orchestrator message after a crash.
     pub async fn execution_send_msg(&self, state: &GatewayState, envelope: Value) -> RpcResult {
+        if envelope.get("scope").is_some() {
+            return self.execution_send_msg_bound(state, envelope).await;
+        }
         let mut params = envelope
             .get("message")
             .cloned()
@@ -4139,6 +4142,13 @@ impl ProductionBackend {
                 None => return Ok(value),
             }
         }
+        if params.get("to").is_some() {
+            return Err(crate::rpc_error(
+                "forbidden",
+                "new execution send_msg calls cannot route outside their bound chat",
+                None,
+            ));
+        }
         match params
             .get("_replace_streaming_placeholder")
             .and_then(Value::as_bool)
@@ -4165,6 +4175,149 @@ impl ProductionBackend {
             }
         }
         self.call("send_msg", params, state).await
+    }
+
+    /// Accept the current execution envelope. The model-visible message only
+    /// contains content; the server-owned scope is the sole source of routing
+    /// identity. Unlike legacy receipts, this path always creates a new
+    /// message and never fills a reply placeholder.
+    async fn execution_send_msg_bound(&self, state: &GatewayState, envelope: Value) -> RpcResult {
+        self.execution_validate_send_msg_target(&envelope)?;
+        let receipt = envelope.get("receipt").ok_or_else(|| {
+            crate::rpc_error("invalid_params", "send_msg receipt is required", None)
+        })?;
+        let run_id = receipt
+            .get("run_id")
+            .and_then(Value::as_str)
+            .filter(|value| !value.trim().is_empty())
+            .ok_or_else(|| {
+                crate::rpc_error(
+                    "invalid_params",
+                    "send_msg receipt run_id is required",
+                    None,
+                )
+            })?;
+        let call_id = receipt
+            .get("call_id")
+            .and_then(Value::as_str)
+            .filter(|value| !value.trim().is_empty())
+            .ok_or_else(|| {
+                crate::rpc_error(
+                    "invalid_params",
+                    "send_msg receipt call_id is required",
+                    None,
+                )
+            })?;
+        let scope = envelope.get("scope").expect("bound path requires scope");
+        let bot_id = required_text(scope, "bot_id")?;
+        let chat_id = required_text(scope, "chat_id")?;
+        let assignment_id = bound_scope_optional_text(scope, "assignment_id")?.map(str::to_owned);
+        let source_message_id =
+            bound_scope_optional_text(scope, "source_message_id")?.map(str::to_owned);
+        let mut params = envelope
+            .get("message")
+            .cloned()
+            .filter(Value::is_object)
+            .ok_or_else(|| {
+                crate::rpc_error("invalid_params", "send_msg message must be an object", None)
+            })?;
+        Self::reject_bound_message_identity(&params)?;
+        let object = params.as_object_mut().expect("validated message object");
+        object.insert("bot_id".into(), json!(bot_id));
+        object.insert("chat_id".into(), json!(chat_id));
+        object.insert("assignment_id".into(), json!(assignment_id));
+        let message_id = crate::send_policy::server_message_id(run_id, call_id);
+        object.insert("message_id".into(), json!(message_id));
+        object.insert("source_message_id".into(), json!(source_message_id));
+        object.insert("_replace_streaming_placeholder".into(), json!(false));
+        object.insert("_send_scope_chat_id".into(), json!(chat_id));
+        object.insert("_server_bound_send_msg".into(), json!(true));
+        object.insert("run_id".into(), json!(run_id));
+        object.insert("call_id".into(), json!(call_id));
+        object.insert(
+            "client_request_id".into(),
+            json!(format!("execution:{run_id}:{call_id}")),
+        );
+
+        let signature = request_signature(&self.request_signing_key, "send_msg", &params);
+        params["_idempotency_signature"] = json!(signature);
+        if let Some(cached) = self.idempotent_result("send_msg", &params).await? {
+            if cached.get("_queue_review").is_some() {
+                return Ok(cached);
+            }
+            return self.canonical_bound_send_msg_replay(&cached, &params);
+        }
+
+        if params.get("intent").and_then(Value::as_str) == Some("done") {
+            if let Some(review) = self
+                .review_pending_messages_before_done(state, &params)
+                .await?
+            {
+                return Ok(review);
+            }
+        }
+        let result = self.call("send_msg", params.clone(), state).await?;
+        if result.get("_queue_review").is_some() {
+            return Ok(result);
+        }
+        self.validate_bound_message_result(&result, &params)?;
+        Ok(result)
+    }
+
+    fn canonical_bound_send_msg_replay(
+        &self,
+        cached: &Value,
+        params: &Value,
+    ) -> Result<Value, RpcError> {
+        let cached_message = cached.get("message").unwrap_or(cached);
+        let message_id = cached_message
+            .get("id")
+            .and_then(Value::as_str)
+            .ok_or_else(|| {
+                crate::rpc_error(
+                    "conflict",
+                    "send_msg receipt has no persisted message id",
+                    None,
+                )
+            })?;
+        let (chat_id, message) = self.find_chat_message(message_id)?;
+        if chat_id != params["chat_id"].as_str().unwrap_or_default()
+            || !message_matches_execution_scope(&message, params)
+            || message.get("source_message_id") != params.get("source_message_id")
+        {
+            return Err(crate::rpc_error(
+                "conflict",
+                "send_msg receipt does not own the existing message",
+                None,
+            ));
+        }
+        self.validate_bound_message_result(&message, params)?;
+        Ok(message)
+    }
+
+    fn validate_bound_message_result(
+        &self,
+        result: &Value,
+        params: &Value,
+    ) -> Result<(), RpcError> {
+        let message = result.get("message").unwrap_or(result);
+        if message.get("id").and_then(Value::as_str).is_none()
+            || !message_matches_execution_scope(message, params)
+            || message.get("source_message_id") != params.get("source_message_id")
+            || message.get("fallback_text").and_then(Value::as_str)
+                != params.get("text").and_then(Value::as_str)
+            || message.get("intent") != params.get("intent")
+            || (params.get("options").is_some() && message.get("options") != params.get("options"))
+            || (params.get("artifacts").is_some()
+                && message.get("artifacts") != params.get("artifacts"))
+        {
+            return Err(crate::rpc_error(
+                "conflict",
+                "send_msg result does not match its immutable execution scope",
+                None,
+            ));
+        }
+        Ok(())
     }
 
     fn reply_placeholder_for_params(
@@ -5115,6 +5268,12 @@ impl RpcBackend for ProductionBackend {
                     .unwrap_or(Value::Null);
                 result["source_message_id"] = expected_source_message_id.clone();
                 if params
+                    .get("_server_bound_send_msg")
+                    .and_then(Value::as_bool)
+                    == Some(true)
+                {
+                    self.validate_bound_message_result(&result, &params)?;
+                } else if params
                     .get("_replace_streaming_placeholder")
                     .and_then(Value::as_bool)
                     == Some(false)
@@ -6866,6 +7025,64 @@ impl ProductionBackend {
     }
 
     pub fn execution_validate_send_msg_target(&self, params: &Value) -> Result<(), RpcError> {
+        if let Some(scope) = params.get("scope") {
+            let bot_id = required_text(scope, "bot_id")?;
+            let chat_id = required_text(scope, "chat_id")?;
+            let assignment_id = bound_scope_optional_text(scope, "assignment_id")?;
+            let source_message_id = bound_scope_optional_text(scope, "source_message_id")?;
+            let message = params
+                .get("message")
+                .filter(|value| value.is_object())
+                .ok_or_else(|| {
+                    crate::rpc_error("invalid_params", "send_msg message must be an object", None)
+                })?;
+            Self::reject_bound_message_identity(message)?;
+            return self.validate_bound_send_scope(
+                &bot_id,
+                &chat_id,
+                assignment_id,
+                source_message_id,
+            );
+        }
+        if params
+            .get("_server_bound_send_msg")
+            .and_then(Value::as_bool)
+            == Some(true)
+        {
+            let run_id = required_text(params, "run_id")?;
+            let call_id = required_text(params, "call_id")?;
+            let expected_message_id = crate::send_policy::server_message_id(&run_id, &call_id);
+            let expected_request_id = format!("execution:{run_id}:{call_id}");
+            if params.get("to").is_some()
+                || params.get("message_id").and_then(Value::as_str)
+                    != Some(expected_message_id.as_str())
+                || params
+                    .get("_replace_streaming_placeholder")
+                    .and_then(Value::as_bool)
+                    != Some(false)
+                || params.get("client_request_id").and_then(Value::as_str)
+                    != Some(expected_request_id.as_str())
+            {
+                return Err(crate::rpc_error(
+                    "invalid_params",
+                    "bound send_msg identity must match its server receipt",
+                    None,
+                ));
+            }
+            return self.validate_bound_send_scope(
+                &required_text(params, "bot_id")?,
+                &required_text(params, "chat_id")?,
+                bound_scope_optional_text(params, "assignment_id")?,
+                bound_scope_optional_text(params, "source_message_id")?,
+            );
+        }
+        if params.get("to").is_some() {
+            return Err(crate::rpc_error(
+                "forbidden",
+                "execution send_msg destination is fixed by its chat scope",
+                None,
+            ));
+        }
         let mut resolved = params.clone();
         self.prepare_bot_dm_send(&mut resolved)?;
         let chat_id = resolved
@@ -6883,6 +7100,65 @@ impl ProductionBackend {
         self.orchestrator
             .validate_send_msg_target(chat_id, bot_id)
             .map_err(Self::error)
+    }
+
+    fn reject_bound_message_identity(message: &Value) -> Result<(), RpcError> {
+        const FORBIDDEN: &[&str] = &[
+            "id",
+            "seq",
+            "bot_id",
+            "chat_id",
+            "assignment_id",
+            "message_id",
+            "source_message_id",
+            "question_id",
+            "reply_to",
+            "to",
+            "run_id",
+            "call_id",
+            "client_request_id",
+            "_send_scope_chat_id",
+            "_replace_streaming_placeholder",
+        ];
+        if FORBIDDEN.iter().any(|field| message.get(*field).is_some()) {
+            return Err(crate::rpc_error(
+                "invalid_params",
+                "send_msg message cannot contain routing or receipt identity fields",
+                None,
+            ));
+        }
+        Ok(())
+    }
+
+    fn validate_bound_send_scope(
+        &self,
+        bot_id: &str,
+        chat_id: &str,
+        assignment_id: Option<&str>,
+        source_message_id: Option<&str>,
+    ) -> Result<(), RpcError> {
+        let resolved = self
+            .orchestrator
+            .resolve_send_scope(assignment_id, bot_id, chat_id)
+            .map_err(Self::error)?;
+        if resolved != chat_id {
+            return Err(crate::rpc_error(
+                "forbidden",
+                "send_msg cannot override its execution chat",
+                None,
+            ));
+        }
+        if let Some(source_message_id) = source_message_id {
+            let (source_chat_id, _) = self.find_chat_message(source_message_id)?;
+            if source_chat_id != chat_id {
+                return Err(crate::rpc_error(
+                    "forbidden",
+                    "send_msg source belongs to a different chat incarnation",
+                    None,
+                ));
+            }
+        }
+        Ok(())
     }
 
     fn prepare_bot_dm_send(&self, params: &mut Value) -> Result<Option<BotDmContext>, RpcError> {
@@ -11424,6 +11700,21 @@ fn required_text(params: &Value, key: &str) -> Result<String, RpcError> {
         })
 }
 
+fn bound_scope_optional_text<'a>(
+    params: &'a Value,
+    key: &str,
+) -> Result<Option<&'a str>, RpcError> {
+    match params.get(key) {
+        None | Some(Value::Null) => Ok(None),
+        Some(Value::String(value)) if !value.trim().is_empty() => Ok(Some(value)),
+        Some(_) => Err(crate::rpc_error(
+            "invalid_params",
+            &format!("send_msg scope {key} must be a nonempty string or null"),
+            None,
+        )),
+    }
+}
+
 fn ensure_user_message(message: &Value) -> Result<(), RpcError> {
     if message.pointer("/sender/kind").and_then(Value::as_str) == Some("user") {
         return Ok(());
@@ -11460,11 +11751,7 @@ fn takeover_component(value: &str) -> String {
 }
 
 fn execution_message_id(run_id: &str, call_id: &str) -> String {
-    format!(
-        "msg_{}_{}",
-        takeover_component(run_id),
-        takeover_component(call_id)
-    )
+    crate::send_policy::server_message_id(run_id, call_id)
 }
 
 fn reply_placeholder_id(run_id: &str, source_message_id: &str) -> String {
@@ -14160,13 +14447,13 @@ mod tests {
             .unwrap();
         let params = json!({"chat_id":project_id,"bot_id":"main","intent":"progress",
             "text":"Do not create an orphan handoff", "mentions":[bot_id]});
-        // A private incarnation may address a Bot DM; a group incarnation
-        // remains locked to its project chat.
-        backend
+        // Execution sends stay in the bound chat. Bot-DM orchestration uses
+        // a separate server-owned path, never a model-provided `to` target.
+        assert!(backend
             .execution_validate_send_msg_target(&json!({
                 "chat_id":"chat_main","bot_id":"main","to":{"bot":bot_id}
             }))
-            .unwrap();
+            .is_err());
         assert!(backend
             .execution_validate_send_msg_target(&json!({
                 "chat_id":chat_id,"bot_id":"main","to":{"bot":bot_id}
@@ -14245,7 +14532,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn send_msg_to_current_bot_rejects_main_private_assignment_and_keeps_group_scope() {
+    async fn send_msg_stays_in_current_group_scope_without_a_route_target() {
         let home = tempdir().unwrap();
         let gateway = Gateway::new(GatewayConfig {
             home: home.path().to_path_buf(),
@@ -14314,7 +14601,6 @@ mod tests {
                     "assignment_id":group_assignment["id"],
                     "project_id":project_id,
                     "chat_id":group_chat_id,
-                    "to":{"bot":bot_id},
                     "intent":"done",
                     "text":"群分身不能因自身 bot_id 逃离群"
                 }),
@@ -14358,6 +14644,91 @@ mod tests {
                 .unwrap()
                 .iter()
                 .filter(|event| event.event == "message.created")
+                .count(),
+            1
+        );
+    }
+
+    #[tokio::test]
+    async fn bound_send_msg_uses_receipt_id_and_replays_one_canonical_message() {
+        let home = tempdir().unwrap();
+        let gateway = Gateway::new(GatewayConfig {
+            home: home.path().to_path_buf(),
+            ..Default::default()
+        });
+        let backend = ProductionBackend::open(home.path()).unwrap();
+        let bot = backend
+            .call("bot.create", json!({"name":"Bound sender"}), &gateway.state)
+            .await
+            .unwrap();
+        let bot_id = bot["bot"]["id"].as_str().unwrap();
+        let chat_id = bot["bot"]["dm_chat_id"].as_str().unwrap();
+        let source_message_id = "bound-source-message";
+        backend
+            .persist_client_message(&json!({
+                "id":source_message_id,
+                "chat_id":chat_id,
+                "sender":{"kind":"user"},
+                "created_at":"2026-01-03T00:00:00Z",
+                "edited_at":null,
+                "deleted":false,
+                "reply_to":null,
+                "thread_count":0,
+                "mentions":[],
+                "blocks":[{"type":"text","markdown":"请检查一下"}],
+                "fallback_text":"请检查一下",
+                "intent":null,
+                "assignment_id":null,
+                "source_message_id":null,
+                "streaming":false,
+                "delivery":[],
+                "reactions":[]
+            }))
+            .unwrap();
+
+        let run_id = "ack_bound_source";
+        let call_id = "accepted";
+        let expected_message_id = crate::send_policy::server_message_id(run_id, call_id);
+        let envelope = json!({
+            "receipt":{"run_id":run_id,"call_id":call_id},
+            "scope":{
+                "bot_id":bot_id,
+                "chat_id":chat_id,
+                "assignment_id":null,
+                "source_message_id":source_message_id
+            },
+            "message":{"intent":"ack","text":"收到，我来处理。"}
+        });
+        backend
+            .execution_validate_send_msg_target(&envelope)
+            .unwrap();
+        let mut routed = envelope.clone();
+        routed["message"]["to"] = json!({"bot":"main"});
+        assert!(backend.execution_validate_send_msg_target(&routed).is_err());
+
+        let first = backend
+            .execution_send_msg(&gateway.state, envelope.clone())
+            .await
+            .unwrap();
+        let replay = backend
+            .execution_send_msg(&gateway.state, envelope)
+            .await
+            .unwrap();
+        assert_eq!(first["id"], expected_message_id);
+        assert_eq!(first["id"], replay["id"]);
+        assert_eq!(first["chat_id"], chat_id);
+        assert_eq!(first["source_message_id"], source_message_id);
+        assert_eq!(first["intent"], "ack");
+        assert!(first["seq"].as_u64().is_some());
+        assert_eq!(first["seq"], replay["seq"]);
+        assert_eq!(
+            backend
+                .store
+                .events_since(0)
+                .unwrap()
+                .iter()
+                .filter(|event| event.event == "message.created"
+                    && event.data["message"]["id"] == expected_message_id)
                 .count(),
             1
         );
@@ -16136,7 +16507,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn bot_dm_route_creates_read_only_chat_and_group_reference() {
+    async fn send_msg_cannot_route_to_another_bot_dm() {
         let home = tempdir().unwrap();
         let gateway = Gateway::new(GatewayConfig {
             home: home.path().to_path_buf(),
@@ -16153,7 +16524,7 @@ mod tests {
             .unwrap();
         let from_id = from["bot"]["id"].as_str().unwrap();
         let to_id = to["bot"]["id"].as_str().unwrap();
-        let sent = backend
+        let routed = backend
             .call(
                 "send_msg",
                 json!({
@@ -16167,50 +16538,17 @@ mod tests {
                 &gateway.state,
             )
             .await
-            .unwrap();
-        let sent_message: Message = serde_json::from_value(sent.clone()).unwrap();
-        assert!(sent_message.chat_id.starts_with("bot_dm_"));
+            .unwrap_err();
+        assert_eq!(routed.code, "forbidden");
         let chats = backend
             .call("chat.list", json!({}), &gateway.state)
             .await
             .unwrap();
-        let bot_dm = chats["chats"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .find(|chat| chat["id"] == sent_message.chat_id)
-            .unwrap();
-        let _: Chat = serde_json::from_value(bot_dm.clone()).unwrap();
-        assert_eq!(bot_dm["kind"], "bot_dm");
-        let sender_history = backend
-            .call(
-                "chat.history",
-                json!({"chat_id":from["bot"]["dm_chat_id"],"limit":100}),
-                &gateway.state,
-            )
-            .await
-            .unwrap();
-        assert!(sender_history["messages"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|message| {
-                message["blocks"].as_array().is_some_and(|blocks| {
-                    blocks.iter().any(|block| {
-                        block["type"] == "bot_dm_ref"
-                            && block["chat_id"] == sent_message.chat_id
-                            && block["count"] == 1
-                    })
-                })
-            }));
-        let denied = backend
-            .call(
-                "chat.send",
-                json!({"chat_id":sent_message.chat_id,"text":"禁止","mentions":[]}),
-                &gateway.state,
-            )
-            .await;
-        assert_eq!(denied.unwrap_err().code, "forbidden");
+        assert!(chats["chats"].as_array().unwrap().iter().all(|chat| {
+            !chat["id"]
+                .as_str()
+                .is_some_and(|chat_id| chat_id.starts_with("bot_dm_"))
+        }));
     }
 
     #[tokio::test]
@@ -19815,7 +20153,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn execution_source_is_cleared_for_bot_dm_and_placeholder_cannot_cross_chats() {
+    async fn execution_send_rejects_bot_dm_routing_and_cross_chat_placeholder_fill() {
         let home = tempdir().unwrap();
         let gateway = Gateway::new(GatewayConfig {
             home: home.path().to_path_buf(),
@@ -19862,7 +20200,7 @@ mod tests {
 
         let run_id = "bot-dm-source-run";
         let new_message_id = execution_message_id(run_id, "cross-chat");
-        let sent = backend
+        let routed = backend
             .execution_send_msg(
                 &gateway.state,
                 json!({
@@ -19881,9 +20219,17 @@ mod tests {
                 }),
             )
             .await
+            .unwrap_err();
+        assert_eq!(routed.code, "forbidden");
+        let chats = backend
+            .call("chat.list", json!({}), &gateway.state)
+            .await
             .unwrap();
-        assert_ne!(sent["chat_id"], source_chat_id);
-        assert!(sent["source_message_id"].is_null());
+        assert!(chats["chats"].as_array().unwrap().iter().all(|chat| {
+            !chat["id"]
+                .as_str()
+                .is_some_and(|chat_id| chat_id.starts_with("bot_dm_"))
+        }));
 
         let placeholder_run = "bot-dm-placeholder-run";
         let placeholder_id = reply_placeholder_id(placeholder_run, source_message_id);

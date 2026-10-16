@@ -3202,15 +3202,20 @@
       "data": {
         "message": {
           "assignment_id": null,
-          "blocks": [],
+          "blocks": [
+            {
+              "markdown": "收到，我来处理。",
+              "type": "text"
+            }
+          ],
           "chat_id": "chat_main",
           "created_at": "2026-10-09T10:19:02.312Z",
           "deleted": false,
           "delivery": [],
           "edited_at": null,
-          "fallback_text": "",
-          "id": "msg_reply_chat_main",
-          "intent": null,
+          "fallback_text": "收到，我来处理。",
+          "id": "msg_ack_chat_main",
+          "intent": "ack",
           "mentions": [],
           "reactions": [],
           "reply_to": null,
@@ -3220,7 +3225,7 @@
           },
           "seq": 2,
           "source_message_id": "msg_request_chat_main",
-          "streaming": true,
+          "streaming": false,
           "thread_count": 0
         }
       },
@@ -3236,84 +3241,15 @@
     "value": {
       "data": {
         "message": {
-          "assignment_id": null,
+          "assignment_id": "asg_reply_chat_main",
           "blocks": [
             {
-              "markdown": "请回复这条消息",
+              "markdown": "开始实现前需要确认邮箱登录的支持范围。",
               "type": "text"
-            }
-          ],
-          "chat_id": "chat_main",
-          "created_at": "2026-10-09T10:19:02.312Z",
-          "deleted": false,
-          "delivery": [
+            },
             {
-              "assignment_id": null,
-              "at": "2026-10-09T10:19:02.312Z",
-              "bot_id": "bot_main",
-              "state": "read"
-            }
-          ],
-          "edited_at": null,
-          "fallback_text": "请回复这条消息",
-          "id": "msg_request_chat_main",
-          "intent": null,
-          "mentions": [],
-          "reactions": [],
-          "reply_to": null,
-          "sender": {
-            "kind": "user"
-          },
-          "seq": 1,
-          "streaming": false,
-          "thread_count": 0
-        }
-      },
-      "event": "message.updated",
-      "kind": "evt",
-      "seq": 4,
-      "v": 1
-    }
-  },
-  {
-    "source": "protocol/fixtures/scenarios/chat-reply-lifecycle.jsonl",
-    "line": 5,
-    "value": {
-      "data": {
-        "chat_id": "chat_main",
-        "message_id": "msg_reply_chat_main",
-        "text": "收到，"
-      },
-      "event": "message.delta",
-      "kind": "evt",
-      "v": 1
-    }
-  },
-  {
-    "source": "protocol/fixtures/scenarios/chat-reply-lifecycle.jsonl",
-    "line": 6,
-    "value": {
-      "data": {
-        "chat_id": "chat_main",
-        "message_id": "msg_reply_chat_main",
-        "text": "我来处理。"
-      },
-      "event": "message.delta",
-      "kind": "evt",
-      "v": 1
-    }
-  },
-  {
-    "source": "protocol/fixtures/scenarios/chat-reply-lifecycle.jsonl",
-    "line": 7,
-    "value": {
-      "data": {
-        "message": {
-          "assignment_id": null,
-          "blocks": [
-            {
-              "markdown": "收到，我来处理。",
-              "type": "text"
+              "question_id": "que_decision_chat_main",
+              "type": "question"
             }
           ],
           "chat_id": "chat_main",
@@ -3321,49 +3257,9 @@
           "deleted": false,
           "delivery": [],
           "edited_at": null,
-          "fallback_text": "收到，我来处理。",
-          "id": "msg_reply_chat_main",
-          "intent": "ack",
-          "mentions": [],
-          "reactions": [],
-          "reply_to": null,
-          "sender": {
-            "bot_id": "bot_main",
-            "kind": "bot"
-          },
-          "seq": 2,
-          "source_message_id": "msg_request_chat_main",
-          "streaming": false,
-          "thread_count": 0
-        }
-      },
-      "event": "message.updated",
-      "kind": "evt",
-      "seq": 5,
-      "v": 1
-    }
-  },
-  {
-    "source": "protocol/fixtures/scenarios/chat-reply-lifecycle.jsonl",
-    "line": 8,
-    "value": {
-      "data": {
-        "message": {
-          "assignment_id": null,
-          "blocks": [
-            {
-              "markdown": "这是后续独立消息。",
-              "type": "text"
-            }
-          ],
-          "chat_id": "chat_main",
-          "created_at": "2026-10-09T10:19:02.312Z",
-          "deleted": false,
-          "delivery": [],
-          "edited_at": null,
-          "fallback_text": "这是后续独立消息。",
-          "id": "msg_followup_chat_main",
-          "intent": "ack",
+          "fallback_text": "开始实现前需要确认邮箱登录的支持范围。",
+          "id": "msg_decision_chat_main",
+          "intent": "decision",
           "mentions": [],
           "reactions": [],
           "reply_to": null,
@@ -3379,7 +3275,151 @@
       },
       "event": "message.created",
       "kind": "evt",
+      "seq": 4,
+      "v": 1
+    }
+  },
+  {
+    "source": "protocol/fixtures/scenarios/chat-reply-lifecycle.jsonl",
+    "line": 5,
+    "value": {
+      "data": {
+        "question": {
+          "allow_free_text": true,
+          "answer": null,
+          "assignment_id": "asg_reply_chat_main",
+          "bot_id": "bot_main",
+          "chat_id": "chat_main",
+          "id": "que_decision_chat_main",
+          "multi": false,
+          "options": [
+            "所有邮箱地址",
+            "仅公司邮箱"
+          ],
+          "state": "pending",
+          "text": "邮箱登录需要支持哪些邮箱地址？"
+        }
+      },
+      "event": "question.asked",
+      "kind": "evt",
+      "seq": 5,
+      "v": 1
+    }
+  },
+  {
+    "source": "protocol/fixtures/scenarios/chat-reply-lifecycle.jsonl",
+    "line": 6,
+    "value": {
+      "data": {
+        "question": {
+          "allow_free_text": true,
+          "answer": {
+            "at": "2026-10-09T10:19:02.312Z",
+            "option_index": 0,
+            "option_indexes": [],
+            "text": null
+          },
+          "assignment_id": "asg_reply_chat_main",
+          "bot_id": "bot_main",
+          "chat_id": "chat_main",
+          "id": "que_decision_chat_main",
+          "multi": false,
+          "options": [
+            "所有邮箱地址",
+            "仅公司邮箱"
+          ],
+          "state": "answered",
+          "text": "邮箱登录需要支持哪些邮箱地址？"
+        }
+      },
+      "event": "question.answered",
+      "kind": "evt",
       "seq": 6,
+      "v": 1
+    }
+  },
+  {
+    "source": "protocol/fixtures/scenarios/chat-reply-lifecycle.jsonl",
+    "line": 7,
+    "value": {
+      "data": {
+        "message": {
+          "assignment_id": "asg_reply_chat_main",
+          "blocks": [
+            {
+              "markdown": "Mock 示例已完成：结果是支持所有邮箱地址的邮箱登录方案，详见本条消息。使用时按所选方案配置登录入口。",
+              "type": "text"
+            },
+            {
+              "artifacts": [],
+              "next": [],
+              "notify_main": true,
+              "summary": "Mock 示例已完成：结果是支持所有邮箱地址的邮箱登录方案，详见本条消息。使用时按所选方案配置登录入口。",
+              "type": "completion"
+            }
+          ],
+          "chat_id": "chat_main",
+          "created_at": "2026-10-09T10:19:02.312Z",
+          "deleted": false,
+          "delivery": [],
+          "edited_at": null,
+          "fallback_text": "Mock 示例已完成：结果是支持所有邮箱地址的邮箱登录方案，详见本条消息。使用时按所选方案配置登录入口。",
+          "id": "msg_done_chat_main",
+          "intent": "done",
+          "mentions": [],
+          "reactions": [],
+          "reply_to": null,
+          "sender": {
+            "bot_id": "bot_main",
+            "kind": "bot"
+          },
+          "seq": 4,
+          "source_message_id": "msg_request_chat_main",
+          "streaming": false,
+          "thread_count": 0
+        }
+      },
+      "event": "message.created",
+      "kind": "evt",
+      "seq": 7,
+      "v": 1
+    }
+  },
+  {
+    "source": "protocol/fixtures/scenarios/chat-reply-lifecycle.jsonl",
+    "line": 8,
+    "value": {
+      "data": {
+        "message": {
+          "assignment_id": null,
+          "blocks": [
+            {
+              "markdown": "请回复这条消息",
+              "type": "text"
+            }
+          ],
+          "chat_id": "chat_code",
+          "created_at": "2026-10-09T10:19:02.312Z",
+          "deleted": false,
+          "delivery": [],
+          "edited_at": null,
+          "fallback_text": "请回复这条消息",
+          "id": "msg_request_chat_code",
+          "intent": null,
+          "mentions": [],
+          "reactions": [],
+          "reply_to": null,
+          "sender": {
+            "kind": "user"
+          },
+          "seq": 1,
+          "streaming": false,
+          "thread_count": 0
+        }
+      },
+      "event": "message.created",
+      "kind": "evt",
+      "seq": 8,
       "v": 1
     }
   },
@@ -3399,44 +3439,6 @@
           "chat_id": "chat_code",
           "created_at": "2026-10-09T10:19:02.312Z",
           "deleted": false,
-          "delivery": [],
-          "edited_at": null,
-          "fallback_text": "请回复这条消息",
-          "id": "msg_request_chat_code",
-          "intent": null,
-          "mentions": [],
-          "reactions": [],
-          "reply_to": null,
-          "sender": {
-            "kind": "user"
-          },
-          "seq": 1,
-          "streaming": false,
-          "thread_count": 0
-        }
-      },
-      "event": "message.created",
-      "kind": "evt",
-      "seq": 7,
-      "v": 1
-    }
-  },
-  {
-    "source": "protocol/fixtures/scenarios/chat-reply-lifecycle.jsonl",
-    "line": 10,
-    "value": {
-      "data": {
-        "message": {
-          "assignment_id": null,
-          "blocks": [
-            {
-              "markdown": "请回复这条消息",
-              "type": "text"
-            }
-          ],
-          "chat_id": "chat_code",
-          "created_at": "2026-10-09T10:19:02.312Z",
-          "deleted": false,
           "delivery": [
             {
               "assignment_id": null,
@@ -3462,121 +3464,13 @@
       },
       "event": "message.updated",
       "kind": "evt",
-      "seq": 8,
-      "v": 1
-    }
-  },
-  {
-    "source": "protocol/fixtures/scenarios/chat-reply-lifecycle.jsonl",
-    "line": 11,
-    "value": {
-      "data": {
-        "message": {
-          "assignment_id": null,
-          "blocks": [],
-          "chat_id": "chat_code",
-          "created_at": "2026-10-09T10:19:02.312Z",
-          "deleted": false,
-          "delivery": [],
-          "edited_at": null,
-          "fallback_text": "",
-          "id": "msg_reply_chat_code",
-          "intent": null,
-          "mentions": [],
-          "reactions": [],
-          "reply_to": null,
-          "sender": {
-            "bot_id": "bot_code",
-            "kind": "bot"
-          },
-          "seq": 2,
-          "source_message_id": "msg_request_chat_code",
-          "streaming": true,
-          "thread_count": 0
-        }
-      },
-      "event": "message.created",
-      "kind": "evt",
       "seq": 9,
       "v": 1
     }
   },
   {
     "source": "protocol/fixtures/scenarios/chat-reply-lifecycle.jsonl",
-    "line": 12,
-    "value": {
-      "data": {
-        "message": {
-          "assignment_id": null,
-          "blocks": [
-            {
-              "markdown": "请回复这条消息",
-              "type": "text"
-            }
-          ],
-          "chat_id": "chat_code",
-          "created_at": "2026-10-09T10:19:02.312Z",
-          "deleted": false,
-          "delivery": [
-            {
-              "assignment_id": null,
-              "at": "2026-10-09T10:19:02.312Z",
-              "bot_id": "bot_code",
-              "state": "read"
-            }
-          ],
-          "edited_at": null,
-          "fallback_text": "请回复这条消息",
-          "id": "msg_request_chat_code",
-          "intent": null,
-          "mentions": [],
-          "reactions": [],
-          "reply_to": null,
-          "sender": {
-            "kind": "user"
-          },
-          "seq": 1,
-          "streaming": false,
-          "thread_count": 0
-        }
-      },
-      "event": "message.updated",
-      "kind": "evt",
-      "seq": 10,
-      "v": 1
-    }
-  },
-  {
-    "source": "protocol/fixtures/scenarios/chat-reply-lifecycle.jsonl",
-    "line": 13,
-    "value": {
-      "data": {
-        "chat_id": "chat_code",
-        "message_id": "msg_reply_chat_code",
-        "text": "收到，"
-      },
-      "event": "message.delta",
-      "kind": "evt",
-      "v": 1
-    }
-  },
-  {
-    "source": "protocol/fixtures/scenarios/chat-reply-lifecycle.jsonl",
-    "line": 14,
-    "value": {
-      "data": {
-        "chat_id": "chat_code",
-        "message_id": "msg_reply_chat_code",
-        "text": "我来处理。"
-      },
-      "event": "message.delta",
-      "kind": "evt",
-      "v": 1
-    }
-  },
-  {
-    "source": "protocol/fixtures/scenarios/chat-reply-lifecycle.jsonl",
-    "line": 15,
+    "line": 10,
     "value": {
       "data": {
         "message": {
@@ -3593,7 +3487,7 @@
           "delivery": [],
           "edited_at": null,
           "fallback_text": "收到，我来处理。",
-          "id": "msg_reply_chat_code",
+          "id": "msg_ack_chat_code",
           "intent": "ack",
           "mentions": [],
           "reactions": [],
@@ -3608,23 +3502,27 @@
           "thread_count": 0
         }
       },
-      "event": "message.updated",
+      "event": "message.created",
       "kind": "evt",
-      "seq": 11,
+      "seq": 10,
       "v": 1
     }
   },
   {
     "source": "protocol/fixtures/scenarios/chat-reply-lifecycle.jsonl",
-    "line": 16,
+    "line": 11,
     "value": {
       "data": {
         "message": {
-          "assignment_id": null,
+          "assignment_id": "asg_reply_chat_code",
           "blocks": [
             {
-              "markdown": "这是后续独立消息。",
+              "markdown": "开始实现前需要确认邮箱登录的支持范围。",
               "type": "text"
+            },
+            {
+              "question_id": "que_decision_chat_code",
+              "type": "question"
             }
           ],
           "chat_id": "chat_code",
@@ -3632,9 +3530,9 @@
           "deleted": false,
           "delivery": [],
           "edited_at": null,
-          "fallback_text": "这是后续独立消息。",
-          "id": "msg_followup_chat_code",
-          "intent": "ack",
+          "fallback_text": "开始实现前需要确认邮箱登录的支持范围。",
+          "id": "msg_decision_chat_code",
+          "intent": "decision",
           "mentions": [],
           "reactions": [],
           "reply_to": null,
@@ -3650,43 +3548,64 @@
       },
       "event": "message.created",
       "kind": "evt",
+      "seq": 11,
+      "v": 1
+    }
+  },
+  {
+    "source": "protocol/fixtures/scenarios/chat-reply-lifecycle.jsonl",
+    "line": 12,
+    "value": {
+      "data": {
+        "question": {
+          "allow_free_text": true,
+          "answer": null,
+          "assignment_id": "asg_reply_chat_code",
+          "bot_id": "bot_code",
+          "chat_id": "chat_code",
+          "id": "que_decision_chat_code",
+          "multi": false,
+          "options": [
+            "所有邮箱地址",
+            "仅公司邮箱"
+          ],
+          "state": "pending",
+          "text": "邮箱登录需要支持哪些邮箱地址？"
+        }
+      },
+      "event": "question.asked",
+      "kind": "evt",
       "seq": 12,
       "v": 1
     }
   },
   {
     "source": "protocol/fixtures/scenarios/chat-reply-lifecycle.jsonl",
-    "line": 17,
+    "line": 13,
     "value": {
       "data": {
-        "message": {
-          "assignment_id": null,
-          "blocks": [
-            {
-              "markdown": "请回复这条消息",
-              "type": "text"
-            }
-          ],
-          "chat_id": "chat_login",
-          "created_at": "2026-10-09T10:19:02.312Z",
-          "deleted": false,
-          "delivery": [],
-          "edited_at": null,
-          "fallback_text": "请回复这条消息",
-          "id": "msg_request_chat_login",
-          "intent": null,
-          "mentions": [],
-          "reactions": [],
-          "reply_to": null,
-          "sender": {
-            "kind": "user"
+        "question": {
+          "allow_free_text": true,
+          "answer": {
+            "at": "2026-10-09T10:19:02.312Z",
+            "option_index": 0,
+            "option_indexes": [],
+            "text": null
           },
-          "seq": 1,
-          "streaming": false,
-          "thread_count": 0
+          "assignment_id": "asg_reply_chat_code",
+          "bot_id": "bot_code",
+          "chat_id": "chat_code",
+          "id": "que_decision_chat_code",
+          "multi": false,
+          "options": [
+            "所有邮箱地址",
+            "仅公司邮箱"
+          ],
+          "state": "answered",
+          "text": "邮箱登录需要支持哪些邮箱地址？"
         }
       },
-      "event": "message.created",
+      "event": "question.answered",
       "kind": "evt",
       "seq": 13,
       "v": 1
@@ -3694,7 +3613,54 @@
   },
   {
     "source": "protocol/fixtures/scenarios/chat-reply-lifecycle.jsonl",
-    "line": 18,
+    "line": 14,
+    "value": {
+      "data": {
+        "message": {
+          "assignment_id": "asg_reply_chat_code",
+          "blocks": [
+            {
+              "markdown": "Mock 示例已完成：结果是支持所有邮箱地址的邮箱登录方案，详见本条消息。使用时按所选方案配置登录入口。",
+              "type": "text"
+            },
+            {
+              "artifacts": [],
+              "next": [],
+              "notify_main": true,
+              "summary": "Mock 示例已完成：结果是支持所有邮箱地址的邮箱登录方案，详见本条消息。使用时按所选方案配置登录入口。",
+              "type": "completion"
+            }
+          ],
+          "chat_id": "chat_code",
+          "created_at": "2026-10-09T10:19:02.312Z",
+          "deleted": false,
+          "delivery": [],
+          "edited_at": null,
+          "fallback_text": "Mock 示例已完成：结果是支持所有邮箱地址的邮箱登录方案，详见本条消息。使用时按所选方案配置登录入口。",
+          "id": "msg_done_chat_code",
+          "intent": "done",
+          "mentions": [],
+          "reactions": [],
+          "reply_to": null,
+          "sender": {
+            "bot_id": "bot_code",
+            "kind": "bot"
+          },
+          "seq": 4,
+          "source_message_id": "msg_request_chat_code",
+          "streaming": false,
+          "thread_count": 0
+        }
+      },
+      "event": "message.created",
+      "kind": "evt",
+      "seq": 14,
+      "v": 1
+    }
+  },
+  {
+    "source": "protocol/fixtures/scenarios/chat-reply-lifecycle.jsonl",
+    "line": 15,
     "value": {
       "data": {
         "message": {
@@ -3708,14 +3674,7 @@
           "chat_id": "chat_login",
           "created_at": "2026-10-09T10:19:02.312Z",
           "deleted": false,
-          "delivery": [
-            {
-              "assignment_id": "asg_code",
-              "at": "2026-10-09T10:19:02.312Z",
-              "bot_id": "bot_code",
-              "state": "delivered"
-            }
-          ],
+          "delivery": [],
           "edited_at": null,
           "fallback_text": "请回复这条消息",
           "id": "msg_request_chat_login",
@@ -3728,41 +3687,6 @@
           },
           "seq": 1,
           "streaming": false,
-          "thread_count": 0
-        }
-      },
-      "event": "message.updated",
-      "kind": "evt",
-      "seq": 14,
-      "v": 1
-    }
-  },
-  {
-    "source": "protocol/fixtures/scenarios/chat-reply-lifecycle.jsonl",
-    "line": 19,
-    "value": {
-      "data": {
-        "message": {
-          "assignment_id": "asg_code",
-          "blocks": [],
-          "chat_id": "chat_login",
-          "created_at": "2026-10-09T10:19:02.312Z",
-          "deleted": false,
-          "delivery": [],
-          "edited_at": null,
-          "fallback_text": "",
-          "id": "msg_reply_chat_login",
-          "intent": null,
-          "mentions": [],
-          "reactions": [],
-          "reply_to": null,
-          "sender": {
-            "bot_id": "bot_code",
-            "kind": "bot"
-          },
-          "seq": 2,
-          "source_message_id": "msg_request_chat_login",
-          "streaming": true,
           "thread_count": 0
         }
       },
@@ -3774,7 +3698,7 @@
   },
   {
     "source": "protocol/fixtures/scenarios/chat-reply-lifecycle.jsonl",
-    "line": 20,
+    "line": 16,
     "value": {
       "data": {
         "message": {
@@ -3790,10 +3714,28 @@
           "deleted": false,
           "delivery": [
             {
+              "assignment_id": null,
+              "at": "2026-10-09T10:19:02.312Z",
+              "bot_id": "bot_main",
+              "state": "delivered"
+            },
+            {
+              "assignment_id": null,
+              "at": "2026-10-09T10:19:02.312Z",
+              "bot_id": "bot_product",
+              "state": "delivered"
+            },
+            {
               "assignment_id": "asg_code",
               "at": "2026-10-09T10:19:02.312Z",
               "bot_id": "bot_code",
-              "state": "read"
+              "state": "delivered"
+            },
+            {
+              "assignment_id": null,
+              "at": "2026-10-09T10:19:02.312Z",
+              "bot_id": "bot_test",
+              "state": "delivered"
             }
           ],
           "edited_at": null,
@@ -3819,35 +3761,7 @@
   },
   {
     "source": "protocol/fixtures/scenarios/chat-reply-lifecycle.jsonl",
-    "line": 21,
-    "value": {
-      "data": {
-        "chat_id": "chat_login",
-        "message_id": "msg_reply_chat_login",
-        "text": "收到，"
-      },
-      "event": "message.delta",
-      "kind": "evt",
-      "v": 1
-    }
-  },
-  {
-    "source": "protocol/fixtures/scenarios/chat-reply-lifecycle.jsonl",
-    "line": 22,
-    "value": {
-      "data": {
-        "chat_id": "chat_login",
-        "message_id": "msg_reply_chat_login",
-        "text": "我来处理。"
-      },
-      "event": "message.delta",
-      "kind": "evt",
-      "v": 1
-    }
-  },
-  {
-    "source": "protocol/fixtures/scenarios/chat-reply-lifecycle.jsonl",
-    "line": 23,
+    "line": 17,
     "value": {
       "data": {
         "message": {
@@ -3864,7 +3778,7 @@
           "delivery": [],
           "edited_at": null,
           "fallback_text": "收到，我来处理。",
-          "id": "msg_reply_chat_login",
+          "id": "msg_ack_chat_login",
           "intent": "ack",
           "mentions": [],
           "reactions": [],
@@ -3879,7 +3793,7 @@
           "thread_count": 0
         }
       },
-      "event": "message.updated",
+      "event": "message.created",
       "kind": "evt",
       "seq": 17,
       "v": 1
@@ -3887,15 +3801,19 @@
   },
   {
     "source": "protocol/fixtures/scenarios/chat-reply-lifecycle.jsonl",
-    "line": 24,
+    "line": 18,
     "value": {
       "data": {
         "message": {
           "assignment_id": "asg_code",
           "blocks": [
             {
-              "markdown": "这是后续独立消息。",
+              "markdown": "开始实现前需要确认邮箱登录的支持范围。",
               "type": "text"
+            },
+            {
+              "question_id": "que_decision_chat_login",
+              "type": "question"
             }
           ],
           "chat_id": "chat_login",
@@ -3903,9 +3821,9 @@
           "deleted": false,
           "delivery": [],
           "edited_at": null,
-          "fallback_text": "这是后续独立消息。",
-          "id": "msg_followup_chat_login",
-          "intent": "ack",
+          "fallback_text": "开始实现前需要确认邮箱登录的支持范围。",
+          "id": "msg_decision_chat_login",
+          "intent": "decision",
           "mentions": [],
           "reactions": [],
           "reply_to": null,
@@ -3922,6 +3840,112 @@
       "event": "message.created",
       "kind": "evt",
       "seq": 18,
+      "v": 1
+    }
+  },
+  {
+    "source": "protocol/fixtures/scenarios/chat-reply-lifecycle.jsonl",
+    "line": 19,
+    "value": {
+      "data": {
+        "question": {
+          "allow_free_text": true,
+          "answer": null,
+          "assignment_id": "asg_code",
+          "bot_id": "bot_code",
+          "chat_id": "chat_login",
+          "id": "que_decision_chat_login",
+          "multi": false,
+          "options": [
+            "所有邮箱地址",
+            "仅公司邮箱"
+          ],
+          "state": "pending",
+          "text": "邮箱登录需要支持哪些邮箱地址？"
+        }
+      },
+      "event": "question.asked",
+      "kind": "evt",
+      "seq": 19,
+      "v": 1
+    }
+  },
+  {
+    "source": "protocol/fixtures/scenarios/chat-reply-lifecycle.jsonl",
+    "line": 20,
+    "value": {
+      "data": {
+        "question": {
+          "allow_free_text": true,
+          "answer": {
+            "at": "2026-10-09T10:19:02.312Z",
+            "option_index": 0,
+            "option_indexes": [],
+            "text": null
+          },
+          "assignment_id": "asg_code",
+          "bot_id": "bot_code",
+          "chat_id": "chat_login",
+          "id": "que_decision_chat_login",
+          "multi": false,
+          "options": [
+            "所有邮箱地址",
+            "仅公司邮箱"
+          ],
+          "state": "answered",
+          "text": "邮箱登录需要支持哪些邮箱地址？"
+        }
+      },
+      "event": "question.answered",
+      "kind": "evt",
+      "seq": 20,
+      "v": 1
+    }
+  },
+  {
+    "source": "protocol/fixtures/scenarios/chat-reply-lifecycle.jsonl",
+    "line": 21,
+    "value": {
+      "data": {
+        "message": {
+          "assignment_id": "asg_code",
+          "blocks": [
+            {
+              "markdown": "Mock 示例已完成：结果是支持所有邮箱地址的邮箱登录方案，详见本条消息。使用时按所选方案配置登录入口。",
+              "type": "text"
+            },
+            {
+              "artifacts": [],
+              "next": [],
+              "notify_main": true,
+              "summary": "Mock 示例已完成：结果是支持所有邮箱地址的邮箱登录方案，详见本条消息。使用时按所选方案配置登录入口。",
+              "type": "completion"
+            }
+          ],
+          "chat_id": "chat_login",
+          "created_at": "2026-10-09T10:19:02.312Z",
+          "deleted": false,
+          "delivery": [],
+          "edited_at": null,
+          "fallback_text": "Mock 示例已完成：结果是支持所有邮箱地址的邮箱登录方案，详见本条消息。使用时按所选方案配置登录入口。",
+          "id": "msg_done_chat_login",
+          "intent": "done",
+          "mentions": [],
+          "reactions": [],
+          "reply_to": null,
+          "sender": {
+            "bot_id": "bot_code",
+            "kind": "bot"
+          },
+          "seq": 4,
+          "source_message_id": "msg_request_chat_login",
+          "streaming": false,
+          "thread_count": 0
+        }
+      },
+      "event": "message.created",
+      "kind": "evt",
+      "seq": 21,
       "v": 1
     }
   },

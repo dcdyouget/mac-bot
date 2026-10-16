@@ -1221,13 +1221,29 @@ fn question_approval_scenario(root: &Path) -> Result<(), Box<dyn std::error::Err
 fn reply_lifecycle_scenario(root: &Path) -> Result<(), Box<dyn std::error::Error>> {
     let mut lines = Vec::new();
     let mut seq = 0;
-    for (chat_id, bot_id, assignment_id) in [
-        ("chat_main", "bot_main", None),
-        ("chat_code", "bot_code", None),
-        ("chat_login", "bot_code", Some("asg_code")),
+    for (chat_id, bot_id, assignment_id, recipients) in [
+        ("chat_main", "bot_main", None, &[("bot_main", None)][..]),
+        ("chat_code", "bot_code", None, &[("bot_code", None)][..]),
+        (
+            "chat_login",
+            "bot_code",
+            Some("asg_code"),
+            &[
+                ("bot_main", None),
+                ("bot_product", None),
+                ("bot_code", Some("asg_code")),
+                ("bot_test", None),
+            ][..],
+        ),
     ] {
         let source_id = format!("msg_request_{chat_id}");
-        let reply_id = format!("msg_reply_{chat_id}");
+        let ack_id = format!("msg_ack_{chat_id}");
+        let decision_id = format!("msg_decision_{chat_id}");
+        let done_id = format!("msg_done_{chat_id}");
+        let question_id = format!("que_decision_{chat_id}");
+        let question_assignment_id = assignment_id
+            .map(str::to_owned)
+            .unwrap_or_else(|| format!("asg_reply_{chat_id}"));
         let mut source = scenario_message(
             &source_id,
             chat_id,
@@ -1246,79 +1262,124 @@ fn reply_lifecycle_scenario(root: &Path) -> Result<(), Box<dyn std::error::Error
             "message.created",
             json!({"message":source}),
         );
-        source["delivery"] =
-            json!([{"bot_id":bot_id,"assignment_id":assignment_id,"state":"delivered","at":now()}]);
+        source["delivery"] = json!(recipients
+            .iter()
+            .map(|(recipient_bot_id, recipient_assignment_id)| {
+                json!({
+                    "bot_id":recipient_bot_id,
+                    "assignment_id":recipient_assignment_id,
+                    "state":"delivered",
+                    "at":now()
+                })
+            })
+            .collect::<Vec<_>>());
         push_frame(
             &mut lines,
             &mut seq,
             "message.updated",
             json!({"message":source}),
         );
-        let mut reply = scenario_message(
-            &reply_id,
+        let mut ack = scenario_message(
+            &ack_id,
             chat_id,
             2,
             json!({"kind":"bot","bot_id":bot_id}),
-            json!([]),
-            "",
-            None,
-            assignment_id,
-            json!([]),
-            json!([]),
-        );
-        reply["source_message_id"] = json!(source_id);
-        reply["streaming"] = json!(true);
-        push_frame(
-            &mut lines,
-            &mut seq,
-            "message.created",
-            json!({"message":reply}),
-        );
-        source["delivery"][0]["state"] = json!("read");
-        push_frame(
-            &mut lines,
-            &mut seq,
-            "message.updated",
-            json!({"message":source}),
-        );
-        lines.push(frame(
-            None,
-            "message.delta",
-            json!({"chat_id":chat_id,"message_id":reply_id,"text":"收到，"}),
-        ));
-        lines.push(frame(
-            None,
-            "message.delta",
-            json!({"chat_id":chat_id,"message_id":reply_id,"text":"我来处理。"}),
-        ));
-        reply["streaming"] = json!(false);
-        reply["blocks"] = json!([{"type":"text","markdown":"收到，我来处理。"}]);
-        reply["fallback_text"] = json!("收到，我来处理。");
-        reply["intent"] = json!("ack");
-        push_frame(
-            &mut lines,
-            &mut seq,
-            "message.updated",
-            json!({"message":reply}),
-        );
-        let mut followup = scenario_message(
-            &format!("msg_followup_{chat_id}"),
-            chat_id,
-            3,
-            json!({"kind":"bot","bot_id":bot_id}),
-            json!([{"type":"text","markdown":"这是后续独立消息。"}]),
-            "这是后续独立消息。",
+            json!([{"type":"text","markdown":"收到，我来处理。"}]),
+            "收到，我来处理。",
             Some("ack"),
             assignment_id,
             json!([]),
             json!([]),
         );
-        followup["source_message_id"] = json!(source_id);
+        ack["source_message_id"] = json!(source_id);
         push_frame(
             &mut lines,
             &mut seq,
             "message.created",
-            json!({"message":followup}),
+            json!({"message":ack}),
+        );
+
+        let question = json!({
+            "id":question_id,
+            "bot_id":bot_id,
+            "assignment_id":question_assignment_id,
+            "chat_id":chat_id,
+            "text":"邮箱登录需要支持哪些邮箱地址？",
+            "options":["所有邮箱地址","仅公司邮箱"],
+            "multi":false,
+            "allow_free_text":true,
+            "state":"pending",
+            "answer":null
+        });
+        let mut decision = scenario_message(
+            &decision_id,
+            chat_id,
+            3,
+            json!({"kind":"bot","bot_id":bot_id}),
+            json!([
+                {"type":"text","markdown":"开始实现前需要确认邮箱登录的支持范围。"},
+                {"type":"question","question_id":question_id}
+            ]),
+            "开始实现前需要确认邮箱登录的支持范围。",
+            Some("decision"),
+            Some(&question_assignment_id),
+            json!([]),
+            json!([]),
+        );
+        decision["source_message_id"] = json!(source_id);
+        push_frame(
+            &mut lines,
+            &mut seq,
+            "message.created",
+            json!({"message":decision}),
+        );
+
+        push_frame(
+            &mut lines,
+            &mut seq,
+            "question.asked",
+            json!({"question":question}),
+        );
+        let answered_question = json!({
+            "id":question_id,
+            "bot_id":bot_id,
+            "assignment_id":question_assignment_id,
+            "chat_id":chat_id,
+            "text":"邮箱登录需要支持哪些邮箱地址？",
+            "options":["所有邮箱地址","仅公司邮箱"],
+            "multi":false,
+            "allow_free_text":true,
+            "state":"answered",
+            "answer":{"option_index":0,"option_indexes":[],"text":null,"at":now()}
+        });
+        push_frame(
+            &mut lines,
+            &mut seq,
+            "question.answered",
+            json!({"question":answered_question}),
+        );
+
+        let mut done = scenario_message(
+            &done_id,
+            chat_id,
+            4,
+            json!({"kind":"bot","bot_id":bot_id}),
+            json!([
+                {"type":"text","markdown":"Mock 示例已完成：结果是支持所有邮箱地址的邮箱登录方案，详见本条消息。使用时按所选方案配置登录入口。"},
+                {"type":"completion","summary":"Mock 示例已完成：结果是支持所有邮箱地址的邮箱登录方案，详见本条消息。使用时按所选方案配置登录入口。","artifacts":[],"next":[],"notify_main":true}
+            ]),
+            "Mock 示例已完成：结果是支持所有邮箱地址的邮箱登录方案，详见本条消息。使用时按所选方案配置登录入口。",
+            Some("done"),
+            Some(&question_assignment_id),
+            json!([]),
+            json!([]),
+        );
+        done["source_message_id"] = json!(source_id);
+        push_frame(
+            &mut lines,
+            &mut seq,
+            "message.created",
+            json!({"message":done}),
         );
     }
     let body = lines

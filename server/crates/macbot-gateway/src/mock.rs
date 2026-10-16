@@ -107,33 +107,25 @@ async fn dispatch(
         "chat.history" => chat_history(state, &params),
         "chat.thread" => chat_thread(state, &params),
         "chat.send" => {
-            let lifecycle_target = chat_reply_lifecycle_step_delay
-                .map(|step_delay| prepare_chat_reply_lifecycle_target(state, &params, step_delay))
-                .transpose()?;
-            let result = send_chat(state, &params, &gateway.home)?;
-            if let Some(target) = lifecycle_target {
-                let source_message_id = result
-                    .pointer("/message/id")
-                    .and_then(Value::as_str)
-                    .ok_or_else(|| {
-                        rpc_error("internal", "mock user message is missing an id", None)
-                    })?
-                    .to_owned();
-                let message_id = create_chat_reply_placeholder(
+            let mut result = send_chat(state, &params, &gateway.home)?;
+            if let Some(step_delay) = chat_reply_lifecycle_step_delay {
+                let source = result
+                    .get("message")
+                    .cloned()
+                    .ok_or_else(|| rpc_error("internal", "mock user message is missing", None))?;
+                let targets = chat_reply_lifecycle_targets(state, &source, None, step_delay)?;
+                for target in targets {
+                    let (_, started) = start_chat_reply_lifecycle(state, &target)?;
+                    if started {
+                        schedule_chat_reply_lifecycle_decision(gateway.clone(), target);
+                    }
+                }
+                result["message"] = find_chat_message(
                     state,
-                    &target.chat_id,
-                    &source_message_id,
-                    &target.bot_id,
-                    target.requested_message_id.as_deref(),
-                )?;
-                schedule_chat_reply_lifecycle(
-                    gateway.clone(),
-                    target.step_delay,
-                    target.chat_id,
-                    target.bot_id,
-                    source_message_id,
-                    message_id,
-                );
+                    source["chat_id"].as_str().unwrap_or_default(),
+                    source["id"].as_str().unwrap_or_default(),
+                )
+                .unwrap_or(source);
             }
             Ok(result)
         }
@@ -203,7 +195,16 @@ async fn dispatch(
         "approval.decide" => approval_decide(state, &params),
         "question.ask" => question_ask(state, &params),
         "question.list" => question_list(state, &params),
-        "question.answer" => question_answer(state, &params),
+        "question.answer" => {
+            let result = question_answer(state, &params)?;
+            if let Some(step_delay) = chat_reply_lifecycle_step_delay {
+                if let Some(target) = mark_chat_reply_lifecycle_resuming(state, &result["question"])
+                {
+                    schedule_chat_reply_lifecycle_done(gateway.clone(), target, step_delay);
+                }
+            }
+            Ok(result)
+        }
         "memory.user.list" => user_memory_list(state),
         "memory.user.create" => user_memory_create(state, &params),
         "memory.user.update" => user_memory_update(state, &params),
@@ -296,60 +297,183 @@ async fn dispatch(
     }
 }
 
-const LIFECYCLE_FIRST_REPLY: &str = "收到，我来处理。";
-const LIFECYCLE_FOLLOWUP_REPLY: &str = "这是后续独立消息。";
+const CHAT_REPLY_LIFECYCLE_KEY: &str = "chat_reply_lifecycle";
+const LIFECYCLE_ACK_REPLY: &str = "收到，我来处理。";
+const LIFECYCLE_DECISION_TEXT: &str = "开始实现前需要确认邮箱登录的支持范围。";
+const LIFECYCLE_QUESTION_TEXT: &str = "邮箱登录需要支持哪些邮箱地址？";
+const LIFECYCLE_OPTIONS: [&str; 2] = ["所有邮箱地址", "仅公司邮箱"];
 
+#[derive(Clone)]
 struct ChatReplyLifecycleTarget {
     chat_id: String,
     bot_id: String,
-    requested_message_id: Option<String>,
+    assignment_id: Option<String>,
+    question_assignment_id: String,
+    source_message_id: String,
     step_delay: StdDuration,
 }
 
-fn prepare_chat_reply_lifecycle_target(
+fn chat_reply_lifecycle_targets(
     state: &MockState,
-    params: &Value,
+    source: &Value,
+    requested_bot_id: Option<&str>,
     step_delay: StdDuration,
-) -> Result<ChatReplyLifecycleTarget, super::RpcError> {
-    let chat_id = params
+) -> Result<Vec<ChatReplyLifecycleTarget>, super::RpcError> {
+    let chat_id = source
         .get("chat_id")
         .and_then(Value::as_str)
-        .unwrap_or("chat_main")
-        .to_owned();
-    let bot_id = chat_reply_bot_for_chat(
-        state,
-        &chat_id,
-        params.get("mock_reply_bot_id").and_then(Value::as_str),
-    )?;
-    let requested_message_id =
-        match params.get("mock_reply_message_id") {
-            None | Some(Value::Null) => None,
-            Some(Value::String(value)) if !value.trim().is_empty() => {
-                if state.messages.values().flatten().any(|message| {
-                    message.get("id").and_then(Value::as_str) == Some(value.as_str())
-                }) {
-                    return Err(rpc_error(
-                        "conflict",
-                        "mock_reply_message_id is already in use",
-                        None,
-                    ));
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| rpc_error("invalid_params", "chat_id is required", None))?;
+    let source_message_id = source
+        .get("id")
+        .and_then(Value::as_str)
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| rpc_error("invalid_params", "source_message_id is required", None))?;
+    if source.pointer("/sender/kind").and_then(Value::as_str) != Some("user") {
+        return Err(rpc_error(
+            "invalid_params",
+            "source_message_id must identify a user message in this chat",
+            None,
+        ));
+    }
+    let chat = state
+        .chats
+        .iter()
+        .find(|chat| chat.get("id").and_then(Value::as_str) == Some(chat_id))
+        .ok_or_else(|| rpc_error("not_found", "chat not found", None))?;
+    let is_project = chat.get("kind").and_then(Value::as_str) == Some("project");
+
+    let mut bot_ids = Vec::<String>::new();
+    if let Some(requested_bot_id) = requested_bot_id {
+        push_unique_bot_id(&mut bot_ids, requested_bot_id);
+    } else if !is_project {
+        push_unique_bot_id(
+            &mut bot_ids,
+            &chat_reply_bot_for_chat(state, chat_id, None)?,
+        );
+    } else {
+        // A group message may be consumed by several active worker incarnations.
+        // Only assigned deliveries count as accepted work here, so an idle member
+        // does not ack every unaddressed message in the project chat.
+        for delivery in source
+            .get("delivery")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+        {
+            if delivery
+                .get("assignment_id")
+                .and_then(Value::as_str)
+                .is_some()
+            {
+                if let Some(bot_id) = delivery.get("bot_id").and_then(Value::as_str) {
+                    push_unique_bot_id(&mut bot_ids, bot_id);
                 }
-                Some(value.clone())
             }
-            _ => {
-                return Err(rpc_error(
-                    "invalid_params",
-                    "mock_reply_message_id must be a non-empty string or null",
-                    None,
-                ));
+        }
+        if bot_ids.is_empty() {
+            for mention in source
+                .get("mentions")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+            {
+                match mention.get("kind").and_then(Value::as_str) {
+                    Some("bot") => {
+                        if let Some(bot_id) = mention.get("bot_id").and_then(Value::as_str) {
+                            push_unique_bot_id(&mut bot_ids, bot_id);
+                        }
+                    }
+                    Some("main") => {
+                        if let Some(bot_id) = state
+                            .bots
+                            .iter()
+                            .find(|bot| bot.get("is_main").and_then(Value::as_bool) == Some(true))
+                            .and_then(|bot| bot.get("id").and_then(Value::as_str))
+                        {
+                            push_unique_bot_id(&mut bot_ids, bot_id);
+                        }
+                    }
+                    Some("everyone") => {
+                        for member in chat
+                            .get("member_bot_ids")
+                            .and_then(Value::as_array)
+                            .into_iter()
+                            .flatten()
+                            .filter_map(Value::as_str)
+                        {
+                            push_unique_bot_id(&mut bot_ids, member);
+                        }
+                    }
+                    _ => {}
+                }
             }
-        };
-    Ok(ChatReplyLifecycleTarget {
-        chat_id,
-        bot_id,
-        requested_message_id,
-        step_delay,
-    })
+        }
+        if bot_ids.is_empty() {
+            for assignment in state.assignments.iter().filter(|assignment| {
+                assignment.get("origin_chat_id").and_then(Value::as_str) == Some(chat_id)
+                    && assignment.get("status").and_then(Value::as_str) == Some("working")
+            }) {
+                if let Some(bot_id) = assignment.get("bot_id").and_then(Value::as_str) {
+                    push_unique_bot_id(&mut bot_ids, bot_id);
+                }
+            }
+        }
+    }
+
+    let mut targets = Vec::new();
+    for bot_id in bot_ids {
+        // This validates the fixed chat/Bot scope and also rejects a stale
+        // mention that points outside the project membership.
+        chat_reply_bot_for_chat(state, chat_id, Some(&bot_id))?;
+        let assignment_id = source
+            .get("delivery")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .find(|delivery| delivery.get("bot_id").and_then(Value::as_str) == Some(&bot_id))
+            .and_then(|delivery| delivery.get("assignment_id"))
+            .and_then(Value::as_str)
+            .filter(|assignment_id| {
+                state.assignments.iter().any(|assignment| {
+                    assignment.get("id").and_then(Value::as_str) == Some(*assignment_id)
+                        && assignment.get("bot_id").and_then(Value::as_str) == Some(&bot_id)
+                        && assignment.get("origin_chat_id").and_then(Value::as_str) == Some(chat_id)
+                })
+            })
+            .map(str::to_owned)
+            .or_else(|| {
+                state
+                    .assignments
+                    .iter()
+                    .find(|assignment| {
+                        assignment.get("bot_id").and_then(Value::as_str) == Some(&bot_id)
+                            && assignment.get("origin_chat_id").and_then(Value::as_str)
+                                == Some(chat_id)
+                            && assignment.get("status").and_then(Value::as_str) == Some("working")
+                    })
+                    .and_then(|assignment| assignment.get("id").and_then(Value::as_str))
+                    .map(str::to_owned)
+            });
+        let question_assignment_id = assignment_id
+            .clone()
+            .unwrap_or_else(|| format!("asg_reply_{source_message_id}"));
+        targets.push(ChatReplyLifecycleTarget {
+            chat_id: chat_id.to_owned(),
+            bot_id,
+            assignment_id,
+            question_assignment_id,
+            source_message_id: source_message_id.to_owned(),
+            step_delay,
+        });
+    }
+    Ok(targets)
+}
+
+fn push_unique_bot_id(bot_ids: &mut Vec<String>, bot_id: &str) {
+    if !bot_ids.iter().any(|existing| existing == bot_id) {
+        bot_ids.push(bot_id.to_owned());
+    }
 }
 
 fn chat_reply_bot_for_chat(
@@ -419,31 +543,138 @@ fn chat_reply_bot_for_chat(
     Ok(bot_id)
 }
 
-fn create_chat_reply_placeholder(
+fn lifecycle_record_matches(record: &Value, target: &ChatReplyLifecycleTarget) -> bool {
+    record.get("chat_id").and_then(Value::as_str) == Some(&target.chat_id)
+        && record.get("bot_id").and_then(Value::as_str) == Some(&target.bot_id)
+        && record.get("source_message_id").and_then(Value::as_str)
+            == Some(&target.source_message_id)
+}
+
+fn lifecycle_target_from_record(
+    record: &Value,
+    step_delay: StdDuration,
+) -> Option<ChatReplyLifecycleTarget> {
+    Some(ChatReplyLifecycleTarget {
+        chat_id: record.get("chat_id")?.as_str()?.to_owned(),
+        bot_id: record.get("bot_id")?.as_str()?.to_owned(),
+        assignment_id: record
+            .get("assignment_id")
+            .and_then(Value::as_str)
+            .map(str::to_owned),
+        question_assignment_id: record.get("question_assignment_id")?.as_str()?.to_owned(),
+        source_message_id: record.get("source_message_id")?.as_str()?.to_owned(),
+        step_delay,
+    })
+}
+
+fn start_chat_reply_lifecycle(
     state: &mut MockState,
-    chat_id: &str,
-    source_message_id: &str,
-    bot_id: &str,
-    requested_message_id: Option<&str>,
-) -> Result<String, super::RpcError> {
-    let message_id = requested_message_id
-        .map(str::to_owned)
-        .unwrap_or_else(|| id("msg"));
-    if state
-        .messages
-        .values()
-        .flatten()
-        .any(|message| message.get("id").and_then(Value::as_str) == Some(message_id.as_str()))
+    target: &ChatReplyLifecycleTarget,
+) -> Result<(String, bool), super::RpcError> {
+    let mut records = extra_get(state, CHAT_REPLY_LIFECYCLE_KEY);
+    if let Some(record) = records
+        .iter()
+        .find(|record| lifecycle_record_matches(record, target))
     {
-        return Err(rpc_error("conflict", "message id is already in use", None));
+        return Ok((
+            record
+                .get("ack_message_id")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_owned(),
+            false,
+        ));
     }
+
+    mark_chat_reply_source_delivered(state, target);
+    let ack_message_id = append_chat_reply_message(
+        state,
+        target,
+        "ack",
+        LIFECYCLE_ACK_REPLY,
+        json!([{"type":"text","markdown":LIFECYCLE_ACK_REPLY}]),
+        target.assignment_id.as_deref(),
+    );
+    records.push(json!({
+        "chat_id":target.chat_id,
+        "bot_id":target.bot_id,
+        "assignment_id":target.assignment_id,
+        "question_assignment_id":target.question_assignment_id,
+        "source_message_id":target.source_message_id,
+        "ack_message_id":ack_message_id,
+        "decision_message_id":null,
+        "question_id":null,
+        "done_message_id":null,
+        "phase":"acknowledged"
+    }));
+    extra_set(state, CHAT_REPLY_LIFECYCLE_KEY, records);
+    Ok((ack_message_id, true))
+}
+
+fn mark_chat_reply_source_delivered(state: &mut MockState, target: &ChatReplyLifecycleTarget) {
+    let Some(message) = state
+        .messages
+        .get_mut(&target.chat_id)
+        .into_iter()
+        .flatten()
+        .find(|message| {
+            message.get("id").and_then(Value::as_str) == Some(&target.source_message_id)
+        })
+    else {
+        return;
+    };
+    let mut delivery = message
+        .get("delivery")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    if let Some(existing) = delivery
+        .iter_mut()
+        .find(|item| item.get("bot_id").and_then(Value::as_str) == Some(&target.bot_id))
+    {
+        if existing.get("state").and_then(Value::as_str) != Some("read") {
+            existing["state"] = json!("delivered");
+        }
+        if let Some(assignment_id) = &target.assignment_id {
+            existing["assignment_id"] = json!(assignment_id);
+        }
+    } else {
+        delivery.push(json!({
+            "bot_id":target.bot_id,
+            "assignment_id":target.assignment_id,
+            "state":"delivered",
+            "at":now()
+        }));
+    }
+    message["delivery"] = Value::Array(delivery);
+    let updated = message.clone();
+    state.emit("message.updated", json!({"message":updated}));
+}
+
+fn append_chat_reply_message(
+    state: &mut MockState,
+    target: &ChatReplyLifecycleTarget,
+    intent: &str,
+    fallback_text: &str,
+    blocks: Value,
+    assignment_id: Option<&str>,
+) -> String {
+    let message_id =
+        loop {
+            let candidate = id("msg");
+            if !state.messages.values().flatten().any(|message| {
+                message.get("id").and_then(Value::as_str) == Some(candidate.as_str())
+            }) {
+                break candidate;
+            }
+        };
     let created_at = now();
-    let seq = next_chat_message_seq(state, chat_id);
+    let seq = next_chat_message_seq(state, &target.chat_id);
     let message = json!({
         "id":message_id,
-        "chat_id":chat_id,
+        "chat_id":target.chat_id,
         "seq":seq,
-        "sender":{"kind":"bot","bot_id":bot_id},
+        "sender":{"kind":"bot","bot_id":target.bot_id},
         "created_at":created_at,
         "edited_at":null,
         "deleted":false,
@@ -451,26 +682,35 @@ fn create_chat_reply_placeholder(
         "quote":null,
         "thread_count":0,
         "mentions":[],
-        "blocks":[],
-        "fallback_text":"",
-        "intent":null,
-        "assignment_id":null,
-        "source_message_id":source_message_id,
-        "streaming":true,
+        "blocks":blocks,
+        "fallback_text":fallback_text,
+        "intent":intent,
+        "assignment_id":assignment_id,
+        "source_message_id":target.source_message_id,
+        "streaming":false,
         "delivery":[],
         "loaded_skills":[],
         "reactions":[]
     });
     state
         .messages
-        .entry(chat_id.to_owned())
+        .entry(target.chat_id.clone())
         .or_default()
         .push(message.clone());
     state.emit("message.created", json!({"message":message.clone()}));
-    if let Some(chat_update) = update_chat_preview(state, chat_id, &message) {
+    if let Some(chat_update) = update_chat_preview(state, &target.chat_id, &message) {
         state.emit("chat.updated", json!({"chat":chat_update}));
     }
-    Ok(message_id)
+    message_id
+}
+
+fn find_chat_message(state: &MockState, chat_id: &str, message_id: &str) -> Option<Value> {
+    state.messages.get(chat_id).and_then(|messages| {
+        messages
+            .iter()
+            .find(|message| message.get("id").and_then(Value::as_str) == Some(message_id))
+            .cloned()
+    })
 }
 
 fn replay_chat_reply_lifecycle_from_rpc(
@@ -490,6 +730,16 @@ fn replay_chat_reply_lifecycle_from_rpc(
             None,
         ));
     }
+    if params
+        .get("message_id")
+        .is_some_and(|value| !value.is_null())
+    {
+        return Err(rpc_error(
+            "invalid_params",
+            "message_id is no longer accepted; lifecycle messages are always new",
+            None,
+        ));
+    }
     let chat_id = params
         .get("chat_id")
         .and_then(Value::as_str)
@@ -500,207 +750,214 @@ fn replay_chat_reply_lifecycle_from_rpc(
         .and_then(Value::as_str)
         .filter(|value| !value.trim().is_empty())
         .ok_or_else(|| rpc_error("invalid_params", "source_message_id is required", None))?;
-    let source = state
-        .messages
-        .get(chat_id)
-        .and_then(|messages| {
-            messages.iter().find(|message| {
-                message.get("id").and_then(Value::as_str) == Some(source_message_id)
-            })
-        })
+    let source = find_chat_message(state, chat_id, source_message_id)
         .ok_or_else(|| rpc_error("not_found", "source message not found in this chat", None))?;
-    if source.pointer("/sender/kind").and_then(Value::as_str) != Some("user") {
-        return Err(rpc_error(
-            "invalid_params",
-            "source_message_id must identify a user message in this chat",
-            None,
-        ));
+    let requested_bot_id = params.get("bot_id").and_then(Value::as_str);
+    let mut targets = chat_reply_lifecycle_targets(state, &source, requested_bot_id, step_delay)?;
+    let target = targets
+        .drain(..)
+        .next()
+        .ok_or_else(|| rpc_error("not_found", "source message has no accepted Bot", None))?;
+    let (ack_message_id, started) = start_chat_reply_lifecycle(state, &target)?;
+    if started {
+        schedule_chat_reply_lifecycle_decision(gateway.clone(), target.clone());
     }
-    let bot_id =
-        chat_reply_bot_for_chat(state, chat_id, params.get("bot_id").and_then(Value::as_str))?;
-    let requested_message_id = match params.get("message_id") {
-        None | Some(Value::Null) => None,
-        Some(Value::String(value)) if !value.trim().is_empty() => Some(value.as_str()),
-        _ => {
-            return Err(rpc_error(
-                "invalid_params",
-                "message_id must be a non-empty string or null",
-                None,
-            ));
-        }
-    };
-    let message_id = if let Some(message_id) = requested_message_id {
-        let placeholder = state
-            .messages
-            .get(chat_id)
-            .and_then(|messages| {
-                messages
-                    .iter()
-                    .find(|message| message.get("id").and_then(Value::as_str) == Some(message_id))
-            })
-            .ok_or_else(|| rpc_error("not_found", "placeholder not found in this chat", None))?;
-        if placeholder.pointer("/sender/kind").and_then(Value::as_str) != Some("bot")
-            || placeholder
-                .pointer("/sender/bot_id")
-                .and_then(Value::as_str)
-                != Some(&bot_id)
-            || placeholder.get("source_message_id").and_then(Value::as_str)
-                != Some(source_message_id)
-            || placeholder.get("streaming").and_then(Value::as_bool) != Some(true)
-        {
-            return Err(rpc_error(
-                "conflict",
-                "message_id must identify this source message's active Bot placeholder",
-                None,
-            ));
-        }
-        message_id.to_owned()
-    } else {
-        create_chat_reply_placeholder(state, chat_id, source_message_id, &bot_id, None)?
-    };
-    schedule_chat_reply_lifecycle(
-        gateway.clone(),
-        step_delay,
-        chat_id.to_owned(),
-        bot_id.clone(),
-        source_message_id.to_owned(),
-        message_id.clone(),
-    );
+    let record = extra_get(state, CHAT_REPLY_LIFECYCLE_KEY)
+        .into_iter()
+        .find(|record| lifecycle_record_matches(record, &target))
+        .unwrap_or(Value::Null);
     Ok(json!({
-        "chat_id":chat_id,
-        "source_message_id":source_message_id,
-        "bot_id":bot_id,
-        "message_id":message_id,
-        "scheduled":true
+        "chat_id":target.chat_id,
+        "source_message_id":target.source_message_id,
+        "bot_id":target.bot_id,
+        "ack_message_id":ack_message_id,
+        "message_id":ack_message_id,
+        "decision_message_id":record.get("decision_message_id").cloned().unwrap_or(Value::Null),
+        "question_id":record.get("question_id").cloned().unwrap_or(Value::Null),
+        "scheduled":started
     }))
 }
 
-fn schedule_chat_reply_lifecycle(
-    gateway: GatewayState,
-    step_delay: StdDuration,
-    chat_id: String,
-    bot_id: String,
-    source_message_id: String,
-    message_id: String,
-) {
+fn schedule_chat_reply_lifecycle_decision(gateway: GatewayState, target: ChatReplyLifecycleTarget) {
     tokio::spawn(async move {
-        tokio::time::sleep(step_delay).await;
-        gateway
-            .publish_temporary(
-                "message.delta",
-                json!({"chat_id":chat_id,"message_id":message_id,"text":"收到，"}),
-            )
-            .await;
-        tokio::time::sleep(step_delay).await;
-        gateway
-            .publish_temporary(
-                "message.delta",
-                json!({"chat_id":chat_id,"message_id":message_id,"text":"我来处理。"}),
-            )
-            .await;
-        tokio::time::sleep(step_delay).await;
-        if !finish_chat_reply_placeholder(
-            &gateway,
-            &chat_id,
-            &bot_id,
-            &source_message_id,
-            &message_id,
-        )
-        .await
-        {
-            return;
-        }
-        tokio::time::sleep(step_delay).await;
-        create_chat_reply_followup(&gateway, &chat_id, &bot_id, &source_message_id).await;
+        tokio::time::sleep(target.step_delay).await;
+        create_chat_reply_lifecycle_decision(&gateway, &target).await;
     });
 }
 
-async fn finish_chat_reply_placeholder(
+async fn create_chat_reply_lifecycle_decision(
     gateway: &GatewayState,
-    chat_id: &str,
-    bot_id: &str,
-    source_message_id: &str,
-    message_id: &str,
-) -> bool {
-    let _event_lock = gateway.event_lock.lock().await;
-    let (message_event, chat_event) = {
-        let mut state = gateway.inner.write().await;
-        let Some(message) = state.messages.get_mut(chat_id).and_then(|messages| {
-            messages
-                .iter_mut()
-                .find(|message| message.get("id").and_then(Value::as_str) == Some(message_id))
-        }) else {
-            return false;
-        };
-        if message.pointer("/sender/bot_id").and_then(Value::as_str) != Some(bot_id)
-            || message.get("source_message_id").and_then(Value::as_str) != Some(source_message_id)
-            || message.get("streaming").and_then(Value::as_bool) != Some(true)
-        {
-            return false;
-        }
-        message["blocks"] = json!([{"type":"text","markdown":LIFECYCLE_FIRST_REPLY}]);
-        message["fallback_text"] = json!(LIFECYCLE_FIRST_REPLY);
-        message["intent"] = json!("ack");
-        message["streaming"] = json!(false);
-        let message = message.clone();
-        let message_event = state.emit("message.updated", json!({"message":message.clone()}));
-        let chat_event = update_chat_preview(&mut state, chat_id, &message)
-            .map(|chat| state.emit("chat.updated", json!({"chat":chat})));
-        (message_event, chat_event)
-    };
-    let _ = gateway.events.send(message_event);
-    if let Some(chat_event) = chat_event {
-        let _ = gateway.events.send(chat_event);
-    }
-    true
-}
-
-async fn create_chat_reply_followup(
-    gateway: &GatewayState,
-    chat_id: &str,
-    bot_id: &str,
-    source_message_id: &str,
+    target: &ChatReplyLifecycleTarget,
 ) {
     let _event_lock = gateway.event_lock.lock().await;
-    let (message_event, chat_event) = {
-        let mut state = gateway.inner.write().await;
-        let created_at = now();
-        let seq = next_chat_message_seq(&state, chat_id);
-        let message = json!({
-            "id":id("msg"),
-            "chat_id":chat_id,
-            "seq":seq,
-            "sender":{"kind":"bot","bot_id":bot_id},
-            "created_at":created_at,
-            "edited_at":null,
-            "deleted":false,
-            "reply_to":null,
-            "quote":null,
-            "thread_count":0,
-            "mentions":[],
-            "blocks":[{"type":"text","markdown":LIFECYCLE_FOLLOWUP_REPLY}],
-            "fallback_text":LIFECYCLE_FOLLOWUP_REPLY,
-            "intent":"ack",
-            "assignment_id":null,
-            "source_message_id":source_message_id,
-            "streaming":false,
-            "delivery":[],
-            "loaded_skills":[],
-            "reactions":[]
-        });
-        state
-            .messages
-            .entry(chat_id.to_owned())
-            .or_default()
-            .push(message.clone());
-        let message_event = state.emit("message.created", json!({"message":message.clone()}));
-        let chat_event = update_chat_preview(&mut state, chat_id, &message)
-            .map(|chat| state.emit("chat.updated", json!({"chat":chat})));
-        (message_event, chat_event)
+    let mut state = gateway.inner.write().await;
+    let previous_seq = state.seq;
+    let mut records = extra_get(&state, CHAT_REPLY_LIFECYCLE_KEY);
+    let Some(index) = records
+        .iter()
+        .position(|record| lifecycle_record_matches(record, target))
+    else {
+        return;
     };
-    let _ = gateway.events.send(message_event);
-    if let Some(chat_event) = chat_event {
-        let _ = gateway.events.send(chat_event);
+    if records[index].get("phase").and_then(Value::as_str) != Some("acknowledged") {
+        return;
+    }
+    let question_id = id("q");
+    let question = json!({
+        "id":question_id,
+        "bot_id":target.bot_id,
+        "assignment_id":target.question_assignment_id,
+        "chat_id":target.chat_id,
+        "text":LIFECYCLE_QUESTION_TEXT,
+        "options":LIFECYCLE_OPTIONS,
+        "multi":false,
+        "allow_free_text":true,
+        "state":"pending",
+        "answer":null
+    });
+    replace_extra(&mut state, "questions", question.clone());
+    let decision_message_id = append_chat_reply_message(
+        &mut state,
+        target,
+        "decision",
+        LIFECYCLE_DECISION_TEXT,
+        json!([
+            {"type":"text","markdown":LIFECYCLE_DECISION_TEXT},
+            {"type":"question","question_id":question_id}
+        ]),
+        Some(&target.question_assignment_id),
+    );
+    records[index]["decision_message_id"] = json!(decision_message_id);
+    records[index]["question_id"] = json!(question_id);
+    records[index]["phase"] = json!("waiting");
+    extra_set(&mut state, CHAT_REPLY_LIFECYCLE_KEY, records);
+    state.emit("question.asked", json!({"question":question}));
+    for event in state
+        .events
+        .iter()
+        .filter(|event| event.get("seq").and_then(Value::as_u64).unwrap_or(0) > previous_seq)
+    {
+        let _ = gateway.events.send(event.clone());
+    }
+}
+
+fn mark_chat_reply_lifecycle_resuming(
+    state: &mut MockState,
+    question: &Value,
+) -> Option<ChatReplyLifecycleTarget> {
+    if question.get("state").and_then(Value::as_str) != Some("answered") {
+        return None;
+    }
+    let question_id = question.get("id").and_then(Value::as_str)?;
+    let mut records = extra_get(state, CHAT_REPLY_LIFECYCLE_KEY);
+    let index = records.iter().position(|record| {
+        record.get("question_id").and_then(Value::as_str) == Some(question_id)
+            && record.get("phase").and_then(Value::as_str) == Some("waiting")
+    })?;
+    let target = lifecycle_target_from_record(&records[index], StdDuration::ZERO)?;
+    records[index]["phase"] = json!("resuming");
+    extra_set(state, CHAT_REPLY_LIFECYCLE_KEY, records);
+    Some(target)
+}
+
+fn schedule_chat_reply_lifecycle_done(
+    gateway: GatewayState,
+    mut target: ChatReplyLifecycleTarget,
+    step_delay: StdDuration,
+) {
+    target.step_delay = step_delay;
+    tokio::spawn(async move {
+        tokio::time::sleep(step_delay).await;
+        create_chat_reply_lifecycle_done(&gateway, &target).await;
+    });
+}
+
+async fn create_chat_reply_lifecycle_done(
+    gateway: &GatewayState,
+    target: &ChatReplyLifecycleTarget,
+) {
+    let _event_lock = gateway.event_lock.lock().await;
+    let mut state = gateway.inner.write().await;
+    let previous_seq = state.seq;
+    let mut records = extra_get(&state, CHAT_REPLY_LIFECYCLE_KEY);
+    let Some(index) = records.iter().position(|record| {
+        lifecycle_record_matches(record, target)
+            && record.get("phase").and_then(Value::as_str) == Some("resuming")
+    }) else {
+        return;
+    };
+    let question_id = records[index]
+        .get("question_id")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_owned();
+    let Some(question) = extra_get(&state, "questions")
+        .into_iter()
+        .find(|question| question.get("id").and_then(Value::as_str) == Some(&question_id))
+    else {
+        return;
+    };
+    if question.get("state").and_then(Value::as_str) != Some("answered") {
+        return;
+    }
+    let selection = lifecycle_answer_selection(&question);
+    let summary = format!(
+            "邮箱登录已完成，范围为“{selection}”。Mock 示例结果：登录流程包含邮箱校验、登录状态保持和失败重试提示。使用方法：输入邮箱和密码开始登录，之后可在对话中继续补充需求。本场景没有创建真实文件。"
+        );
+    let done_message_id = append_chat_reply_message(
+        &mut state,
+        target,
+        "done",
+        &summary,
+        json!([
+            {"type":"text","markdown":summary},
+            {"type":"completion","summary":summary,"artifacts":[],"next":[],"notify_main":true}
+        ]),
+        Some(&target.question_assignment_id),
+    );
+    records[index]["done_message_id"] = json!(done_message_id);
+    records[index]["phase"] = json!("done");
+    extra_set(&mut state, CHAT_REPLY_LIFECYCLE_KEY, records);
+    for event in state
+        .events
+        .iter()
+        .filter(|event| event.get("seq").and_then(Value::as_u64).unwrap_or(0) > previous_seq)
+    {
+        let _ = gateway.events.send(event.clone());
+    }
+}
+
+fn lifecycle_answer_selection(question: &Value) -> String {
+    let options = question.get("options").and_then(Value::as_array);
+    let answer = question.get("answer").unwrap_or(&Value::Null);
+    if let Some(text) = answer
+        .get("text")
+        .and_then(Value::as_str)
+        .filter(|text| !text.trim().is_empty())
+    {
+        return text.trim().to_owned();
+    }
+    let indexes = answer
+        .get("option_indexes")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_else(|| {
+            answer
+                .get("option_index")
+                .and_then(Value::as_u64)
+                .map(|index| vec![json!(index)])
+                .unwrap_or_default()
+        });
+    let selected = indexes
+        .iter()
+        .filter_map(Value::as_u64)
+        .filter_map(|index| options.and_then(|options| options.get(index as usize)))
+        .filter_map(Value::as_str)
+        .collect::<Vec<_>>();
+    if selected.is_empty() {
+        "已确认的选项".to_owned()
+    } else {
+        selected.join("、")
     }
 }
 

@@ -28,9 +28,11 @@ pub const SEGMENT_RETENTION_DAYS: i64 = 7;
 /// belongs in L1/L3.
 pub const DEFAULT_L0_PLATFORM_RULES: &str = r#"Platform rules:
 - Use tools only through their declared schemas. Return tool errors to the model so it can correct them.
-- send_msg is bound to the current execution scope. Using this Bot's own bot_id means that same scope; a group incarnation must remain in its group. Only a different Bot's bot_id may open a Bot-to-Bot DM, and only from a private incarnation.
-- Every assigned task must finish with send_msg intent=done or intent=blocked; plain assistant text is not a task report. If send_msg fails, correct the error and retry before reporting.
-- Bot-to-Bot communication uses send_msg. Every message must be self-contained; do not rely on private model context.
+- The server binds every run to one immutable Bot and chat incarnation. send_msg always publishes to that chat; do not provide or infer routing, Bot, assignment, or message identifiers.
+- The server publishes the acknowledgement before work starts. Do not send a duplicate acknowledgement. During work, keep reasoning and tool output private; all user-visible messages, questions, progress, and final results must go through send_msg.
+- Finish every public conversation run with send_msg intent=done, including ordinary direct-message answers. The done text must state what was done or answered, the result, and how to use it when applicable. Mention only real artifacts; never invent paths or results. Use intent=blocked when unable to proceed.
+- Use send_msg intent=decision to ask the user a question and wait. Add options when they help the user choose; a natural-language question addressed to the user is also valid without options. After the answer arrives, continue from it without repeating the automatic acknowledgement.
+- Every send_msg must be self-contained; do not rely on private model context. Bot collaboration in a project uses mentions in that same project chat.
 - Main-Bot-only actions (project creation, member assignment, and cross-Bot coordination) are unavailable to ordinary Bots.
 - The Main Bot is a coordinator only: it must hand concrete work to worker Bots with delegate or assign, then track and review their results; it must not do the work itself.
 - The Main Bot may use subagent only for isolated read-only analysis. A subagent cannot execute or deliver the requested work.
@@ -3229,6 +3231,20 @@ pub async fn async_compact_text<P: AsyncMaintenanceProvider>(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn default_platform_rules_enforce_send_msg_delivery_and_automatic_ack() {
+        let rules = default_l0_platform_rules();
+        assert!(rules.contains("publishes the acknowledgement before work starts"));
+        assert!(rules.contains("all user-visible messages, questions, progress, and final results must go through send_msg"));
+        assert!(rules.contains("Finish every public conversation run with send_msg intent=done"));
+        assert!(rules.contains("how to use it when applicable"));
+        assert!(rules.contains(
+            "natural-language question addressed to the user is also valid without options"
+        ));
+        assert!(rules
+            .contains("do not provide or infer routing, Bot, assignment, or message identifiers"));
+    }
 
     #[test]
     fn profile_language_normalizes_names_and_validates_bcp47() {

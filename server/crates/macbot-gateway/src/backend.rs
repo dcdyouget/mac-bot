@@ -2283,29 +2283,15 @@ impl ComposedBackend {
                 let Some(assignment_id) = request.assignment_id.as_deref() else {
                     continue;
                 };
-                let ack = self
-                    .inner
-                    .execution_send_msg(
-                        &self.state,
-                        json!({
-                            "receipt":{"run_id":format!("assignment-ack-{assignment_id}"),"call_id":"received"},
-                            "message":{
-                                "message_id":format!("msg_assignment_ack_{assignment_id}"),
-                                "chat_id":request.chat_id,
-                                "bot_id":request.bot_id,
-                                "assignment_id":assignment_id,
-                                "intent":"ack",
-                                "text":"收到，开始处理。",
-                                "mentions":[],
-                                "artifacts":[],
-                                "options":[]
-                            }
-                        }),
-                    )
-                    .await;
-                if let Err(error) = ack {
-                    tracing::warn!(%assignment_id, %error, "worker assignment ack was not persisted; deferring execution");
-                    continue;
+                if let Some(source_message_id) = request.source_message_id.as_deref() {
+                    if let Err(error) = self
+                        .runtime
+                        .acknowledge_source(&request, source_message_id)
+                        .await
+                    {
+                        tracing::warn!(%assignment_id, %error, "worker assignment ack was not persisted; deferring execution");
+                        continue;
+                    }
                 }
             }
             let key = request.assignment_id.as_deref().unwrap_or(&request.run_id);
@@ -5990,7 +5976,6 @@ impl crate::RpcBackend for ComposedBackend {
                         .get("assignment_id")
                         .and_then(Value::as_str)
                         .map(str::to_owned);
-                    let question_payload = question.to_owned();
                     let runtime = self.runtime.clone();
                     let inner = self.inner.clone();
                     let state = self.state.clone();
@@ -6017,40 +6002,8 @@ impl crate::RpcBackend for ComposedBackend {
                                 .is_some()
                         });
                         if is_group_assignment {
-                            let question = &question_payload;
-                            let Some(assignment_id) =
-                                question.get("assignment_id").and_then(Value::as_str)
-                            else {
-                                return;
-                            };
-                            let Some(bot_id) = question.get("bot_id").and_then(Value::as_str)
-                            else {
-                                return;
-                            };
-                            let Some(chat_id) = question.get("chat_id").and_then(Value::as_str)
-                            else {
-                                return;
-                            };
-                            let ack_text = "收到，继续处理。";
-                            if let Err(error) = inner
-                                .execution_send_msg(
-                                    &state,
-                                    json!({
-                                        "receipt":{"run_id":format!("question-answer-ack-{question_id}"),"call_id":"ack"},
-                                        "message":{
-                                            "message_id":format!("msg_question_answer_ack_{question_id}"),
-                                            "chat_id":chat_id,
-                                            "bot_id":bot_id,
-                                            "assignment_id":assignment_id,
-                                            "intent":"ack",
-                                            "text":ack_text,
-                                            "mentions":[],
-                                            "artifacts":[],
-                                            "options":[]
-                                        }
-                                    }),
-                                )
-                                .await
+                            if let Err(error) =
+                                runtime.acknowledge_question_answer(&question_id).await
                             {
                                 tracing::error!(%question_id, %error, "cannot persist group question answer ack; continuation deferred");
                                 return;
@@ -6755,6 +6708,50 @@ impl Tool for ProjectFindToolBridge {
 }
 
 impl RuntimeExecution {
+    pub async fn acknowledge_source(
+        &self,
+        request: &ExecutionRequest,
+        source_message_id: &str,
+    ) -> Result<(), String> {
+        self.engine
+            .acknowledge_source(request, source_message_id)
+            .await
+            .map_err(|error| error.to_string())
+    }
+
+    pub async fn acknowledge_question_answer(&self, question_id: &str) -> Result<(), String> {
+        let marker = self
+            .store
+            .read_snapshot::<Value>(format!("data/waiting/{}.json", safe_component(question_id)))
+            .map_err(|error| error.to_string())?
+            .ok_or_else(|| format!("question {question_id} has no durable waiting marker"))?;
+        if marker.get("kind").and_then(Value::as_str) != Some("question") {
+            return Err(format!(
+                "question {question_id} waiting marker has wrong kind"
+            ));
+        }
+        let run_id = marker
+            .get("run_id")
+            .and_then(Value::as_str)
+            .ok_or_else(|| format!("question {question_id} marker has no run id"))?;
+        let request = self
+            .store
+            .read_snapshot::<ExecutionRequest>(format!("data/run_requests/{run_id}.json"))
+            .map_err(|error| error.to_string())?
+            .ok_or_else(|| format!("question {question_id} run request is missing"))?;
+        if marker.get("chat_id").and_then(Value::as_str) != Some(request.chat_id.as_str())
+            || marker.get("assignment_id") != Some(&json!(request.assignment_id))
+        {
+            return Err(format!(
+                "question {question_id} scope differs from its run request"
+            ));
+        }
+        self.engine
+            .acknowledge_question_answer(&request, question_id)
+            .await
+            .map_err(|error| error.to_string())
+    }
+
     /// Validate a worker's effective model reference before a delegation
     /// creates a group or dispatch message. This checks catalog membership,
     /// enabled state, and provider configuration without making a paid call.
@@ -8506,7 +8503,14 @@ impl RuntimeExecution {
         else {
             return false;
         };
-        durable.enqueue_steer(&job.id, message_id, text).is_ok()
+        let enqueued = durable.enqueue_steer(&job.id, message_id, text).is_ok();
+        drop(durable);
+        if enqueued {
+            if let Err(error) = self.acknowledge_source(&request, message_id).await {
+                tracing::warn!(%assignment_id, %message_id, %error, "steer acknowledgement will be retried when the execution consumes the source");
+            }
+        }
+        enqueued
     }
 
     async fn enqueue_input_for_run(&self, run_id: &str, message_id: &str, text: &str) -> bool {
@@ -11371,7 +11375,7 @@ mod persistence_tests {
     }
 
     #[tokio::test]
-    async fn terminal_private_send_msg_fills_first_reply_and_keeps_followup_as_new_message() {
+    async fn terminal_private_send_msg_creates_distinct_server_messages() {
         for is_main in [true, false] {
             for intent in ["done", "blocked"] {
                 let home = tempdir().unwrap();
@@ -11418,11 +11422,13 @@ mod persistence_tests {
                     .await
                     .expect("create source user message");
                 let source_message_id = source["message"]["id"].as_str().unwrap().to_owned();
-                let placeholder_id = format!(
-                    "msg_{run_id}_reply_{}",
-                    super::safe_component(&source_message_id)
-                );
+                let first_reply_id = format!("msg_{run_id}_first_reply");
                 let followup_id = format!("msg_{run_id}_terminal_report");
+                let terminal_text = if intent == "done" {
+                    "summary: 任务已完成。 location: none. how to use: 可直接查看本次回复。"
+                } else {
+                    "summary: 任务需要用户补充信息后才能继续。 location: none. how to use: 请回复所需信息后重试。"
+                };
                 let bridge = Arc::new(OrchestratorGroupBridge {
                     backend: backend.clone(),
                     state: gateway.state.clone(),
@@ -11450,9 +11456,8 @@ mod persistence_tests {
                                 call_id: "first_reply".into(),
                                 name: "send_msg".into(),
                                 args: json!({
-                                    "intent":"ack",
-                                    "text":"收到，我开始处理。",
-                                    "message_id":placeholder_id
+                                    "intent":"progress",
+                                    "text":"已开始处理。"
                                 }),
                             }],
                             stop_reason: "tool_calls".into(),
@@ -11464,7 +11469,7 @@ mod persistence_tests {
                                 name: "send_msg".into(),
                                 args: json!({
                                     "intent":intent,
-                                    "text":"任务已完成"
+                                    "text":terminal_text
                                 }),
                             }],
                             stop_reason: "tool_calls".into(),
@@ -11504,27 +11509,38 @@ mod persistence_tests {
                     .store
                     .read_jsonl::<Value>(format!("data/chats/{chat_id}/messages.jsonl"))
                     .unwrap();
-                let first_reply_versions = messages
+                let acknowledgements = messages
                     .iter()
-                    .filter(|message| message["id"] == placeholder_id)
+                    .filter(|message| {
+                        message.pointer("/sender/kind").and_then(Value::as_str) == Some("bot")
+                            && message["intent"] == "ack"
+                            && message["source_message_id"] == source_message_id
+                    })
                     .collect::<Vec<_>>();
                 assert!(
-                    first_reply_versions.len() >= 2,
-                    "the first reply fills the reserved placeholder: {first_reply_versions:?}"
+                    acknowledgements.len() == 1,
+                    "one complete automatic acknowledgement must be persisted: {acknowledgements:?}"
                 );
-                let placeholder = first_reply_versions.first().unwrap();
-                let first_reply = first_reply_versions.last().unwrap();
-                for field in ["id", "chat_id", "sender", "created_at", "seq"] {
-                    assert_eq!(
-                        first_reply[field], placeholder[field],
-                        "first reply replacement preserves placeholder {field}"
-                    );
-                }
-                assert_eq!(placeholder["streaming"], true);
-                assert_eq!(placeholder["source_message_id"], source_message_id);
+                let ack = acknowledgements[0];
+                assert_eq!(ack["fallback_text"], "收到，我来处理。");
+                assert_eq!(ack["streaming"], false);
+
+                let first_replies = messages
+                    .iter()
+                    .filter(|message| message["id"] == first_reply_id)
+                    .collect::<Vec<_>>();
+                assert_eq!(
+                    first_replies.len(),
+                    1,
+                    "progress is a new message, not a placeholder update"
+                );
+                let first_reply = first_replies[0];
+                assert_eq!(first_reply["chat_id"], chat_id);
+                assert_eq!(first_reply["sender"]["bot_id"], bot_id);
+                assert_eq!(first_reply["source_message_id"], source_message_id);
                 assert_eq!(first_reply["streaming"], false);
-                assert_eq!(first_reply["intent"], "ack");
-                assert_eq!(first_reply["fallback_text"], "收到，我开始处理。");
+                assert_eq!(first_reply["intent"], "progress");
+                assert_eq!(first_reply["fallback_text"], "已开始处理。");
 
                 let followup = messages
                     .iter()
@@ -11536,15 +11552,18 @@ mod persistence_tests {
                 assert_eq!(followup["source_message_id"], source_message_id);
                 assert_eq!(followup["intent"], intent);
                 assert_eq!(followup["streaming"], false);
-                assert_eq!(followup["fallback_text"], "任务已完成");
-                assert!(followup["seq"].as_u64().unwrap() > first_reply["seq"].as_u64().unwrap());
+                assert_eq!(followup["fallback_text"], terminal_text);
+                assert_ne!(ack["id"], first_reply["id"]);
+                assert_ne!(first_reply["id"], followup["id"]);
+                assert!(ack["seq"].as_u64().unwrap() < first_reply["seq"].as_u64().unwrap());
+                assert!(first_reply["seq"].as_u64().unwrap() < followup["seq"].as_u64().unwrap());
 
                 let events = backend.store.events_since(0).unwrap();
                 let first_reply_events = events
                     .iter()
                     .filter(|event| {
                         event.data.pointer("/message/id").and_then(Value::as_str)
-                            == Some(placeholder_id.as_str())
+                            == Some(first_reply_id.as_str())
                     })
                     .collect::<Vec<_>>();
                 assert_eq!(
@@ -11553,14 +11572,13 @@ mod persistence_tests {
                         .filter(|event| event.event == "message.created")
                         .count(),
                     1,
-                    "the reserved first reply is created once"
+                    "the first send_msg message is created once"
                 );
                 let updates = first_reply_events
                     .iter()
                     .filter(|event| event.event == "message.updated")
                     .collect::<Vec<_>>();
-                assert_eq!(updates.len(), 1, "the first send_msg fills the placeholder");
-                assert_eq!(updates[0].data["message"]["streaming"], false);
+                assert_eq!(updates.len(), 0, "send_msg does not update a placeholder");
 
                 let followup_events = events
                     .iter()
@@ -11619,11 +11637,36 @@ mod persistence_tests {
                         && message.pointer("/sender/kind").and_then(Value::as_str) == Some("user")
                 }));
                 assert!(history_messages.iter().any(|message| {
-                    message["id"] == placeholder_id && message["streaming"] == false
+                    message["id"] == first_reply_id && message["streaming"] == false
                 }));
                 assert!(history_messages.iter().any(|message| {
                     message["id"] == followup_id && message["streaming"] == false
                 }));
+                let public = history_messages
+                    .iter()
+                    .filter(|message| {
+                        message.pointer("/sender/kind").and_then(Value::as_str) == Some("bot")
+                            && message["source_message_id"] == source_message_id
+                    })
+                    .collect::<Vec<_>>();
+                let public_ids = public
+                    .iter()
+                    .map(|message| message["id"].as_str().unwrap())
+                    .collect::<std::collections::HashSet<_>>();
+                assert_eq!(
+                    public_ids.len(),
+                    public.len(),
+                    "each public send gets a new message ID"
+                );
+                assert!(
+                    public.iter().all(|message| {
+                        message["streaming"] == false
+                            && message["fallback_text"]
+                                .as_str()
+                                .is_some_and(|text| !text.trim().is_empty())
+                    }),
+                    "public replies must be complete: {public:?}"
+                );
             }
         }
     }
@@ -11638,16 +11681,34 @@ mod persistence_tests {
         let backend = Arc::new(ProductionBackend::open(home.path()).unwrap());
         let requests = Arc::new(StdMutex::new(Vec::<Value>::new()));
         let observed_requests = requests.clone();
+        let resume_done_text =
+            "summary: 已根据生产环境继续。 location: none. how to use: 查看本次回复并继续对话。";
+        let resume_response = format!(
+            "data: {}\n\ndata: {}\n\ndata: [DONE]\n\n",
+            json!({
+                "choices":[{"delta":{"tool_calls":[{
+                    "index":0,
+                    "id":"question-resume-final",
+                    "type":"function",
+                    "function":{
+                        "name":"send_msg",
+                        "arguments":json!({"intent":"done","text":resume_done_text}).to_string()
+                    }
+                }]},"finish_reason":null}]
+            }),
+            json!({
+                "choices":[{"delta":{},"finish_reason":"tool_calls"}],
+                "usage":{"prompt_tokens":1,"completion_tokens":1}
+            }),
+        );
         let app = axum::Router::new().route(
             "/v1/chat/completions",
             axum::routing::post(move |axum::Json(body): axum::Json<Value>| {
                 let requests = observed_requests.clone();
+                let response = resume_response.clone();
                 async move {
                     requests.lock().unwrap().push(body);
-                    (
-                        [("content-type", "text/event-stream")],
-                        "data: {\"choices\":[{\"delta\":{\"content\":\"已从 question.answer 恢复\"},\"finish_reason\":null}]}\n\ndata: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":1,\"completion_tokens\":1}}\n\ndata: [DONE]\n\n",
-                    )
+                    ([("content-type", "text/event-stream")], response)
                 }
             }),
         );
@@ -11825,6 +11886,23 @@ mod persistence_tests {
                 }),
                 "the canonical question answer must remain in the tool result: {messages:?}"
             );
+            let send_msg_schema = provider_requests[0]["tools"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|tool| {
+                    tool.pointer("/function/name").and_then(Value::as_str) == Some("send_msg")
+                })
+                .expect("send_msg schema on resumed request");
+            let properties = send_msg_schema
+                .pointer("/function/parameters/properties")
+                .unwrap();
+            for field in ["chat_id", "message_id", "bot_id", "assignment_id", "to"] {
+                assert!(
+                    properties.get(field).is_none(),
+                    "model must not route send_msg via {field}: {properties}"
+                );
+            }
         }
         let resumed_job = backend
             .durable
@@ -11833,7 +11911,22 @@ mod persistence_tests {
             .job(&suspended.job_id)
             .unwrap()
             .clone();
-        assert_eq!(resumed_job.checkpoint["text"], "已从 question.answer 恢复");
+        assert_eq!(resumed_job.checkpoint["run_id"], run_id);
+        assert_eq!(resumed_job.checkpoint["text"], resume_done_text);
+        let completed_history = backend
+            .call("chat.history", json!({"chat_id":chat_id}), &gateway.state)
+            .await
+            .unwrap();
+        let completed_messages = completed_history["messages"].as_array().unwrap();
+        assert!(
+            completed_messages.iter().any(|message| {
+                message["intent"] == "done" && message["fallback_text"] == resume_done_text
+            }),
+            "the resumed run must publish its report through send_msg: {completed_messages:?}"
+        );
+        assert!(!completed_history
+            .to_string()
+            .contains("已从 question.answer 恢复"));
         provider_server.abort();
     }
 
@@ -12093,34 +12186,6 @@ mod persistence_tests {
             "allow_unsafe":true
         }))
         .unwrap();
-        backend
-            .store
-            .append_jsonl(
-                format!(
-                    "data/chats/{}/messages.jsonl",
-                    super::safe_component(&request.chat_id)
-                ),
-                &json!({
-                    "id":format!("msg_{}", super::safe_component(&request.run_id)),
-                    "chat_id":request.chat_id,
-                    "seq":0,
-                    "sender":{"kind":"bot","bot_id":request.bot_id},
-                    "created_at":crate::now(),
-                    "edited_at":null,
-                    "deleted":false,
-                    "reply_to":null,
-                    "thread_count":0,
-                    "mentions":[],
-                    "blocks":[],
-                    "fallback_text":"",
-                    "intent":null,
-                    "assignment_id":null,
-                    "streaming":true,
-                    "delivery":[],
-                    "reactions":[]
-                }),
-            )
-            .unwrap();
         backend
             .store
             .write_snapshot(
@@ -12625,8 +12690,16 @@ mod persistence_tests {
             .store
             .read_jsonl::<Value>(format!("data/chats/{chat_id}/messages.jsonl"))
             .unwrap();
-        assert_eq!(messages.last().unwrap()["streaming"], false);
-        assert_eq!(messages.last().unwrap()["fallback_text"], "已停止");
+        assert!(
+            messages.iter().all(|message| {
+                message.pointer("/sender/kind").and_then(Value::as_str) != Some("bot")
+                    || (message["streaming"] == false
+                        && message["fallback_text"]
+                            .as_str()
+                            .is_some_and(|text| !text.trim().is_empty()))
+            }),
+            "approval denial must not leave an empty or open bot placeholder: {messages:?}"
+        );
     }
 
     #[tokio::test]
