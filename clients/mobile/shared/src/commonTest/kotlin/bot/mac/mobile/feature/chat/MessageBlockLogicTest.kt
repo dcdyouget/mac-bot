@@ -7,6 +7,10 @@ import kotlin.test.assertTrue
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
+import kotlinx.serialization.json.putJsonObject
 import bot.mac.mobile.core.protocol.str
 
 class MessageBlockLogicTest {
@@ -64,6 +68,107 @@ class MessageBlockLogicTest {
         assertTrue(shouldHideGroupNonProductMessage(progressWithoutBlocks, groupChat = true))
         assertTrue(renderedMessageBlocks(futureIntent, groupChat = true).isEmpty())
         assertTrue(shouldShowGroupFallback(futureIntent, groupChat = true))
+    }
+
+    @Test
+    fun streamingGroupProgressMessageCanShowItsTextDelta() {
+        val streaming = Json.parseToJsonElement(
+            """{"sender":{"kind":"bot"},"intent":"progress","streaming":true,"blocks":[{"type":"text","markdown":"working"},{"type":"progress","text":"internal"}]}""",
+        ).jsonObject
+
+        assertEquals(listOf("text"), renderedMessageBlocks(streaming, groupChat = true).map { it.str("type") })
+        assertFalse(shouldHideGroupNonProductMessage(streaming, groupChat = true))
+    }
+
+    @Test
+    fun groupMessagesKeepPublicAttachmentsInStreamingAndFinalStates() {
+        for (streaming in listOf(true, false)) {
+            val message = Json.parseToJsonElement(
+                """{"sender":{"kind":"bot"},"intent":"ack","streaming":$streaming,"blocks":[{"type":"image"},{"type":"file"},{"type":"link_preview"},{"type":"progress"}]}""",
+            ).jsonObject
+
+            assertEquals(
+                listOf("image", "file", "link_preview"),
+                renderedMessageBlocks(message, groupChat = true).map { it.str("type") },
+            )
+            assertFalse(shouldHideGroupNonProductMessage(message, groupChat = true))
+        }
+    }
+
+    @Test
+    fun publicAttachmentsDoNotExposeAnInternalProgressBlock() {
+        val message = Json.parseToJsonElement(
+            """{"sender":{"kind":"bot"},"intent":"progress","streaming":false,"blocks":[{"type":"progress","text":"internal"},{"type":"image"},{"type":"file"},{"type":"link_preview"}]}""",
+        ).jsonObject
+
+        assertEquals(
+            listOf("image", "file", "link_preview"),
+            renderedMessageBlocks(message, groupChat = true).map { it.str("type") },
+        )
+        assertFalse(shouldHideGroupNonProductMessage(message, groupChat = true))
+
+        val internalOnly = Json.parseToJsonElement(
+            """{"sender":{"kind":"bot"},"intent":"progress","streaming":false,"blocks":[{"type":"progress","text":"internal"}]}""",
+        ).jsonObject
+        assertTrue(shouldHideGroupNonProductMessage(internalOnly, groupChat = true))
+    }
+
+    @Test
+    fun streamingPlaceholderIndicatorAppearsOnlyWhenNoRenderedContentExists() {
+        val empty = Json.parseToJsonElement(
+            """{"sender":{"kind":"bot"},"streaming":true,"fallback_text":"","blocks":[]}""",
+        ).jsonObject
+        val card = Json.parseToJsonElement(
+            """{"sender":{"kind":"bot"},"streaming":true,"fallback_text":"","blocks":[{"type":"completion","summary":"done"}]}""",
+        ).jsonObject
+        val final = Json.parseToJsonElement(
+            """{"sender":{"kind":"bot"},"streaming":false,"fallback_text":"","blocks":[]}""",
+        ).jsonObject
+
+        assertTrue(shouldShowStreamingPlaceholder(empty, groupChat = false))
+        assertFalse(shouldShowStreamingPlaceholder(card, groupChat = false))
+        assertFalse(shouldShowStreamingPlaceholder(final, groupChat = false))
+    }
+
+    @Test
+    fun emptyAndWhitespaceTextBlocksStillShowDmAndGroupStreamingPlaceholder() {
+        val values = listOf("", " \n\t ")
+        for (groupChat in listOf(false, true)) {
+            values.forEach { markdown ->
+                val message = buildJsonObject {
+                    putJsonObject("sender") { put("kind", "bot") }
+                    if (groupChat) put("intent", "ack")
+                    put("streaming", true)
+                    put("fallback_text", "")
+                    put("blocks", buildJsonArray {
+                        add(buildJsonObject { put("type", "text"); put("markdown", markdown) })
+                    })
+                }
+                assertTrue(shouldShowStreamingPlaceholder(message, groupChat), "groupChat=$groupChat markdown=$markdown")
+            }
+        }
+    }
+
+    @Test
+    fun textBlockTextFieldAlsoCountsAsVisibleContent() {
+        val message = Json.parseToJsonElement(
+            """{"sender":{"kind":"bot"},"streaming":true,"fallback_text":"","blocks":[{"type":"text","text":"visible"}]}""",
+        ).jsonObject
+
+        assertFalse(shouldShowStreamingPlaceholder(message, groupChat = false))
+    }
+
+    @Test
+    fun streamingPlaceholderRequiresAnUndeletedBotMessage() {
+        val user = Json.parseToJsonElement(
+            """{"sender":{"kind":"user"},"streaming":true,"fallback_text":"","blocks":[]}""",
+        ).jsonObject
+        val deletedBot = Json.parseToJsonElement(
+            """{"sender":{"kind":"bot"},"deleted":true,"streaming":true,"fallback_text":"","blocks":[]}""",
+        ).jsonObject
+
+        assertFalse(shouldShowStreamingPlaceholder(user, groupChat = false))
+        assertFalse(shouldShowStreamingPlaceholder(deletedBot, groupChat = false))
     }
 
     @Test

@@ -4491,9 +4491,7 @@ fn directed_chat_delivery_assignments(
             if !matches!(
                 status,
                 "working" | "queued" | "waiting_user" | "waiting_bot" | "blocked"
-            ) || assignment
-                .get("trigger_message_id")
-                .and_then(Value::as_str)
+            ) || assignment.get("trigger_message_id").and_then(Value::as_str)
                 == current_message_id
             {
                 return None;
@@ -5528,10 +5526,22 @@ impl crate::RpcBackend for ComposedBackend {
                 .and_then(Value::as_array)
                 .cloned()
                 .unwrap_or_default();
-            let has_user_deliveries = !deliveries.is_empty();
-            let has_queued_deliveries = deliveries
-                .iter()
-                .any(|delivery| delivery.get("state").and_then(Value::as_str) == Some("queued"));
+            // A null-assignment delivery is a per-Bot consumption marker for
+            // direct messages and unassigned group messages. It must not make
+            // a reply look like an already-routed assignment delivery here.
+            let has_assignment_deliveries = deliveries.iter().any(|delivery| {
+                delivery
+                    .get("assignment_id")
+                    .and_then(Value::as_str)
+                    .is_some()
+            });
+            let has_queued_deliveries = deliveries.iter().any(|delivery| {
+                delivery
+                    .get("assignment_id")
+                    .and_then(Value::as_str)
+                    .is_some()
+                    && delivery.get("state").and_then(Value::as_str) == Some("queued")
+            });
             // Unmentioned queued chat delivery is only a reviewable user
             // message. An explicit @Bot mention, reply, or message.steer can
             // promote a targeted delivery into the same safe continuation path.
@@ -5567,27 +5577,35 @@ impl crate::RpcBackend for ComposedBackend {
                 .map(str::to_owned)
                 .or_else(|| {
                     reply_to.as_deref().and_then(|reply_to| {
-                        self.inner.orchestrator.snapshot().ok().and_then(|snapshot| {
-                            waiting_assignment_for_message(&snapshot, reply_to).or_else(|| {
-                                let assignment_id = snapshot
-                                    .get("messages")
-                                    .and_then(Value::as_object)
-                                    .and_then(|messages| messages.get(reply_to))
-                                    .and_then(|message| message.get("assignment_id"))
-                                    .and_then(Value::as_str)?;
-                                let status = snapshot
-                                    .get("assignments")
-                                    .and_then(Value::as_object)
-                                    .and_then(|assignments| assignments.get(assignment_id))
-                                    .and_then(|assignment| assignment.get("status"))
-                                    .and_then(Value::as_str)?;
-                                matches!(
-                                    status,
-                                    "working" | "queued" | "waiting_user" | "waiting_bot" | "blocked"
-                                )
-                                .then(|| assignment_id.to_owned())
+                        self.inner
+                            .orchestrator
+                            .snapshot()
+                            .ok()
+                            .and_then(|snapshot| {
+                                waiting_assignment_for_message(&snapshot, reply_to).or_else(|| {
+                                    let assignment_id = snapshot
+                                        .get("messages")
+                                        .and_then(Value::as_object)
+                                        .and_then(|messages| messages.get(reply_to))
+                                        .and_then(|message| message.get("assignment_id"))
+                                        .and_then(Value::as_str)?;
+                                    let status = snapshot
+                                        .get("assignments")
+                                        .and_then(Value::as_object)
+                                        .and_then(|assignments| assignments.get(assignment_id))
+                                        .and_then(|assignment| assignment.get("status"))
+                                        .and_then(Value::as_str)?;
+                                    matches!(
+                                        status,
+                                        "working"
+                                            | "queued"
+                                            | "waiting_user"
+                                            | "waiting_bot"
+                                            | "blocked"
+                                    )
+                                    .then(|| assignment_id.to_owned())
+                                })
                             })
-                        })
                     })
                 });
 
@@ -5628,7 +5646,7 @@ impl crate::RpcBackend for ComposedBackend {
                 }
             }
             if let (false, Some(assignment_id), Some(text)) = (
-                has_user_deliveries,
+                has_assignment_deliveries,
                 assignment_id,
                 params
                     .get("text")
@@ -9796,6 +9814,18 @@ impl ExecutionSink for OrchestratorSink {
         self.inner.validate_send_msg_target(message).await
     }
 
+    async fn update_message_delivery(
+        &self,
+        message_id: &str,
+        bot_id: &str,
+        assignment_id: Option<&str>,
+        state: &str,
+    ) -> Result<(), String> {
+        self.inner
+            .update_message_delivery(message_id, bot_id, assignment_id, state)
+            .await
+    }
+
     async fn approval_required(&self, data: Value) {
         let Some(approval) = data.get("approval") else {
             tracing::error!("execution emitted malformed approval request");
@@ -9901,6 +9931,28 @@ impl GroupMessageBridge for OrchestratorGroupBridge {
             }
         }
         Ok(result)
+    }
+
+    async fn update_message_delivery(
+        &self,
+        message_id: &str,
+        bot_id: &str,
+        assignment_id: Option<&str>,
+        state: &str,
+    ) -> Result<(), String> {
+        self.backend
+            .execution_update_message_delivery(
+                &self.state,
+                message_id,
+                &json!({
+                    "bot_id":bot_id,
+                    "assignment_id":assignment_id,
+                    "state":state
+                }),
+            )
+            .await
+            .map(|_| ())
+            .map_err(|error| error.to_string())
     }
 }
 
@@ -10487,13 +10539,12 @@ mod model_resolution_tests {
     use super::{
         answered_decision_answer, answered_decision_checkpoint_is_safe,
         answered_decision_request_matches, assignment_result_text,
-        decision_checkpoint_matches_question, is_run_status_boundary,
-        directed_chat_delivery_assignments, missing_model_bot_from_snapshot,
-        pending_decision_question_id, project_assignment_targets,
-        project_summary, resolve_model, routable_missing_model_chat_from_snapshot,
-        waiting_assignment_for_message, waiting_checkpoint_matches_message,
-        waiting_message_id_for_assignment, waiting_parent_for_child, ComposedBackend,
-        ExecutionEvent, ExecutionRequest, ModelRole,
+        decision_checkpoint_matches_question, directed_chat_delivery_assignments,
+        is_run_status_boundary, missing_model_bot_from_snapshot, pending_decision_question_id,
+        project_assignment_targets, project_summary, resolve_model,
+        routable_missing_model_chat_from_snapshot, waiting_assignment_for_message,
+        waiting_checkpoint_matches_message, waiting_message_id_for_assignment,
+        waiting_parent_for_child, ComposedBackend, ExecutionEvent, ExecutionRequest, ModelRole,
     };
     use macbot_store::Event;
     use serde_json::json;
@@ -10774,7 +10825,12 @@ mod model_resolution_tests {
                 .collect()
         );
         assert_eq!(
-            directed_chat_delivery_assignments(&empty, &deliveries, Some("active-bot-message"), &snapshot),
+            directed_chat_delivery_assignments(
+                &empty,
+                &deliveries,
+                Some("active-bot-message"),
+                &snapshot
+            ),
             ["assignment-worker".to_owned()].into_iter().collect(),
             "reply to an active Bot message targets that assignment"
         );
@@ -11315,7 +11371,7 @@ mod persistence_tests {
     }
 
     #[tokio::test]
-    async fn terminal_private_send_msg_reuses_and_closes_streaming_placeholder() {
+    async fn terminal_private_send_msg_fills_first_reply_and_keeps_followup_as_new_message() {
         for is_main in [true, false] {
             for intent in ["done", "blocked"] {
                 let home = tempdir().unwrap();
@@ -11353,7 +11409,20 @@ mod persistence_tests {
                         "run_terminal_worker_blocked"
                     }
                 };
-                let message_id = format!("msg_{run_id}");
+                let source = backend
+                    .call(
+                        "chat.send",
+                        json!({"chat_id":chat_id,"text":"请处理这件事"}),
+                        &gateway.state,
+                    )
+                    .await
+                    .expect("create source user message");
+                let source_message_id = source["message"]["id"].as_str().unwrap().to_owned();
+                let placeholder_id = format!(
+                    "msg_{run_id}_reply_{}",
+                    super::safe_component(&source_message_id)
+                );
+                let followup_id = format!("msg_{run_id}_terminal_report");
                 let bridge = Arc::new(OrchestratorGroupBridge {
                     backend: backend.clone(),
                     state: gateway.state.clone(),
@@ -11375,19 +11444,33 @@ mod persistence_tests {
                     ExecutionState::with_durable(backend.store.clone(), backend.durable.clone());
                 let engine = ExecutionEngine::new_with_usage_and_state(
                     backend.store.clone(),
-                    Arc::new(MockProvider::new(vec![Completion {
-                        tool_calls: vec![ToolCall {
-                            call_id: "terminal_report".into(),
-                            name: "send_msg".into(),
-                            args: json!({
-                                "intent":intent,
-                                "text":"任务已完成",
-                                "message_id":"msg_model_selected_a_different_id"
-                            }),
-                        }],
-                        stop_reason: "tool_calls".into(),
-                        ..Default::default()
-                    }])),
+                    Arc::new(MockProvider::new(vec![
+                        Completion {
+                            tool_calls: vec![ToolCall {
+                                call_id: "first_reply".into(),
+                                name: "send_msg".into(),
+                                args: json!({
+                                    "intent":"ack",
+                                    "text":"收到，我开始处理。",
+                                    "message_id":placeholder_id
+                                }),
+                            }],
+                            stop_reason: "tool_calls".into(),
+                            ..Default::default()
+                        },
+                        Completion {
+                            tool_calls: vec![ToolCall {
+                                call_id: "terminal_report".into(),
+                                name: "send_msg".into(),
+                                args: json!({
+                                    "intent":intent,
+                                    "text":"任务已完成"
+                                }),
+                            }],
+                            stop_reason: "tool_calls".into(),
+                            ..Default::default()
+                        },
+                    ])),
                     Vec::<Arc<dyn Tool>>::new(),
                     sink,
                     home.path(),
@@ -11400,6 +11483,7 @@ mod persistence_tests {
                     "assignment_id":null,
                     "chat_id":chat_id,
                     "bot_id":bot_id,
+                    "source_message_id":source_message_id,
                     "model":"mock/model",
                     "instruction":"finish this private conversation",
                     "private":true
@@ -11420,54 +11504,93 @@ mod persistence_tests {
                     .store
                     .read_jsonl::<Value>(format!("data/chats/{chat_id}/messages.jsonl"))
                     .unwrap();
-                let versions = messages
+                let first_reply_versions = messages
                     .iter()
-                    .filter(|message| message["id"] == message_id)
+                    .filter(|message| message["id"] == placeholder_id)
                     .collect::<Vec<_>>();
-                assert_eq!(
-                    versions.len(),
-                    2,
-                    "placeholder and one terminal version: {versions:?}"
+                assert!(
+                    first_reply_versions.len() >= 2,
+                    "the first reply fills the reserved placeholder: {first_reply_versions:?}"
                 );
-                let placeholder = versions.first().unwrap();
-                let final_message = versions.last().unwrap();
+                let placeholder = first_reply_versions.first().unwrap();
+                let first_reply = first_reply_versions.last().unwrap();
                 for field in ["id", "chat_id", "sender", "created_at", "seq"] {
                     assert_eq!(
-                        final_message[field], placeholder[field],
-                        "terminal replacement preserves placeholder {field}"
+                        first_reply[field], placeholder[field],
+                        "first reply replacement preserves placeholder {field}"
                     );
                 }
-                assert_eq!(final_message["streaming"], false);
-                assert_eq!(final_message["fallback_text"], "任务已完成");
+                assert_eq!(placeholder["streaming"], true);
+                assert_eq!(placeholder["source_message_id"], source_message_id);
+                assert_eq!(first_reply["streaming"], false);
+                assert_eq!(first_reply["intent"], "ack");
+                assert_eq!(first_reply["fallback_text"], "收到，我开始处理。");
+
+                let followup = messages
+                    .iter()
+                    .find(|message| message["id"] == followup_id)
+                    .expect("terminal follow-up is a separate message");
+                assert_eq!(followup["id"], followup_id);
+                assert_eq!(followup["chat_id"], chat_id);
+                assert_eq!(followup["sender"]["bot_id"], bot_id);
+                assert_eq!(followup["source_message_id"], source_message_id);
+                assert_eq!(followup["intent"], intent);
+                assert_eq!(followup["streaming"], false);
+                assert_eq!(followup["fallback_text"], "任务已完成");
+                assert!(followup["seq"].as_u64().unwrap() > first_reply["seq"].as_u64().unwrap());
 
                 let events = backend.store.events_since(0).unwrap();
-                let message_events = events
+                let first_reply_events = events
                     .iter()
                     .filter(|event| {
                         event.data.pointer("/message/id").and_then(Value::as_str)
-                            == Some(message_id.as_str())
+                            == Some(placeholder_id.as_str())
                     })
                     .collect::<Vec<_>>();
                 assert_eq!(
-                    message_events
+                    first_reply_events
                         .iter()
                         .filter(|event| event.event == "message.created")
                         .count(),
                     1,
-                    "only the initial placeholder is created"
+                    "the reserved first reply is created once"
                 );
-                let updates = message_events
+                let updates = first_reply_events
                     .iter()
                     .filter(|event| event.event == "message.updated")
                     .collect::<Vec<_>>();
-                assert_eq!(
-                    updates.len(),
-                    1,
-                    "terminal send_msg updates the placeholder"
-                );
+                assert_eq!(updates.len(), 1, "the first send_msg fills the placeholder");
                 assert_eq!(updates[0].data["message"]["streaming"], false);
 
-                let updated_seq = updates[0].seq;
+                let followup_events = events
+                    .iter()
+                    .filter(|event| {
+                        event.data.pointer("/message/id").and_then(Value::as_str)
+                            == Some(followup_id.as_str())
+                    })
+                    .collect::<Vec<_>>();
+                assert_eq!(
+                    followup_events
+                        .iter()
+                        .filter(|event| event.event == "message.created")
+                        .count(),
+                    1,
+                    "the terminal follow-up gets a new created event"
+                );
+                assert_eq!(
+                    followup_events
+                        .iter()
+                        .filter(|event| event.event == "message.updated")
+                        .count(),
+                    0,
+                    "the terminal follow-up never overwrites the first reply"
+                );
+
+                let followup_created_seq = followup_events
+                    .iter()
+                    .find(|event| event.event == "message.created")
+                    .unwrap()
+                    .seq;
                 let terminal_trace_type = if intent == "done" {
                     "run.end"
                 } else {
@@ -11484,18 +11607,23 @@ mod persistence_tests {
                     })
                     .expect("terminal trace")
                     .seq;
-                assert!(
-                    updated_seq < terminal_seq,
-                    "message update precedes {terminal_trace_type}"
-                );
+                assert!(followup_created_seq < terminal_seq);
 
                 let history = backend
                     .call("chat.history", json!({"chat_id":chat_id}), &gateway.state)
                     .await
                     .unwrap();
-                assert_eq!(history["messages"].as_array().unwrap().len(), 1);
-                assert_eq!(history["messages"][0]["id"], message_id);
-                assert_eq!(history["messages"][0]["streaming"], false);
+                let history_messages = history["messages"].as_array().unwrap();
+                assert!(history_messages.iter().any(|message| {
+                    message["id"] == source_message_id
+                        && message.pointer("/sender/kind").and_then(Value::as_str) == Some("user")
+                }));
+                assert!(history_messages.iter().any(|message| {
+                    message["id"] == placeholder_id && message["streaming"] == false
+                }));
+                assert!(history_messages.iter().any(|message| {
+                    message["id"] == followup_id && message["streaming"] == false
+                }));
             }
         }
     }
@@ -12264,20 +12392,6 @@ mod persistence_tests {
             .call("chat.send", params.clone(), &gateway.state)
             .await
             .unwrap();
-        let routed_assignment = result["message"]["delivery"][0]["assignment_id"]
-            .as_str()
-            .expect("mention still creates a Bot assignment");
-        let assignment = inner
-            .call(
-                "assignment.get",
-                json!({"assignment_id":routed_assignment}),
-                &gateway.state,
-            )
-            .await
-            .unwrap()["assignment"]
-            .clone();
-        assert_eq!(assignment["bot_id"], worker_id);
-        assert_eq!(assignment["origin_chat_id"], worker_dm);
 
         let composed = ComposedBackend::open(inner.clone(), gateway.state.clone(), path).unwrap();
         wait_for_startup_recovery(&composed).await;

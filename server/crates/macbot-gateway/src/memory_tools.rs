@@ -551,6 +551,18 @@ impl crate::execution::ExecutionSink for FeatureExecutionSink {
         self.delegate.validate_send_msg_target(message).await
     }
 
+    async fn update_message_delivery(
+        &self,
+        message_id: &str,
+        bot_id: &str,
+        assignment_id: Option<&str>,
+        state: &str,
+    ) -> Result<(), String> {
+        self.delegate
+            .update_message_delivery(message_id, bot_id, assignment_id, state)
+            .await
+    }
+
     async fn approval_required(&self, data: Value) {
         self.delegate.approval_required(data).await;
     }
@@ -2595,9 +2607,12 @@ mod tests {
         );
     }
 
+    type DeliveryUpdate = (String, String, Option<String>, String);
+
     #[derive(Default)]
     struct EventRecordingSink {
         events: StdMutex<Vec<crate::execution::ExecutionEvent>>,
+        delivery_updates: StdMutex<Vec<DeliveryUpdate>>,
     }
 
     #[async_trait]
@@ -2614,7 +2629,43 @@ mod tests {
             Ok(())
         }
 
+        async fn update_message_delivery(
+            &self,
+            message_id: &str,
+            bot_id: &str,
+            assignment_id: Option<&str>,
+            state: &str,
+        ) -> Result<(), String> {
+            self.delivery_updates.lock().unwrap().push((
+                message_id.to_owned(),
+                bot_id.to_owned(),
+                assignment_id.map(str::to_owned),
+                state.to_owned(),
+            ));
+            Ok(())
+        }
+
         async fn approval_required(&self, _: Value) {}
+    }
+
+    #[tokio::test]
+    async fn feature_execution_sink_forwards_message_delivery_updates() {
+        let delegate = Arc::new(EventRecordingSink::default());
+        let sink = FeatureExecutionSink::new(delegate.clone(), runtime());
+
+        sink.update_message_delivery("source-message", "bot-a", Some("assignment-a"), "read")
+            .await
+            .unwrap();
+
+        assert_eq!(
+            *delegate.delivery_updates.lock().unwrap(),
+            vec![(
+                "source-message".into(),
+                "bot-a".into(),
+                Some("assignment-a".into()),
+                "read".into()
+            )]
+        );
     }
 
     struct DurableEventSink {

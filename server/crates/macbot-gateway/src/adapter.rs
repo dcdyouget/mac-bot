@@ -2722,22 +2722,21 @@ impl ProductionBackend {
                 }
             }
             "send_msg" | "chat.send" | "chat.react" | "execution.steer.delivery" => {
-                if method == "send_msg" {
-                    if let Some(placeholder) =
-                        self.terminal_private_placeholder_for_params(params)?
-                    {
-                        let message = self.complete_terminal_placeholder_from_result(
-                            params,
-                            &placeholder,
-                            result,
-                        )?;
-                        if result.get("message").is_some() {
-                            canonical["message"] = message;
-                        } else {
-                            canonical = message;
-                        }
-                        return Ok(canonical);
+                if method == "send_msg"
+                    && params
+                        .get("_replace_streaming_placeholder")
+                        .and_then(Value::as_bool)
+                        == Some(true)
+                {
+                    let placeholder = self.reply_placeholder_for_params(params, true)?;
+                    let message =
+                        self.complete_reply_placeholder_from_result(&placeholder, result)?;
+                    if result.get("message").is_some() {
+                        canonical["message"] = message;
+                    } else {
+                        canonical = message;
                     }
+                    return Ok(canonical);
                 }
                 let id = result
                     .get("message")
@@ -2853,13 +2852,10 @@ impl ProductionBackend {
         let mut events = Vec::new();
         if operation_event_entity_present(method, &canonical) {
             let event_name = if method == "send_msg"
-                && (params
+                && params
                     .get("_replace_streaming_placeholder")
                     .and_then(Value::as_bool)
                     == Some(true)
-                    || self
-                        .terminal_private_placeholder_for_params(&params)?
-                        .is_some())
             {
                 Some("message.updated")
             } else {
@@ -3074,23 +3070,36 @@ impl ProductionBackend {
         message_id: &str,
         delivery: &Value,
     ) -> RpcResult {
+        self.execution_update_message_delivery(state, message_id, delivery)
+            .await
+    }
+
+    /// Advance the durable per-Bot consumption state for a user message.
+    /// Direct chats use a null assignment id; project steers retain their
+    /// assignment id and continue to update the assignment's pending count.
+    pub async fn execution_update_message_delivery(
+        &self,
+        state: &GatewayState,
+        message_id: &str,
+        delivery: &Value,
+    ) -> RpcResult {
         let _guard = self.write_lock.lock().await;
         let bot_id = delivery
             .get("bot_id")
             .and_then(Value::as_str)
-            .ok_or_else(|| crate::rpc_error("invalid_params", "steer bot_id is required", None))?;
+            .ok_or_else(|| {
+                crate::rpc_error("invalid_params", "delivery bot_id is required", None)
+            })?;
         let assignment_id = delivery
             .get("assignment_id")
             .and_then(Value::as_str)
-            .ok_or_else(|| {
-                crate::rpc_error("invalid_params", "steer assignment_id is required", None)
-            })?;
+            .map(str::to_owned);
         let next = delivery
             .get("state")
             .and_then(Value::as_str)
             .filter(|next| matches!(*next, "delivered" | "read"))
             .ok_or_else(|| {
-                crate::rpc_error("invalid_params", "invalid steer delivery state", None)
+                crate::rpc_error("invalid_params", "invalid message delivery state", None)
             })?;
         let (_, mut message) = self.find_chat_message(message_id)?;
         let current = message
@@ -3099,12 +3108,16 @@ impl ProductionBackend {
             .and_then(|items| {
                 items.iter_mut().find(|item| {
                     item.get("bot_id").and_then(Value::as_str) == Some(bot_id)
-                        && item.get("assignment_id").and_then(Value::as_str) == Some(assignment_id)
+                        && item.get("assignment_id").and_then(Value::as_str)
+                            == assignment_id.as_deref()
                 })
-            })
-            .ok_or_else(|| {
-                crate::rpc_error("not_found", "canonical steer delivery not found", None)
-            })?;
+            });
+        let Some(current) = current else {
+            // Bot-originated handoffs can name a source message which has no
+            // user delivery row. They still get a reply placeholder, but do
+            // not manufacture a consumption marker.
+            return Ok(json!({"message":message}));
+        };
         if current.get("state").and_then(Value::as_str) == Some("read")
             || current.get("state").and_then(Value::as_str) == Some(next)
         {
@@ -3112,13 +3125,14 @@ impl ProductionBackend {
         }
         let transition = self
             .orchestrator
-            .mark_steer_for_assignment(message_id, assignment_id, next)
+            .mark_message_delivery(message_id, bot_id, assignment_id.as_deref(), next)
             .map_err(Self::error)?;
-        if transition.bot_id != bot_id || transition.assignment_id.as_deref() != Some(assignment_id)
+        if transition.bot_id != bot_id
+            || transition.assignment_id.as_deref() != assignment_id.as_deref()
         {
             return Err(crate::rpc_error(
                 "invalid_params",
-                "steer identity mismatch",
+                "message delivery identity mismatch",
                 None,
             ));
         }
@@ -3128,27 +3142,34 @@ impl ProductionBackend {
         self.persist(
             state,
             "execution.steer.delivery",
-            &json!({"message_id":message_id}),
+            &json!({
+                "message_id":message_id,
+                "bot_id":bot_id,
+                "assignment_id":assignment_id,
+                "state":next
+            }),
             &json!({"message":message}),
         )
         .await?;
-        let assignment = self
-            .orchestrator
-            .rpc("assignment.get", json!({"assignment_id":assignment_id}))
-            .await
-            .map_err(Self::error)?
-            .get("assignment")
-            .cloned()
-            .ok_or_else(|| RpcError {
-                code: "internal".into(),
-                message: "assignment lookup returned no assignment".into(),
-                details: None,
-            })?;
-        let event =
-            append_assignment_updated_event(&self.store, assignment).map_err(store_error)?;
-        state
-            .publish_event(event.seq, &event.event, event.data)
-            .await;
+        if let Some(assignment_id) = assignment_id {
+            let assignment = self
+                .orchestrator
+                .rpc("assignment.get", json!({"assignment_id":assignment_id}))
+                .await
+                .map_err(Self::error)?
+                .get("assignment")
+                .cloned()
+                .ok_or_else(|| RpcError {
+                    code: "internal".into(),
+                    message: "assignment lookup returned no assignment".into(),
+                    details: None,
+                })?;
+            let event =
+                append_assignment_updated_event(&self.store, assignment).map_err(store_error)?;
+            state
+                .publish_event(event.seq, &event.event, event.data)
+                .await;
+        }
         Ok(json!({"message":message}))
     }
 
@@ -4074,42 +4095,66 @@ impl ProductionBackend {
         if let Some(object) = params.as_object_mut() {
             object.insert("_idempotency_signature".into(), json!(signature));
         }
-        let terminal_placeholder = self.terminal_private_placeholder_for_params(&params)?;
-        let replace_streaming_placeholder = terminal_placeholder.is_some();
-        if let Some(object) = params.as_object_mut() {
-            if replace_streaming_placeholder {
-                let placeholder = terminal_placeholder.as_ref().expect("checked above");
-                object.insert("message_id".into(), placeholder["id"].clone());
-                object.insert("_replace_streaming_placeholder".into(), json!(true));
-            } else {
-                object.remove("_replace_streaming_placeholder");
-            }
-        }
         let cached_result = self.idempotent_result("send_msg", &params).await?;
         if let Some(value) = cached_result {
-            if let Some(placeholder) = terminal_placeholder.as_ref() {
-                let cached_id = value
-                    .get("message")
-                    .and_then(|message| message.get("id"))
-                    .or_else(|| value.get("id"))
-                    .and_then(Value::as_str);
-                let placeholder_id = placeholder.get("id").and_then(Value::as_str);
-                if cached_id != placeholder_id
-                    || placeholder.get("streaming").and_then(Value::as_bool) == Some(true)
-                    || !matches!(
-                        placeholder.get("intent").and_then(Value::as_str),
-                        Some("done" | "blocked")
-                    )
-                {
+            if value.get("_queue_review").is_some() {
+                return Ok(value);
+            }
+            match params
+                .get("_replace_streaming_placeholder")
+                .and_then(Value::as_bool)
+            {
+                Some(true) => {
                     return self
-                        .persist_terminal_placeholder_replay(state, &params, placeholder, &value)
+                        .persist_reply_placeholder_replay(state, &params, &value)
                         .await;
                 }
-                self.repair_terminal_placeholder_update_event(state, &params, placeholder)
-                    .await?;
-                return Ok(placeholder.clone());
+                Some(false) => {
+                    let mut replay_params = params.clone();
+                    self.prepare_bot_dm_send(&mut replay_params)?;
+                    self.normalize_execution_source_link(&mut replay_params)?;
+                    if let Some(message) =
+                        self.validate_execution_new_message(&replay_params, true)?
+                    {
+                        let cached_id = value
+                            .get("message")
+                            .and_then(|message| message.get("id"))
+                            .or_else(|| value.get("id"))
+                            .and_then(Value::as_str);
+                        if cached_id == message.get("id").and_then(Value::as_str) {
+                            return Ok(message);
+                        }
+                        return Err(crate::rpc_error(
+                            "conflict",
+                            "send_msg receipt does not own the existing message",
+                            None,
+                        ));
+                    }
+                    return Err(crate::rpc_error(
+                        "conflict",
+                        "send_msg receipt has no persisted message to replay",
+                        None,
+                    ));
+                }
+                None => return Ok(value),
             }
-            return Ok(value);
+        }
+        match params
+            .get("_replace_streaming_placeholder")
+            .and_then(Value::as_bool)
+        {
+            Some(true) => {
+                self.reply_placeholder_for_params(&params, false)?;
+            }
+            Some(false) => {
+                self.validate_execution_new_message(&params, false)?;
+            }
+            None => self.validate_legacy_execution_new_message(&params)?,
+        }
+        if params.get("run_id").and_then(Value::as_str).is_some()
+            && params.get("call_id").and_then(Value::as_str).is_some()
+        {
+            self.validate_execution_source_scope(&params)?;
         }
         if params.get("intent").and_then(Value::as_str) == Some("done") {
             if let Some(review) = self
@@ -4122,147 +4167,314 @@ impl ProductionBackend {
         self.call("send_msg", params, state).await
     }
 
-    fn terminal_private_placeholder_for_params(
+    fn reply_placeholder_for_params(
         &self,
         params: &Value,
-    ) -> Result<Option<Value>, RpcError> {
-        if !matches!(
-            params.get("intent").and_then(Value::as_str),
-            Some("done" | "blocked")
-        ) || params
-            .get("assignment_id")
-            .is_some_and(|assignment_id| !assignment_id.is_null())
-        {
-            return Ok(None);
-        }
-        let (Some(run_id), Some(call_id), Some(chat_id), Some(bot_id), Some(request_id)) = (
+        allow_completed: bool,
+    ) -> Result<Value, RpcError> {
+        let (
+            Some(run_id),
+            Some(call_id),
+            Some(_chat_id),
+            Some(_bot_id),
+            Some(source_message_id),
+            Some(request_id),
+            Some(message_id),
+        ) = (
             params.get("run_id").and_then(Value::as_str),
             params.get("call_id").and_then(Value::as_str),
             params.get("chat_id").and_then(Value::as_str),
             params.get("bot_id").and_then(Value::as_str),
+            params.get("source_message_id").and_then(Value::as_str),
             params.get("client_request_id").and_then(Value::as_str),
-        ) else {
-            return Ok(None);
+            params.get("message_id").and_then(Value::as_str),
+        )
+        else {
+            return Err(crate::rpc_error(
+                "invalid_params",
+                "reply placeholder identity is incomplete",
+                None,
+            ));
         };
         if request_id != format!("execution:{run_id}:{call_id}") {
-            return Ok(None);
+            return Err(crate::rpc_error(
+                "invalid_params",
+                "reply placeholder receipt does not match run and call",
+                None,
+            ));
         }
-        let message_id = format!("msg_{}", takeover_component(run_id));
-        let messages = self
-            .store
-            .read_jsonl::<Value>(format!(
-                "data/chats/{}/messages.jsonl",
-                takeover_component(chat_id)
-            ))
-            .map_err(store_error)?;
-        let Some(message) = messages
-            .into_iter()
-            .rev()
-            .find(|message| message.get("id").and_then(Value::as_str) == Some(message_id.as_str()))
-        else {
-            return Ok(None);
-        };
-        if message.get("chat_id").and_then(Value::as_str) == Some(chat_id)
-            && message.pointer("/sender/kind").and_then(Value::as_str) == Some("bot")
-            && message.pointer("/sender/bot_id").and_then(Value::as_str) == Some(bot_id)
-            && message.get("assignment_id").is_some_and(Value::is_null)
+        let expected_id = reply_placeholder_id(run_id, source_message_id);
+        if message_id != expected_id {
+            return Err(crate::rpc_error(
+                "invalid_params",
+                "first public reply must use this run's reserved message_id",
+                None,
+            ));
+        }
+        let (source_chat_id, _) = self.find_chat_message(source_message_id)?;
+        if source_chat_id != _chat_id {
+            return Err(crate::rpc_error(
+                "conflict",
+                "reply source message belongs to a different chat",
+                None,
+            ));
+        }
+        let (placeholder_chat_id, message) = self.find_chat_message(message_id)?;
+        if placeholder_chat_id != _chat_id
+            || !message_matches_execution_scope(&message, params)
+            || message.get("source_message_id").and_then(Value::as_str) != Some(source_message_id)
+            || message.get("deleted").and_then(Value::as_bool) == Some(true)
         {
-            Ok(Some(message))
-        } else {
-            Ok(None)
+            return Err(crate::rpc_error(
+                "conflict",
+                "reply placeholder belongs to a different chat, Bot, assignment, or source",
+                None,
+            ));
+        }
+        if message.get("streaming").and_then(Value::as_bool) != Some(true)
+            && !(allow_completed
+                && message.get("streaming").and_then(Value::as_bool) == Some(false))
+        {
+            return Err(crate::rpc_error(
+                "conflict",
+                "reply placeholder is no longer streaming",
+                None,
+            ));
+        }
+        Ok(message)
+    }
+
+    fn normalize_execution_source_link(&self, params: &mut Value) -> Result<(), RpcError> {
+        if params
+            .get("source_message_id")
+            .and_then(Value::as_str)
+            .is_none()
+        {
+            return Ok(());
+        }
+        let target_chat_id = params
+            .get("chat_id")
+            .and_then(Value::as_str)
+            .map(str::to_owned)
+            .ok_or_else(|| {
+                crate::rpc_error("invalid_params", "send_msg.chat_id is required", None)
+            })?;
+        let source_chat_id = self.validate_execution_source_scope(params)?;
+        if source_chat_id != target_chat_id {
+            if params
+                .get("_replace_streaming_placeholder")
+                .and_then(Value::as_bool)
+                == Some(true)
+            {
+                return Err(crate::rpc_error(
+                    "forbidden",
+                    "reply placeholders can only be filled in their source chat",
+                    None,
+                ));
+            }
+            params["source_message_id"] = Value::Null;
+        }
+        Ok(())
+    }
+
+    fn validate_execution_source_scope(&self, params: &Value) -> Result<String, RpcError> {
+        let Some(source_message_id) = params.get("source_message_id").and_then(Value::as_str)
+        else {
+            return params
+                .get("_send_scope_chat_id")
+                .and_then(Value::as_str)
+                .or_else(|| params.get("chat_id").and_then(Value::as_str))
+                .map(str::to_owned)
+                .ok_or_else(|| {
+                    crate::rpc_error(
+                        "invalid_params",
+                        "send_msg execution chat is required",
+                        None,
+                    )
+                });
+        };
+        let source_scope_chat_id = params
+            .get("_send_scope_chat_id")
+            .and_then(Value::as_str)
+            .or_else(|| params.get("chat_id").and_then(Value::as_str))
+            .ok_or_else(|| {
+                crate::rpc_error(
+                    "invalid_params",
+                    "send_msg execution chat is required",
+                    None,
+                )
+            })?;
+        let (source_chat_id, _) = self.find_chat_message(source_message_id)?;
+        if source_chat_id != source_scope_chat_id {
+            return Err(crate::rpc_error(
+                "conflict",
+                "source message belongs to a different execution chat",
+                None,
+            ));
+        }
+        Ok(source_chat_id)
+    }
+
+    fn validate_execution_new_message(
+        &self,
+        params: &Value,
+        allow_existing: bool,
+    ) -> Result<Option<Value>, RpcError> {
+        let (Some(run_id), Some(call_id), Some(message_id)) = (
+            params.get("run_id").and_then(Value::as_str),
+            params.get("call_id").and_then(Value::as_str),
+            params.get("message_id").and_then(Value::as_str),
+        ) else {
+            return Err(crate::rpc_error(
+                "invalid_params",
+                "new execution message identity is incomplete",
+                None,
+            ));
+        };
+        let expected_request_id = format!("execution:{run_id}:{call_id}");
+        if params.get("client_request_id").and_then(Value::as_str)
+            != Some(expected_request_id.as_str())
+        {
+            return Err(crate::rpc_error(
+                "invalid_params",
+                "new execution message receipt does not match run and call",
+                None,
+            ));
+        }
+        let expected_id = execution_message_id(run_id, call_id);
+        if message_id != expected_id {
+            return Err(crate::rpc_error(
+                "invalid_params",
+                "new execution message_id must be generated from its run and call receipt",
+                None,
+            ));
+        }
+        match self.find_chat_message(message_id) {
+            Ok((chat_id, message)) if allow_existing => {
+                if chat_id != params["chat_id"].as_str().unwrap_or_default()
+                    || !message_matches_execution_scope(&message, params)
+                    || message.get("source_message_id").and_then(Value::as_str)
+                        != params.get("source_message_id").and_then(Value::as_str)
+                {
+                    return Err(crate::rpc_error(
+                        "conflict",
+                        "send_msg receipt does not own the existing message",
+                        None,
+                    ));
+                }
+                Ok(Some(message))
+            }
+            Ok(_) => Err(crate::rpc_error(
+                "conflict",
+                "new execution message_id already exists",
+                None,
+            )),
+            Err(error) if error.code == "not_found" => Ok(None),
+            Err(error) => Err(error),
         }
     }
 
-    fn complete_terminal_placeholder_from_result(
+    fn validate_legacy_execution_new_message(&self, params: &Value) -> Result<(), RpcError> {
+        let Some(message_id) = params.get("message_id").and_then(Value::as_str) else {
+            return Ok(());
+        };
+        match self.find_chat_message(message_id) {
+            Ok(_) => Err(crate::rpc_error(
+                "conflict",
+                "send_msg cannot overwrite an existing message without an explicit placeholder flag",
+                None,
+            )),
+            Err(error) if error.code == "not_found" => Ok(()),
+            Err(error) => Err(error),
+        }
+    }
+
+    fn complete_reply_placeholder_from_result(
         &self,
-        params: &Value,
         placeholder: &Value,
         result: &Value,
     ) -> Result<Value, RpcError> {
-        let terminal_intent = params.get("intent").and_then(Value::as_str);
-        if placeholder.get("streaming").and_then(Value::as_bool) == Some(false)
-            && placeholder.get("intent").and_then(Value::as_str) == terminal_intent
-        {
+        if placeholder.get("streaming").and_then(Value::as_bool) == Some(false) {
             return Ok(placeholder.clone());
         }
         let mut message = result
             .get("message")
             .cloned()
             .unwrap_or_else(|| result.clone());
-        message["id"] = placeholder["id"].clone();
-        message["chat_id"] = placeholder["chat_id"].clone();
-        message["sender"] = placeholder["sender"].clone();
-        message["assignment_id"] = Value::Null;
-        message["created_at"] = placeholder["created_at"].clone();
-        message["seq"] = placeholder["seq"].clone();
-        message["intent"] = json!(terminal_intent);
+        if message.get("id").and_then(Value::as_str)
+            != placeholder.get("id").and_then(Value::as_str)
+        {
+            return Err(crate::rpc_error(
+                "conflict",
+                "send_msg result did not reuse the reserved reply message_id",
+                None,
+            ));
+        }
+        for field in [
+            "id",
+            "chat_id",
+            "sender",
+            "created_at",
+            "seq",
+            "assignment_id",
+            "source_message_id",
+        ] {
+            if let Some(value) = placeholder.get(field) {
+                message[field] = value.clone();
+            }
+        }
         message["streaming"] = json!(false);
         message["edited_at"] = json!(now());
         normalize_message(&mut message);
         self.persist_client_message(&message)
     }
 
-    async fn persist_terminal_placeholder_replay(
+    async fn persist_reply_placeholder_replay(
         &self,
         state: &GatewayState,
         params: &Value,
-        placeholder: &Value,
         cached_result: &Value,
     ) -> RpcResult {
+        let cached_id = cached_result
+            .get("message")
+            .and_then(|message| message.get("id"))
+            .or_else(|| cached_result.get("id"))
+            .and_then(Value::as_str);
+        if cached_id != params.get("message_id").and_then(Value::as_str) {
+            return Err(crate::rpc_error(
+                "conflict",
+                "send_msg receipt does not own the reserved reply message_id",
+                None,
+            ));
+        }
         let _guard = self.write_lock.lock().await;
-        let current_placeholder = self
-            .terminal_private_placeholder_for_params(params)?
-            .unwrap_or_else(|| placeholder.clone());
+        let current_placeholder = self.reply_placeholder_for_params(params, true)?;
         if current_placeholder
             .get("streaming")
             .and_then(Value::as_bool)
             == Some(false)
-            && matches!(
-                current_placeholder.get("intent").and_then(Value::as_str),
-                Some("done" | "blocked")
-            )
         {
-            self.repair_terminal_placeholder_update_event(state, params, &current_placeholder)
+            self.repair_reply_placeholder_update_event(state, params, &current_placeholder)
                 .await?;
             return Ok(current_placeholder);
         }
-        let message = self.complete_terminal_placeholder_from_result(
-            params,
-            &current_placeholder,
-            cached_result,
-        )?;
-        let mut replay_params = params.clone();
-        replay_params["message_id"] = message["id"].clone();
-        replay_params["_replace_streaming_placeholder"] = json!(true);
-        let run_id = replay_params
+        let message =
+            self.complete_reply_placeholder_from_result(&current_placeholder, cached_result)?;
+        let run_id = params
             .get("run_id")
             .and_then(Value::as_str)
             .unwrap_or_default();
-        let call_id = replay_params
+        let call_id = params
             .get("call_id")
             .and_then(Value::as_str)
             .unwrap_or_default();
-        let operation = json!({
-            "method":"send_msg",
-            "params":replay_params,
-            "client_request_id":params.get("client_request_id"),
-            "request_signature":params.get("_idempotency_signature"),
-            "result":message,
-            "event_key":format!("execution-terminal-placeholder:{run_id}:{call_id}"),
-            "status":"done",
-            "at":now()
-        });
-        self.persist_orchestrator(operation.clone()).await?;
-        let snapshot = self.orchestrator.snapshot().map_err(Self::error)?;
-        for event in self.repair_operation_events_with_snapshot(&operation, &snapshot)? {
-            state
-                .publish_event(event.seq, &event.event, event.data)
-                .await;
-        }
+        self.repair_reply_placeholder_update_event(state, params, &message)
+            .await?;
+        tracing::debug!(run_id, call_id, "repaired cached reply placeholder");
         Ok(message)
     }
 
-    async fn repair_terminal_placeholder_update_event(
+    async fn repair_reply_placeholder_update_event(
         &self,
         state: &GatewayState,
         params: &Value,
@@ -4277,7 +4489,7 @@ impl ProductionBackend {
             .and_then(Value::as_str)
             .unwrap_or_default();
         if let Some(event) = self.append_repaired_event(
-            &format!("execution-terminal-placeholder:{run_id}:{call_id}"),
+            &format!("execution-reply-placeholder:{run_id}:{call_id}"),
             "message.updated",
             json!({"message":placeholder}),
         )? {
@@ -4459,23 +4671,22 @@ impl RpcBackend for ProductionBackend {
                 object.insert("_idempotency_signature".into(), json!(signature));
             }
         }
-        if method == "send_msg"
-            && params
+        if method == "send_msg" {
+            match params
                 .get("_replace_streaming_placeholder")
                 .and_then(Value::as_bool)
-                == Some(true)
-        {
-            if let Some(placeholder) = self.terminal_private_placeholder_for_params(&params)? {
-                if placeholder.get("streaming").and_then(Value::as_bool) == Some(false)
-                    && matches!(
-                        placeholder.get("intent").and_then(Value::as_str),
-                        Some("done" | "blocked")
-                    )
-                {
-                    self.repair_terminal_placeholder_update_event(state, &params, &placeholder)
-                        .await?;
-                    return Ok(placeholder);
+            {
+                Some(true) => {
+                    self.reply_placeholder_for_params(&params, false)?;
                 }
+                Some(false)
+                    if params.get("run_id").and_then(Value::as_str).is_some()
+                        && params.get("call_id").and_then(Value::as_str).is_some() =>
+                {
+                    self.validate_execution_new_message(&params, false)?;
+                }
+                Some(false) => self.validate_legacy_execution_new_message(&params)?,
+                None => self.validate_legacy_execution_new_message(&params)?,
             }
         }
         if matches!(method, "bot.create" | "bot.update") {
@@ -4507,6 +4718,24 @@ impl RpcBackend for ProductionBackend {
         } else {
             None
         };
+        if method == "send_msg"
+            && params.get("run_id").and_then(Value::as_str).is_some()
+            && params.get("call_id").and_then(Value::as_str).is_some()
+        {
+            if params
+                .get("_replace_streaming_placeholder")
+                .and_then(Value::as_bool)
+                == Some(true)
+                && params.get("chat_id") != params.get("_send_scope_chat_id")
+            {
+                return Err(crate::rpc_error(
+                    "forbidden",
+                    "reply placeholders can only be filled in their source chat",
+                    None,
+                ));
+            }
+            self.normalize_execution_source_link(&mut params)?;
+        }
         if let Some(context) = bot_dm_context.as_ref() {
             if self.ensure_bot_dm_chat(&context.route)? {
                 self.publish_bot_dm_chat(state, &context.route).await?;
@@ -4874,30 +5103,47 @@ impl RpcBackend for ProductionBackend {
             enrich_completion_message_artifacts(&mut result, &snapshot);
             append_link_preview_blocks(&mut result, &params)?;
             append_project_card_blocks(self, &mut result, &params).await?;
+            if params.get("run_id").and_then(Value::as_str).is_some()
+                && params.get("call_id").and_then(Value::as_str).is_some()
+            {
+                // The orchestrator owns the durable message body, while the
+                // gateway owns the source linkage used by reply lifecycle
+                // recovery and client history.
+                let expected_source_message_id = params
+                    .get("source_message_id")
+                    .cloned()
+                    .unwrap_or(Value::Null);
+                result["source_message_id"] = expected_source_message_id.clone();
+                if params
+                    .get("_replace_streaming_placeholder")
+                    .and_then(Value::as_bool)
+                    == Some(false)
+                    && (result.get("id") != params.get("message_id")
+                        || !message_matches_execution_scope(&result, &params)
+                        || result.get("source_message_id") != Some(&expected_source_message_id))
+                {
+                    return Err(crate::rpc_error(
+                        "conflict",
+                        "new send_msg result does not match its execution identity and source",
+                        None,
+                    ));
+                }
+            }
             let replaces_streaming_placeholder = params
                 .get("_replace_streaming_placeholder")
                 .and_then(Value::as_bool)
                 == Some(true);
             if replaces_streaming_placeholder {
-                let placeholder = self.terminal_private_placeholder_for_params(&params)?;
+                let placeholder = self.reply_placeholder_for_params(&params, false)?;
                 let expected_id = params.get("message_id").and_then(Value::as_str);
                 if result.get("id").and_then(Value::as_str) != expected_id {
                     return Err(crate::rpc_error(
                         "internal",
-                        "terminal private send_msg did not reuse its streaming message id",
+                        "send_msg did not reuse its reserved reply message id",
                         None,
                     ));
                 }
-                if let Some(placeholder) = placeholder {
-                    for field in ["id", "chat_id", "sender", "created_at", "seq"] {
-                        if let Some(value) = placeholder.get(field) {
-                            result[field] = value.clone();
-                        }
-                    }
-                    result["assignment_id"] = Value::Null;
-                }
-                result["streaming"] = json!(false);
-                result["edited_at"] = json!(now());
+                result = self.complete_reply_placeholder_from_result(&placeholder, &result)?;
             }
             result = self.persist_client_message(&result)?;
         } else if method == "chat.send" {
@@ -11213,6 +11459,31 @@ fn takeover_component(value: &str) -> String {
     output
 }
 
+fn execution_message_id(run_id: &str, call_id: &str) -> String {
+    format!(
+        "msg_{}_{}",
+        takeover_component(run_id),
+        takeover_component(call_id)
+    )
+}
+
+fn reply_placeholder_id(run_id: &str, source_message_id: &str) -> String {
+    format!(
+        "msg_{}_reply_{}",
+        takeover_component(run_id),
+        takeover_component(source_message_id)
+    )
+}
+
+fn message_matches_execution_scope(message: &Value, params: &Value) -> bool {
+    message.get("chat_id").and_then(Value::as_str) == params.get("chat_id").and_then(Value::as_str)
+        && message.pointer("/sender/kind").and_then(Value::as_str) == Some("bot")
+        && message.pointer("/sender/bot_id").and_then(Value::as_str)
+            == params.get("bot_id").and_then(Value::as_str)
+        && message.get("assignment_id").and_then(Value::as_str)
+            == params.get("assignment_id").and_then(Value::as_str)
+}
+
 fn artifact_history_component(value: &str) -> Result<String, RpcError> {
     if is_normal_component(value) {
         Ok(value.to_owned())
@@ -14376,15 +14647,49 @@ mod tests {
                 json!({
                     "chat_id":"chat_main",
                     "text":"整理公开资料并汇报",
-                    "mentions":[{"kind":"bot","bot_id":worker_id}]
+                    "mentions":[]
                 }),
                 &gateway.state,
             )
             .await
             .unwrap();
-        let assignment_id = delegated["message"]["delivery"][0]["assignment_id"]
-            .as_str()
+        let assignment = backend
+            .call(
+                "assignment.create",
+                json!({
+                    "project_id":null,
+                    "origin_chat_id":"chat_main",
+                    "bot_id":worker_id,
+                    "title":"整理公开资料并汇报",
+                    "instruction":"整理公开资料并汇报",
+                    "from":"user",
+                    "trigger_message_id":delegated["message"]["id"],
+                    "parent_assignment_id":null,
+                    "priority":1,
+                    "root_message_id":delegated["message"]["id"],
+                    "loop_hops":0
+                }),
+                &gateway.state,
+            )
+            .await
             .unwrap();
+        let assignment_id = assignment["id"].as_str().unwrap();
+        let worker_user_message = backend
+            .call(
+                "chat.send",
+                json!({
+                    "chat_id":worker_dm,
+                    "text":"补充一项资料",
+                    "mentions":[]
+                }),
+                &gateway.state,
+            )
+            .await
+            .unwrap()["message"]
+            .clone();
+        assert_eq!(worker_user_message["chat_id"], worker_dm);
+        assert_eq!(worker_user_message["delivery"][0]["bot_id"], worker_id);
+        assert!(worker_user_message["delivery"][0]["assignment_id"].is_null());
 
         let ack = backend
             .execution_send_msg(
@@ -14406,44 +14711,6 @@ mod tests {
         assert_eq!(ack["sender"]["kind"], "bot");
         assert_eq!(ack["sender"]["bot_id"], worker_id);
         assert_eq!(ack["intent"], "ack");
-
-        let queued = backend
-            .call(
-                "chat.send",
-                json!({
-                    "chat_id":"chat_main",
-                    "text":"补充一项资料",
-                    "mentions":[]
-                }),
-                &gateway.state,
-            )
-            .await
-            .unwrap()["message"]
-            .clone();
-        assert_eq!(queued["delivery"][0]["assignment_id"], assignment_id);
-        assert_eq!(queued["delivery"][0]["state"], "queued");
-        let reviewed = backend
-            .execution_send_msg(
-                &gateway.state,
-                json!({
-                    "receipt":{"run_id":"delegate-worker-run","call_id":"done-review"},
-                    "message":{
-                        "bot_id":worker_id,
-                        "chat_id":worker_dm,
-                        "assignment_id":assignment_id,
-                        "text":"检查待处理补充",
-                        "intent":"done",
-                        "mentions":[]
-                    }
-                }),
-            )
-            .await
-            .unwrap();
-        assert!(reviewed["_queue_review"].is_object());
-        assert_eq!(
-            reviewed["_queue_review"]["messages"][0]["delivery"][0]["state"],
-            "read"
-        );
 
         let completion = backend
             .execution_send_msg(
@@ -14525,10 +14792,10 @@ mod tests {
                 "instruction":"复核交付报告"
             }])
         );
-        assert!(messages.iter().any(|message| {
-            message["id"] == delegated["message"]["id"]
-                && message["delivery"][0]["assignment_id"] == assignment_id
-        }));
+        assert!(messages
+            .iter()
+            .any(|message| message["id"] == delegated["message"]["id"]));
+        assert_eq!(assignment["trigger_message_id"], delegated["message"]["id"]);
         assert!(!messages.iter().any(|message| {
             message["assignment_id"] == assignment_id
                 && message["sender"]["kind"] == "bot"
@@ -14550,6 +14817,13 @@ mod tests {
                 message["id"] == completion["id"]
                     && message["sender"]["kind"] == "bot"
                     && message["sender"]["bot_id"] == worker_id
+            }));
+        assert!(worker_history["messages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|message| {
+                message["id"] == worker_user_message["id"] && message["sender"]["kind"] == "user"
             }));
 
         let completion_replay = backend
@@ -14590,32 +14864,41 @@ mod tests {
             "replaying completion must not duplicate its result card"
         );
 
-        // An explicit user message in the main chat routes execution to the
-        // worker DM, while its result is returned to the source chat.
+        // A real assignment links a user source in the main chat to the
+        // worker DM, and returns the worker's result to that source chat.
         let direct_message = backend
             .call(
                 "chat.send",
                 json!({
                     "chat_id":"chat_main",
                     "text":"用户直接交办",
-                    "mentions":[{"kind":"bot","bot_id":worker_id}]
+                    "mentions":[]
                 }),
                 &gateway.state,
             )
             .await
             .unwrap();
-        let direct_id = direct_message["message"]["delivery"][0]["assignment_id"]
-            .as_str()
-            .unwrap();
         let direct_assignment = backend
             .call(
-                "assignment.get",
-                json!({"assignment_id":direct_id}),
+                "assignment.create",
+                json!({
+                    "project_id":null,
+                    "origin_chat_id":"chat_main",
+                    "bot_id":worker_id,
+                    "title":"用户直接交办",
+                    "instruction":"用户直接交办",
+                    "from":"user",
+                    "trigger_message_id":direct_message["message"]["id"],
+                    "parent_assignment_id":null,
+                    "priority":1,
+                    "root_message_id":direct_message["message"]["id"],
+                    "loop_hops":0
+                }),
                 &gateway.state,
             )
             .await
-            .unwrap()["assignment"]
-            .clone();
+            .unwrap();
+        let direct_id = direct_assignment["id"].as_str().unwrap();
         assert_eq!(direct_assignment["origin_chat_id"], worker_dm);
         assert_eq!(
             backend
@@ -14757,9 +15040,15 @@ mod tests {
             1,
             "retry after restart must preserve one assignment-linked summary"
         );
-        assert!(restored_messages.iter().any(|message| {
-            message["id"] == queued["id"] && message["delivery"][0]["state"] == "read"
-        }));
+        assert!(restored_worker["messages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|message| {
+                message["id"] == worker_user_message["id"]
+                    && message["delivery"][0]["state"] == "queued"
+                    && message["delivery"][0]["assignment_id"].is_null()
+            }));
     }
 
     #[test]
@@ -15045,15 +15334,33 @@ mod tests {
                 json!({
                     "chat_id":"chat_main",
                     "text":"尝试完成",
-                    "mentions":[{"kind":"bot","bot_id":worker_id}]
+                    "mentions":[]
                 }),
                 &gateway.state,
             )
             .await
             .unwrap();
-        let assignment_id = delegated["message"]["delivery"][0]["assignment_id"]
-            .as_str()
+        let assignment = backend
+            .call(
+                "assignment.create",
+                json!({
+                    "project_id":null,
+                    "origin_chat_id":"chat_main",
+                    "bot_id":worker_id,
+                    "title":"阻塞结果检查",
+                    "instruction":"尝试完成",
+                    "from":"user",
+                    "trigger_message_id":delegated["message"]["id"],
+                    "parent_assignment_id":null,
+                    "priority":1,
+                    "root_message_id":delegated["message"]["id"],
+                    "loop_hops":0
+                }),
+                &gateway.state,
+            )
+            .await
             .unwrap();
+        let assignment_id = assignment["id"].as_str().unwrap();
         let blocked = backend
             .execution_send_msg(
                 &gateway.state,
@@ -18741,7 +19048,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn legacy_terminal_receipt_replay_closes_placeholder_without_created_event() {
+    async fn legacy_done_receipt_does_not_infer_placeholder_replacement() {
         let home = tempdir().unwrap();
         let gateway = Gateway::new(GatewayConfig {
             home: home.path().to_path_buf(),
@@ -18833,9 +19140,9 @@ mod tests {
             events
                 .iter()
                 .filter(|event| event.event == "message.created"
-                    && event.data["message"]["id"] == placeholder_id)
+                    && event.data["message"]["id"] == "msg_model_selected_a_different_id")
                 .count(),
-            0
+            1
         );
         let updates = events
             .iter()
@@ -18843,8 +19150,7 @@ mod tests {
                 event.event == "message.updated" && event.data["message"]["id"] == placeholder_id
             })
             .collect::<Vec<_>>();
-        assert_eq!(updates.len(), 1);
-        assert_eq!(updates[0].data["message"]["streaming"], false);
+        assert!(updates.is_empty());
 
         let messages = backend
             .store
@@ -18854,16 +19160,13 @@ mod tests {
             .iter()
             .filter(|message| message["id"] == placeholder_id)
             .collect::<Vec<_>>();
-        assert_eq!(placeholder_versions.len(), 2);
-        assert_eq!(placeholder_versions.last().unwrap()["streaming"], false);
-        assert_eq!(
-            placeholder_versions.last().unwrap()["fallback_text"],
-            "旧 receipt 的完成报告"
-        );
+        assert_eq!(placeholder_versions.len(), 1);
+        assert_eq!(placeholder_versions.last().unwrap()["streaming"], true);
+        assert_eq!(placeholder_versions.last().unwrap()["fallback_text"], "");
     }
 
     #[tokio::test]
-    async fn execution_terminal_receipt_replay_repairs_cached_legacy_message_once() {
+    async fn cached_legacy_done_receipt_does_not_infer_placeholder_replacement() {
         let home = tempdir().unwrap();
         let gateway = Gateway::new(GatewayConfig {
             home: home.path().to_path_buf(),
@@ -18961,36 +19264,23 @@ mod tests {
             .execution_send_msg(&gateway.state, envelope.clone())
             .await
             .unwrap();
-        assert_eq!(first["id"], placeholder_id);
+        assert_eq!(first["id"], "msg_model_selected_a_different_id");
         assert_eq!(first["streaming"], false);
         let events_after_first = backend.store.events_since(0).unwrap();
         let second = backend
             .execution_send_msg(&gateway.state, envelope)
             .await
             .unwrap();
-        assert_eq!(second["id"], placeholder_id);
+        assert_eq!(second["id"], "msg_model_selected_a_different_id");
         assert_eq!(
             backend.store.events_since(0).unwrap().len(),
             events_after_first.len()
         );
 
         let events = backend.store.events_since(0).unwrap();
-        assert_eq!(
-            events
-                .iter()
-                .filter(|event| event.event == "message.created"
-                    && event.data["message"]["id"] == placeholder_id)
-                .count(),
-            0
-        );
-        assert_eq!(
-            events
-                .iter()
-                .filter(|event| event.event == "message.updated"
-                    && event.data["message"]["id"] == placeholder_id)
-                .count(),
-            1
-        );
+        assert!(!events.iter().any(|event| {
+            event.event == "message.updated" && event.data["message"]["id"] == placeholder_id
+        }));
         let messages = backend
             .store
             .read_jsonl::<Value>(format!("data/chats/{chat_id}/messages.jsonl"))
@@ -18999,16 +19289,12 @@ mod tests {
             .iter()
             .filter(|message| message["id"] == placeholder_id)
             .collect::<Vec<_>>();
-        assert_eq!(placeholder_versions.len(), 2);
-        assert_eq!(placeholder_versions.last().unwrap()["streaming"], false);
-        assert_eq!(
-            placeholder_versions.last().unwrap()["fallback_text"],
-            "旧缓存完成报告"
-        );
+        assert_eq!(placeholder_versions.len(), 1);
+        assert_eq!(placeholder_versions.last().unwrap()["streaming"], true);
     }
 
     #[tokio::test]
-    async fn execution_terminal_receipt_without_cache_does_not_append_duplicate_terminal() {
+    async fn legacy_done_receipt_without_cache_creates_a_new_message() {
         let home = tempdir().unwrap();
         let gateway = Gateway::new(GatewayConfig {
             home: home.path().to_path_buf(),
@@ -19071,13 +19357,14 @@ mod tests {
             .execution_send_msg(&gateway.state, envelope.clone())
             .await
             .unwrap();
-        assert_eq!(first["id"], placeholder_id);
+        assert_eq!(first["id"], "msg_model_selected_a_different_id");
+        assert_eq!(first["streaming"], false);
         let events_after_first = backend.store.events_since(0).unwrap();
         let second = backend
             .execution_send_msg(&gateway.state, envelope)
             .await
             .unwrap();
-        assert_eq!(second["id"], placeholder_id);
+        assert_eq!(second["id"], "msg_model_selected_a_different_id");
         assert_eq!(
             backend.store.events_since(0).unwrap().len(),
             events_after_first.len()
@@ -19102,17 +19389,549 @@ mod tests {
             events
                 .iter()
                 .filter(|event| event.event == "message.created"
-                    && event.data["message"]["id"] == placeholder_id)
+                    && event.data["message"]["id"] == "msg_model_selected_a_different_id")
                 .count(),
-            0
+            1
+        );
+        assert!(!events.iter().any(|event| {
+            event.event == "message.updated" && event.data["message"]["id"] == placeholder_id
+        }));
+    }
+
+    #[tokio::test]
+    async fn execution_ack_fills_reserved_reply_and_done_creates_a_new_message() {
+        let home = tempdir().unwrap();
+        let gateway = Gateway::new(GatewayConfig {
+            home: home.path().to_path_buf(),
+            ..Default::default()
+        });
+        let backend = ProductionBackend::open(home.path()).unwrap();
+        let bot = backend
+            .call(
+                "bot.create",
+                json!({"name":"Reply lifecycle worker"}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        let bot_id = bot["bot"]["id"].as_str().unwrap();
+        let chat_id = bot["bot"]["dm_chat_id"].as_str().unwrap();
+        let run_id = "reply-lifecycle-run";
+        let source_message_id = "source-message-A";
+        let placeholder_id = reply_placeholder_id(run_id, source_message_id);
+        backend
+            .persist_client_message(&json!({
+                "id":source_message_id,
+                "chat_id":chat_id,
+                "sender":{"kind":"user"},
+                "created_at":"2026-01-01T00:00:00Z",
+                "edited_at":null,
+                "deleted":false,
+                "reply_to":null,
+                "thread_count":0,
+                "mentions":[],
+                "blocks":[{"type":"text","markdown":"问题 A"}],
+                "fallback_text":"问题 A",
+                "intent":null,
+                "assignment_id":null,
+                "source_message_id":null,
+                "streaming":false,
+                "delivery":[],
+                "reactions":[]
+            }))
+            .unwrap();
+        let placeholder = backend
+            .persist_client_message(&json!({
+                "id":placeholder_id,
+                "chat_id":chat_id,
+                "sender":{"kind":"bot","bot_id":bot_id},
+                "created_at":"2026-01-01T00:00:00Z",
+                "edited_at":null,
+                "deleted":false,
+                "reply_to":null,
+                "thread_count":0,
+                "mentions":[],
+                "blocks":[],
+                "fallback_text":"",
+                "intent":null,
+                "assignment_id":null,
+                "source_message_id":source_message_id,
+                "streaming":true,
+                "delivery":[],
+                "reactions":[]
+            }))
+            .unwrap();
+
+        let ack_envelope = json!({
+            "receipt":{"run_id":run_id,"call_id":"ack"},
+            "message":{
+                "message_id":placeholder_id,
+                "chat_id":chat_id,
+                "bot_id":bot_id,
+                "assignment_id":null,
+                "source_message_id":source_message_id,
+                "_replace_streaming_placeholder":true,
+                "intent":"ack",
+                "text":"收到，我开始处理。"
+            }
+        });
+        let ack = backend
+            .execution_send_msg(&gateway.state, ack_envelope.clone())
+            .await
+            .unwrap();
+        assert_eq!(ack["id"], placeholder_id);
+        assert_eq!(ack["streaming"], false);
+        assert_eq!(ack["fallback_text"], "收到，我开始处理。");
+        for field in [
+            "created_at",
+            "seq",
+            "source_message_id",
+            "chat_id",
+            "sender",
+        ] {
+            assert_eq!(ack[field], placeholder[field]);
+        }
+
+        let events_after_ack = backend.store.events_since(0).unwrap();
+        let replayed_ack = backend
+            .execution_send_msg(&gateway.state, ack_envelope)
+            .await
+            .unwrap();
+        assert_eq!(replayed_ack, ack);
+        assert_eq!(
+            backend.store.events_since(0).unwrap().len(),
+            events_after_ack.len()
+        );
+
+        let done_id = execution_message_id(run_id, "done");
+        let done = backend
+            .execution_send_msg(
+                &gateway.state,
+                json!({
+                    "receipt":{"run_id":run_id,"call_id":"done"},
+                    "message":{
+                        "message_id":done_id,
+                        "chat_id":chat_id,
+                        "bot_id":bot_id,
+                        "assignment_id":null,
+                        "source_message_id":source_message_id,
+                        "_replace_streaming_placeholder":false,
+                        "intent":"done",
+                        "text":"处理完成。"
+                    }
+                }),
+            )
+            .await
+            .unwrap();
+        assert_eq!(done["id"], done_id);
+        assert_ne!(done["id"], ack["id"]);
+        assert_eq!(done["source_message_id"], source_message_id);
+        assert_eq!(done["streaming"], false);
+
+        let events = backend.store.events_since(0).unwrap();
+        assert_eq!(
+            events
+                .iter()
+                .filter(|event| {
+                    event.event == "message.updated"
+                        && event.data["message"]["id"] == placeholder_id
+                })
+                .count(),
+            1
         );
         assert_eq!(
             events
                 .iter()
-                .filter(|event| event.event == "message.updated"
-                    && event.data["message"]["id"] == placeholder_id)
+                .filter(|event| {
+                    event.event == "message.created" && event.data["message"]["id"] == done_id
+                })
                 .count(),
             1
+        );
+        let messages = backend
+            .store
+            .read_jsonl::<Value>(format!("data/chats/{chat_id}/messages.jsonl"))
+            .unwrap();
+        let placeholder_versions = messages
+            .iter()
+            .filter(|message| message["id"] == placeholder_id)
+            .collect::<Vec<_>>();
+        assert_eq!(placeholder_versions.len(), 2);
+        assert_eq!(
+            placeholder_versions.last().unwrap()["fallback_text"],
+            "收到，我开始处理。"
+        );
+        assert_eq!(placeholder_versions.last().unwrap()["streaming"], false);
+        assert_eq!(
+            messages
+                .iter()
+                .filter(|message| message["id"] == done_id)
+                .count(),
+            1
+        );
+    }
+
+    #[tokio::test]
+    async fn explicit_reply_placeholder_rejects_wrong_scope_run_and_finished_rows() {
+        let home = tempdir().unwrap();
+        let gateway = Gateway::new(GatewayConfig {
+            home: home.path().to_path_buf(),
+            ..Default::default()
+        });
+        let backend = ProductionBackend::open(home.path()).unwrap();
+        let bot = backend
+            .call(
+                "bot.create",
+                json!({"name":"Scoped placeholder worker"}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        let bot_id = bot["bot"]["id"].as_str().unwrap();
+        let chat_id = bot["bot"]["dm_chat_id"].as_str().unwrap();
+        let run_id = "scoped-placeholder-run";
+        let source_message_id = "source-scoped";
+        let placeholder_id = reply_placeholder_id(run_id, source_message_id);
+        backend
+            .persist_client_message(&json!({
+                "id":source_message_id,
+                "chat_id":chat_id,
+                "sender":{"kind":"user"},
+                "created_at":"2026-01-02T00:00:00Z",
+                "edited_at":null,
+                "deleted":false,
+                "reply_to":null,
+                "thread_count":0,
+                "mentions":[],
+                "blocks":[{"type":"text","markdown":"问题 scoped"}],
+                "fallback_text":"问题 scoped",
+                "intent":null,
+                "assignment_id":null,
+                "source_message_id":null,
+                "streaming":false,
+                "delivery":[],
+                "reactions":[]
+            }))
+            .unwrap();
+        let placeholder = backend
+            .persist_client_message(&json!({
+                "id":placeholder_id,
+                "chat_id":chat_id,
+                "sender":{"kind":"bot","bot_id":bot_id},
+                "created_at":"2026-01-02T00:00:00Z",
+                "edited_at":null,
+                "deleted":false,
+                "reply_to":null,
+                "thread_count":0,
+                "mentions":[],
+                "blocks":[],
+                "fallback_text":"",
+                "intent":null,
+                "assignment_id":null,
+                "source_message_id":source_message_id,
+                "streaming":true,
+                "delivery":[],
+                "reactions":[]
+            }))
+            .unwrap();
+        let params = json!({
+            "run_id":run_id,
+            "call_id":"ack",
+            "client_request_id":format!("execution:{run_id}:ack"),
+            "message_id":placeholder_id,
+            "chat_id":chat_id,
+            "bot_id":bot_id,
+            "assignment_id":null,
+            "source_message_id":source_message_id,
+            "_replace_streaming_placeholder":true,
+            "intent":"ack",
+            "text":"收到"
+        });
+        assert!(backend.reply_placeholder_for_params(&params, false).is_ok());
+
+        let mut wrong_chat = params.clone();
+        wrong_chat["chat_id"] = json!("chat-another");
+        assert!(backend
+            .reply_placeholder_for_params(&wrong_chat, false)
+            .is_err());
+        let mut wrong_bot = params.clone();
+        wrong_bot["bot_id"] = json!("bot-another");
+        assert!(backend
+            .reply_placeholder_for_params(&wrong_bot, false)
+            .is_err());
+        let mut wrong_assignment = params.clone();
+        wrong_assignment["assignment_id"] = json!("assignment-another");
+        assert!(backend
+            .reply_placeholder_for_params(&wrong_assignment, false)
+            .is_err());
+        let mut wrong_source = params.clone();
+        wrong_source["source_message_id"] = json!("source-another");
+        assert!(backend
+            .reply_placeholder_for_params(&wrong_source, false)
+            .is_err());
+
+        let other_bot = backend
+            .call(
+                "bot.create",
+                json!({"name":"Other source chat"}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        let other_chat_id = other_bot["bot"]["dm_chat_id"].as_str().unwrap();
+        let foreign_source_id = "source-other-chat";
+        backend
+            .persist_client_message(&json!({
+                "id":foreign_source_id,
+                "chat_id":other_chat_id,
+                "sender":{"kind":"user"},
+                "created_at":"2026-01-02T00:00:30Z",
+                "edited_at":null,
+                "deleted":false,
+                "reply_to":null,
+                "thread_count":0,
+                "mentions":[],
+                "blocks":[{"type":"text","markdown":"另一会话 source"}],
+                "fallback_text":"另一会话 source",
+                "intent":null,
+                "assignment_id":null,
+                "source_message_id":null,
+                "streaming":false,
+                "delivery":[],
+                "reactions":[]
+            }))
+            .unwrap();
+        let foreign_placeholder_id = reply_placeholder_id(run_id, foreign_source_id);
+        backend
+            .persist_client_message(&json!({
+                "id":foreign_placeholder_id,
+                "chat_id":chat_id,
+                "sender":{"kind":"bot","bot_id":bot_id},
+                "created_at":"2026-01-02T00:00:45Z",
+                "edited_at":null,
+                "deleted":false,
+                "reply_to":null,
+                "thread_count":0,
+                "mentions":[],
+                "blocks":[],
+                "fallback_text":"",
+                "intent":null,
+                "assignment_id":null,
+                "source_message_id":foreign_source_id,
+                "streaming":true,
+                "delivery":[],
+                "reactions":[]
+            }))
+            .unwrap();
+        let foreign_source_params = json!({
+            "run_id":run_id,
+            "call_id":"foreign-source",
+            "client_request_id":format!("execution:{run_id}:foreign-source"),
+            "message_id":foreign_placeholder_id,
+            "chat_id":chat_id,
+            "bot_id":bot_id,
+            "assignment_id":null,
+            "source_message_id":foreign_source_id,
+            "_replace_streaming_placeholder":true
+        });
+        assert!(backend
+            .reply_placeholder_for_params(&foreign_source_params, false)
+            .is_err());
+
+        let mut wrong_run = params.clone();
+        wrong_run["run_id"] = json!("run-another");
+        wrong_run["client_request_id"] = json!("execution:run-another:ack");
+        assert!(backend
+            .reply_placeholder_for_params(&wrong_run, false)
+            .is_err());
+
+        let reused_id = execution_message_id(run_id, "already-used");
+        backend
+            .persist_client_message(&json!({
+                "id":reused_id,
+                "chat_id":chat_id,
+                "sender":{"kind":"bot","bot_id":bot_id},
+                "created_at":"2026-01-02T00:01:00Z",
+                "edited_at":null,
+                "deleted":false,
+                "reply_to":null,
+                "thread_count":0,
+                "mentions":[],
+                "blocks":[{"type":"text","markdown":"已有新消息"}],
+                "fallback_text":"已有新消息",
+                "intent":"ack",
+                "assignment_id":null,
+                "source_message_id":source_message_id,
+                "streaming":false,
+                "delivery":[],
+                "reactions":[]
+            }))
+            .unwrap();
+        let reused_params = json!({
+            "run_id":run_id,
+            "call_id":"already-used",
+            "client_request_id":format!("execution:{run_id}:already-used"),
+            "message_id":reused_id,
+            "chat_id":chat_id,
+            "bot_id":bot_id,
+            "assignment_id":null,
+            "source_message_id":source_message_id,
+            "_replace_streaming_placeholder":false
+        });
+        assert_eq!(
+            backend
+                .validate_execution_new_message(&reused_params, false)
+                .unwrap_err()
+                .code,
+            "conflict"
+        );
+
+        let mut completed = placeholder;
+        completed["streaming"] = json!(false);
+        backend.persist_client_message(&completed).unwrap();
+        assert!(backend
+            .reply_placeholder_for_params(&params, false)
+            .is_err());
+        assert!(backend.reply_placeholder_for_params(&params, true).is_ok());
+        let different_call = backend
+            .execution_send_msg(
+                &gateway.state,
+                json!({
+                    "receipt":{"run_id":run_id,"call_id":"second"},
+                    "message":{
+                        "message_id":placeholder_id,
+                        "chat_id":chat_id,
+                        "bot_id":bot_id,
+                        "assignment_id":null,
+                        "source_message_id":source_message_id,
+                        "_replace_streaming_placeholder":true,
+                        "intent":"done",
+                        "text":"另一个调用不能覆盖已完成回复"
+                    }
+                }),
+            )
+            .await;
+        assert_eq!(different_call.unwrap_err().code, "conflict");
+    }
+
+    #[tokio::test]
+    async fn execution_source_is_cleared_for_bot_dm_and_placeholder_cannot_cross_chats() {
+        let home = tempdir().unwrap();
+        let gateway = Gateway::new(GatewayConfig {
+            home: home.path().to_path_buf(),
+            ..Default::default()
+        });
+        let backend = ProductionBackend::open(home.path()).unwrap();
+        let from = backend
+            .call("bot.create", json!({"name":"Source Bot"}), &gateway.state)
+            .await
+            .unwrap();
+        let to = backend
+            .call(
+                "bot.create",
+                json!({"name":"Destination Bot"}),
+                &gateway.state,
+            )
+            .await
+            .unwrap();
+        let from_id = from["bot"]["id"].as_str().unwrap();
+        let to_id = to["bot"]["id"].as_str().unwrap();
+        let source_chat_id = from["bot"]["dm_chat_id"].as_str().unwrap();
+        let source_message_id = "source-bot-dm-test";
+        backend
+            .persist_client_message(&json!({
+                "id":source_message_id,
+                "chat_id":source_chat_id,
+                "sender":{"kind":"user"},
+                "created_at":"2026-01-03T00:00:00Z",
+                "edited_at":null,
+                "deleted":false,
+                "reply_to":null,
+                "thread_count":0,
+                "mentions":[],
+                "blocks":[{"type":"text","markdown":"跨 Bot DM 测试"}],
+                "fallback_text":"跨 Bot DM 测试",
+                "intent":null,
+                "assignment_id":null,
+                "source_message_id":null,
+                "streaming":false,
+                "delivery":[],
+                "reactions":[]
+            }))
+            .unwrap();
+
+        let run_id = "bot-dm-source-run";
+        let new_message_id = execution_message_id(run_id, "cross-chat");
+        let sent = backend
+            .execution_send_msg(
+                &gateway.state,
+                json!({
+                    "receipt":{"run_id":run_id,"call_id":"cross-chat"},
+                    "message":{
+                        "message_id":new_message_id,
+                        "chat_id":source_chat_id,
+                        "bot_id":from_id,
+                        "assignment_id":null,
+                        "source_message_id":source_message_id,
+                        "_replace_streaming_placeholder":false,
+                        "to":{"bot":to_id},
+                        "intent":"ack",
+                        "text":"转给另一个 Bot"
+                    }
+                }),
+            )
+            .await
+            .unwrap();
+        assert_ne!(sent["chat_id"], source_chat_id);
+        assert!(sent["source_message_id"].is_null());
+
+        let placeholder_run = "bot-dm-placeholder-run";
+        let placeholder_id = reply_placeholder_id(placeholder_run, source_message_id);
+        backend
+            .persist_client_message(&json!({
+                "id":placeholder_id,
+                "chat_id":source_chat_id,
+                "sender":{"kind":"bot","bot_id":from_id},
+                "created_at":"2026-01-03T00:01:00Z",
+                "edited_at":null,
+                "deleted":false,
+                "reply_to":null,
+                "thread_count":0,
+                "mentions":[],
+                "blocks":[],
+                "fallback_text":"",
+                "intent":null,
+                "assignment_id":null,
+                "source_message_id":source_message_id,
+                "streaming":true,
+                "delivery":[],
+                "reactions":[]
+            }))
+            .unwrap();
+        let cross_chat_fill = backend
+            .execution_send_msg(
+                &gateway.state,
+                json!({
+                    "receipt":{"run_id":placeholder_run,"call_id":"cross-chat-fill"},
+                    "message":{
+                        "message_id":placeholder_id,
+                        "chat_id":source_chat_id,
+                        "bot_id":from_id,
+                        "assignment_id":null,
+                        "source_message_id":source_message_id,
+                        "_replace_streaming_placeholder":true,
+                        "to":{"bot":to_id},
+                        "intent":"ack",
+                        "text":"不能跨会话填充"
+                    }
+                }),
+            )
+            .await
+            .unwrap_err();
+        assert_eq!(cross_chat_fill.code, "forbidden");
+        assert_eq!(
+            backend.find_chat_message(&placeholder_id).unwrap().1["streaming"],
+            true
         );
     }
 

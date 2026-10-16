@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { chatDraftKey, groupProductMessage, mergeChatMessages, orderedGroupMemberIds, projectAssignmentForMember, setChatDraft } from './groupConversation.model.mjs'
+import { projectMessageDeltas } from './components/streamingMessages.model.ts'
 
 test('composer drafts are isolated by both host and chat', () => {
   const first = setChatDraft({}, 'host-a', 'group-1', 'draft one')
@@ -79,9 +80,57 @@ test('group member assignment does not select an assignment from another group c
 
 test('group chat keeps product nodes, suppresses progress, and uses fallback text for unknown blocks', () => {
   assert.equal(groupProductMessage({ sender: { kind: 'bot' }, intent: 'progress', blocks: [{ type: 'progress' }] }), null)
+  assert.equal(groupProductMessage({ sender: { kind: 'bot' }, intent: null, streaming: true, blocks: [{ type: 'progress' }], fallback_text: '内部进度' }), null)
   const ack = groupProductMessage({ sender: { kind: 'bot' }, intent: 'ack', blocks: [{ type: 'text', markdown: '收到' }] })
   assert.equal(ack.blocks[0].markdown, '收到')
   const unknown = groupProductMessage({ sender: { kind: 'bot' }, intent: 'done', blocks: [{ type: 'future_block', opaque: true }], fallback_text: '已完成' })
   assert.deepEqual(unknown.blocks, [{ type: 'text', markdown: '已完成' }])
   assert.equal(groupProductMessage({ sender: { kind: 'bot' }, intent: 'done', blocks: [{ type: 'completion' }] }).blocks[0].type, 'completion')
+})
+
+test('group shows an empty streaming placeholder and its first text delta, then reapplies terminal filtering', () => {
+  const placeholder = {
+    id: 'reply', chat_id: 'group-a', sender: { kind: 'bot', bot_id: 'bot-a' },
+    intent: null, streaming: true, deleted: false, blocks: [], fallback_text: '',
+  }
+  assert.equal(groupProductMessage(placeholder), placeholder)
+
+  const [streamed] = projectMessageDeltas([placeholder], { reply: '正在回复' }, 'group-a')
+  const visible = groupProductMessage(streamed)
+  assert.equal(visible.blocks[0].markdown, '正在回复')
+  assert.equal(visible.streaming, true)
+
+  const terminalWithoutPublicIntent = { ...streamed, streaming: false, intent: null }
+  assert.equal(groupProductMessage(terminalWithoutPublicIntent), null)
+  const terminalAck = { ...terminalWithoutPublicIntent, intent: 'ack' }
+  assert.equal(groupProductMessage(terminalAck).blocks[0].markdown, '正在回复')
+})
+
+test('group streaming content can show product blocks while keeping internal progress hidden', () => {
+  const streamed = {
+    sender: { kind: 'bot' }, intent: null, streaming: true,
+    blocks: [{ type: 'text', markdown: '状态' }, { type: 'progress', text: '内部步骤' }, { type: 'completion', summary: '结果' }],
+    fallback_text: '状态',
+  }
+  assert.deepEqual(groupProductMessage(streamed).blocks.map((block) => block.type), ['text', 'completion'])
+  assert.equal(groupProductMessage({ ...streamed, blocks: [{ type: 'progress', text: '内部步骤' }], fallback_text: '内部进度' }), null)
+})
+
+test('group keeps image, file, and link preview blocks from empty placeholder through final message', () => {
+  const placeholder = {
+    sender: { kind: 'bot' }, intent: null, streaming: true, blocks: [], fallback_text: '',
+  }
+  const publicBlocks = [
+    { type: 'image', file: { name: 'diagram.png' } },
+    { type: 'file', file: { name: 'notes.txt' } },
+    { type: 'link_preview', url: 'https://example.test' },
+  ]
+
+  for (const block of publicBlocks) {
+    assert.equal(groupProductMessage(placeholder), placeholder)
+    const streaming = { ...placeholder, blocks: [block], fallback_text: '附件内容' }
+    assert.deepEqual(groupProductMessage(streaming).blocks, [block])
+    const final = { ...streaming, streaming: false }
+    assert.deepEqual(groupProductMessage(final).blocks, [block])
+  }
 })

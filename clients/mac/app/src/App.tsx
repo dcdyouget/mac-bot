@@ -43,6 +43,7 @@ import { ChatSkillPicker } from './components/ChatSkillPicker'
 import { getChatSkillPickerItems, shouldRefreshSkillsOnPickerOpen } from './components/chatSkillPickerModel'
 import { makeSkillCreateIntent, type SkillCreateIntent } from './components/skillCreateIntent'
 import { chatSendMentions, messageAssignmentId, messageRenderMode, messageShortcutAction, quoteSendFields, shouldSendOnCommandEnter, userHasReaction } from './components/messageActions.model'
+import { projectMessageDeltas, streamingMessageContentMode } from './components/streamingMessages.model'
 import { mergeApprovalRecords, mergeQuestionRecords } from './components/canonicalHistory.model'
 import { previousEditableMessage } from './components/previousMessageEdit.model'
 import { findForcedSkillTextBlockIndex, getRenderableSkillNames, getValidLoadedSkills, parseForcedSkillText } from './components/skillMessage.model'
@@ -1216,8 +1217,9 @@ function App() {
     const history = historyByChat[historyCacheKey(hostScope, chatId)] ?? []
     const pending = Object.values(state.pending_messages).filter((message) => message.chat_id === chatId)
     const canonical = Object.values(state.messages).filter((message) => message.chat_id === chatId)
-    return mergeChatMessages(history, pending, canonical) as Message[]
-  }, [historyByChat, state.messages, state.pending_messages, hostScope, currentChat?.id])
+    const merged = mergeChatMessages(history, pending, canonical) as Message[]
+    return projectMessageDeltas(merged, state.message_deltas, chatId)
+  }, [historyByChat, state.messages, state.message_deltas, state.pending_messages, hostScope, currentChat?.id])
   const currentDisplayMessages = useMemo(() => {
     if (currentChat?.kind !== 'project' && !currentChat?.project_id) return currentMessages
     return currentMessages.map((message) => groupProductMessage(message)).filter((message): message is Message => message !== null) as Message[]
@@ -4106,6 +4108,8 @@ function MessageBubble({ message, questionResolutions, taskAvatarBotId, skillNam
   const hasPlainAssistantText = !isUser && blocks.length > 0 && blocks.every((block) => block.type === 'text')
   const text = deleted ? '' : blocks.map((block) => typeof block.markdown === 'string' ? block.markdown : typeof block.text === 'string' ? block.text : '').filter(Boolean).join('\n')
   const displayText = text || message.fallback_text || t('common.unsupported_block')
+  const streamingText = text || (typeof message.fallback_text === 'string' ? message.fallback_text : '')
+  const streamingContentMode = streamingMessageContentMode(message)
   const loadedSkills = isUser && !deleted ? getValidLoadedSkills(message.loaded_skills) : []
   const renderableSkillNames = [...new Set([...skillNames, ...loadedSkills.map((skill) => skill.name)])]
   const skillTextBlockIndex = isUser && !deleted ? findForcedSkillTextBlockIndex(blocks, renderableSkillNames) : -1
@@ -4128,7 +4132,7 @@ function MessageBubble({ message, questionResolutions, taskAvatarBotId, skillNam
       <div className="bubble">
         {exactTime && <span className="hover-time">{exactTime}</span>}
         {quote && <div className="chat-message-quote"><strong>{quote.sender?.kind === 'user' ? t('common.user') : bots[quote.sender?.bot_id ?? '']?.name ?? t('common.bot')}</strong><span>{quote.excerpt ?? ''}</span></div>}
-        {renderMode === 'deleted' ? <span className="message-deleted-copy">{t('chat.message.deleted')}</span> : renderMode === 'streaming' ? <div className="message-streaming-indicator" role="status" aria-label={t('chat.typing')}><span className="bot-typing-dots" aria-hidden="true"><i /><i /><i /></span></div> : hasRenderable ? <div className="message-blocks">{blocks.map((block, index) => {
+        {renderMode === 'deleted' ? <span className="message-deleted-copy">{t('chat.message.deleted')}</span> : renderMode === 'streaming' && streamingContentMode === 'placeholder' ? <div className="message-streaming-indicator" role="status" aria-label={t('chat.typing')}><span className="bot-typing-dots" aria-hidden="true"><i /><i /><i /></span></div> : hasRenderable ? <div className="message-blocks">{blocks.map((block, index) => {
           if (block.type === 'text') {
             const value = String(block.markdown ?? block.text ?? '')
             return skillTextBlockIndex === index
@@ -4218,7 +4222,7 @@ function MessageBubble({ message, questionResolutions, taskAvatarBotId, skillNam
           }
           if (block.type === 'system') return <SystemNotice key={index} code={String(block.code ?? '')} text={String(block.text ?? '')} botName={senderName} />
           return <FallbackCard key={index} text={message.fallback_text || t('common.unsupported_block')} />
-        })}</div> : hasPlainAssistantText ? <MarkdownPreview content={displayText} variant="message" /> : hasSkillPrefix ? <SkillMessageText text={displayText} knownSkillNames={renderableSkillNames} /> : <>{displayText}</>}
+        })}</div> : renderMode === 'streaming' ? <div className="message-blocks"><MarkdownPreview content={streamingText || displayText} variant="message" /></div> : hasPlainAssistantText ? <MarkdownPreview content={displayText} variant="message" /> : hasSkillPrefix ? <SkillMessageText text={displayText} knownSkillNames={renderableSkillNames} /> : <>{displayText}</>}
         {!deleted && Boolean(message.reactions?.length) && <div className="message-reactions" aria-label={t('chat.menu.react')}>
           {message.reactions?.filter((reaction) => reaction.by.length > 0).map((reaction) => <button type="button" className={`message-reaction-pill ${userHasReaction(reaction) ? 'active' : ''}`} key={reaction.emoji} aria-label={`${reaction.emoji} ${reaction.by.length}`} onClick={() => onReact(message, reaction.emoji)}>{reaction.emoji}<span>{reaction.by.length}</span></button>)}
         </div>}

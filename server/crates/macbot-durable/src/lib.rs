@@ -483,6 +483,13 @@ impl DurableRuntime {
         Ok((receipt, true))
     }
 
+    /// Look up a previously admitted `send_msg` call before rebuilding its
+    /// payload. This lets execution replay the exact receipt even after a
+    /// placeholder has already been finalized.
+    pub fn send_msg_receipt(&self, run_id: &str, call_id: &str) -> Option<&SendMsgReceipt> {
+        self.submissions.get(&format!("{run_id}:{call_id}"))
+    }
+
     fn persist_job(&mut self, job: Job) -> Result<(), DurableError> {
         validate_id("job", &job.id)?;
         self.store

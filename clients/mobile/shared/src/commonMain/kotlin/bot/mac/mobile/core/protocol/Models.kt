@@ -210,6 +210,7 @@ data class Message(override val raw: JsonObject) : RawProtocolModel {
     val fallbackText: String get() = raw.str("fallback_text")
     val intent: String? get() = raw.stringOrNull("intent")
     val assignmentId: String? get() = raw.stringOrNull("assignment_id")
+    val sourceMessageId: String? get() = raw.stringOrNull("source_message_id")
     val streaming: Boolean get() = raw.boolOrNull("streaming") ?: false
     val delivery: List<Delivery> get() = raw.modelObjects("delivery").map(::Delivery)
     val loadedSkills: List<LoadedSkill> get() = raw.modelObjects("loaded_skills").mapNotNull(LoadedSkill::from)

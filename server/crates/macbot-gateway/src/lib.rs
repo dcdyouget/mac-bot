@@ -122,6 +122,10 @@ pub struct Gateway {
     backend: Option<Arc<dyn RpcBackend>>,
     bind_addr: SocketAddr,
     mock: bool,
+    /// When set, the mock streams one controlled chat reply after each
+    /// `chat.send`. This is deliberately absent from the default mock and all
+    /// production gateway instances.
+    mock_chat_reply_lifecycle_step_delay: Option<std::time::Duration>,
     host_name_source: String,
     port_source: String,
     config_path: PathBuf,
@@ -802,6 +806,7 @@ impl Gateway {
             backend: None,
             bind_addr: config.bind_addr,
             mock: config.mock,
+            mock_chat_reply_lifecycle_step_delay: None,
             host_name_source: config.host_name_source,
             port_source: config.port_source,
             config_path: config.config_path,
@@ -811,6 +816,11 @@ impl Gateway {
 
     pub fn with_backend(mut self, backend: Arc<dyn RpcBackend>) -> Self {
         self.backend = Some(backend);
+        self
+    }
+
+    fn with_mock_chat_reply_lifecycle(mut self, step_delay: std::time::Duration) -> Self {
+        self.mock_chat_reply_lifecycle_step_delay = Some(step_delay);
         self
     }
 
@@ -903,7 +913,13 @@ impl Gateway {
             return backend.call(method, params, &self.state).await;
         }
         if self.mock {
-            mock::mock_call(method, params, &self.state).await
+            mock::mock_call(
+                method,
+                params,
+                &self.state,
+                self.mock_chat_reply_lifecycle_step_delay,
+            )
+            .await
         } else {
             Err(rpc_error(
                 "unavailable",
@@ -4182,7 +4198,32 @@ async fn admin_restart_handler(State(gw): State<Gateway>, headers: HeaderMap) ->
 }
 
 pub async fn run(config: GatewayConfig) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    run_configured(config, None).await
+}
+
+/// Run an isolated mock that streams the chat reply lifecycle after each
+/// `chat.send`. The option is available only through the explicit mock CLI
+/// scenario; it is never attached to the production backend.
+pub async fn run_mock_chat_reply_lifecycle(
+    config: GatewayConfig,
+    step_delay: std::time::Duration,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    if !config.mock {
+        return Err("chat reply lifecycle scenario requires --mock".into());
+    }
+    run_configured(config, Some(step_delay)).await
+}
+
+async fn run_configured(
+    config: GatewayConfig,
+    mock_chat_reply_lifecycle_step_delay: Option<std::time::Duration>,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let gateway = Gateway::new(config.clone());
+    let gateway = if let Some(step_delay) = mock_chat_reply_lifecycle_step_delay {
+        gateway.with_mock_chat_reply_lifecycle(step_delay)
+    } else {
+        gateway
+    };
     let gateway = if config.mock {
         gateway
     } else {

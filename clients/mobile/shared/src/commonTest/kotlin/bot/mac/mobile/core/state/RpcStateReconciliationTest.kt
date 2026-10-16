@@ -38,13 +38,13 @@ class RpcStateReconciliationTest {
         assertEquals(listOf("kept"), next.messages["chat"]!!.map { it.str("id") })
     }
 
-    @Test fun streamingDeltaIsNotAppliedTwiceWhenResponseArrives() {
-        val initial = MobileState(messages = mapOf("c" to listOf(obj("""{"id":"m","chat_id":"c","seq":1,"fallback_text":"a"}"""))))
+    @Test fun streamingDeltaIsNotAppliedTwiceWhenFinalResponseArrives() {
+        val initial = MobileState(messages = mapOf("c" to listOf(obj("""{"id":"m","chat_id":"c","seq":1,"sender":{"kind":"bot"},"fallback_text":"a","streaming":true}"""))))
         val data = obj("""{"chat_id":"c","message_id":"m","text":"b"}""")
         val fence = RpcStateFence(initial, 0)
         fence.record(MainEvent.Ephemeral("message.delta", data))
         val current = StateReducer.event(initial, "message.delta", data)
-        val next = reconcileRpc(fence, current, "chat.history", obj("""{"chat_id":"c"}"""), obj("""{"messages":[{"id":"m","chat_id":"c","seq":1,"fallback_text":"ab"}]}"""))
+        val next = reconcileRpc(fence, current, "chat.history", obj("""{"chat_id":"c"}"""), obj("""{"messages":[{"id":"m","chat_id":"c","seq":1,"fallback_text":"ab","streaming":false}]}"""))
         assertEquals("ab", next.messages["c"]!!.single().str("fallback_text"))
     }
 

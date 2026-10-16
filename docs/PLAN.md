@@ -44,7 +44,7 @@
 | 存储 | JSON 文件：JSONL 追加日志是事实来源，JSON 快照用于快速读取；不使用数据库（5.2） |
 | 主 Bot | 每台 Host 内置一个，不能删除。只协调、不干活：建群、分派、跟进、提醒用户验收（5.3） |
 | 群 = 一件事 = 项目 | 有 Home 目录和公告（一段自由文本，Bot 和用户都可以改）；成员状态和产物由系统维护 |
-| Bot 执行模型 | 任务按 durable 流程执行（借鉴 pi-durable）；**群消息只来自 `send_msg` 工具**，不流式；插话走 steer；详细过程只在用户打开时推送（5.3、5.11） |
+| Bot 执行模型 | 任务按 durable 流程执行（借鉴 pi-durable）；群公开内容来自 `send_msg`；私聊与群聊均先创建回复占位、首回复原地填入，支持公开消息流式显示；插话走 steer；详细过程只在用户打开时推送（5.3、5.11） |
 | 并行 | 同一个 Bot 可以同时在多个群里干活，有全局上限和每个 Bot 的上限；同一个群里同一个 Bot 的活按顺序做（5.3.5） |
 | 记忆 | 三种（用户、Bot、项目），由服务端管理；客户端只展示和编辑用户记忆，Bot 与项目记忆不展示；项目共享要点由 Bot 写进公告（5.5） |
 | 工具 | 参考 pi 的文件工具和 bash 语义，以本项目实现和验证为准；另有 agent-browser、子代理、web、`send_msg`、技能（5.10） |
@@ -210,13 +210,14 @@ Event    { seq, event, data }                         -- 即 PROTOCOL 6.1 的持
 |---|---|---|
 | 触发 | 用户在和这个 Bot 的私聊里发消息 | 被 @、被交接、被主 Bot 分派或转交 |
 | 执行 | 一次 durable run（可以调用工具），phase=`chat` | 一个任务（assignment）对应一次 durable run，phase=`work` |
-| 会话里看到什么 | 模型的文本回复，**流式显示** | **只看到 `send_msg` 发出的完整消息，不流式**；模型的文本、思考和工具调用都不进群 |
+| 会话里看到什么 | 同 ID 的占位 → 文本回复，可流式显示 | 同 ID 的占位 → `send_msg` 公开回复，可增量或完整发布；内部模型文本、思考和工具调用不进群 |
 | 详细过程 | 运行轨迹（5.11），用户打开时才推送 | 同左 |
 
 #### 5.3.2 `send_msg`：Bot 往会话里说话的唯一途径（工作模式）
 
 ```text
 send_msg(
+  message_id?: string | null,                     // 空 = 新消息；非空 = 填充本次运行在本对话内的未完成占位
   text: string,                                   // Markdown
   intent: "ack" | "progress" | "decision" | "done" | "blocked",
   to?: "task_chat" | "user" | {bot: id},          // 只表达路由意图；规范 chat_id 由服务端根据当前分身解析
@@ -229,7 +230,11 @@ send_msg(
 ) -> { message_id, then: "continue" | "wait" | "end" }
 ```
 
-**发送作用域由服务端固定，不由模型选择**：Bot 是长期身份；它在一个会话里的分身由 `(bot_id, chat_id)` 唯一确定。主 Bot 固定 `chat_main`；普通 Bot 的私聊分身固定 `Bot.dm_chat_id`；群分身固定 `Project.chat_id`，且一个项目的成员列表中同一 Bot 只能出现一次。`Assignment.origin_chat_id` 只表示不可变的执行/默认发送作用域：带 `project_id` 时必须等于该项目的 `chat_id` 且 Bot 必须是成员；无项目时固定为该 Bot 私聊。模型传入的 `chat_id`、`bot_id`、`assignment_id` 不能覆盖这些值，跨群或投递到其他 Bot 的用户私聊会被拒绝。
+**回复生命周期**：用户消息先落盘，消费按 Bot 记录在 `Message.delivery`。Bot 认领并开始回复时先创建空内容的 Bot 消息，`source_message_id` 关联用户消息，`streaming=true`。服务端把预留 ID 交给当前运行，第一条公开回复必须填入该 ID；后续独立回复通过空 `message_id` 新建。`send_msg` 的非空 ID 只允许更新当前 Bot、当前对话、当前运行拥有的未完成占位，不允许编辑已完成消息。幂等重放复用同一消息，不能产生第二个首回复；失败、取消和恢复终止要结算未填占位。新字段和事件细节见 PROTOCOL 4.4–4.5。
+
+私聊原生模型文本仍可以流式填入预留消息；如果先通过 `send_msg` 回复，工具与原生回答必须共享首回复归属，后续内容不能覆盖已经填好的消息。每条公开消息独立结束：首条 ack 填占位 A，后续 done 或自然语言回答新建 B；不能在 run 结束时把总答案写回 A。B 如需流式，先创建 B，再向 B 发增量。群内内部推理不流入占位，只把公开发送的内容展示给用户。本次不改变群聊认领优先级或连续消息调度规则。
+
+**发送作用域由服务端固定，不由模型选择**：Bot 是长期身份；它在一个会话里的分身由 `(bot_id, chat_id)` 唯一确定。主 Bot 的私聊分身固定 `chat_main`；普通 Bot 的私聊分身固定 `Bot.dm_chat_id`；群分身固定 `Project.chat_id`，且一个项目的成员列表中同一 Bot 只能出现一次。`Assignment.origin_chat_id` 只表示不可变的执行/默认发送作用域：带 `project_id` 时必须等于该项目的 `chat_id` 且 Bot 必须是成员；无项目时固定为该 Bot 私聊。模型传入的 `chat_id`、`bot_id`、`assignment_id` 不能覆盖这些值，跨群或投递到其他 Bot 的用户私聊会被拒绝。
 
 `to: "task_chat"` / 缺省目标发到当前分身；`to: "user"` 只解析为当前 Bot 的用户私聊；`to: {bot}` 由服务端解析为稳定的 Bot↔Bot `bot_dm`。执行会话和结果回传会话分开：普通 Bot 始终在自己的私聊或当前群里发言，服务端再按项目群 → 父任务 → 触发消息 → 主会话的顺序，把完成或阻塞摘要以 system 消息回传给发起会话。
 

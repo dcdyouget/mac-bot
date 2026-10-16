@@ -1,5 +1,5 @@
-use clap::{Parser, Subcommand};
-use macbot_gateway::{run, GatewayConfig};
+use clap::{Parser, Subcommand, ValueEnum};
+use macbot_gateway::{run, run_mock_chat_reply_lifecycle, GatewayConfig};
 use serde_json::json;
 use std::{
     fs::OpenOptions,
@@ -18,6 +18,12 @@ struct Args {
     command: Option<Command>,
     #[arg(long)]
     mock: bool,
+    /// Enable the opt-in, mock-only chat reply lifecycle replay.
+    #[arg(long, value_enum)]
+    mock_scenario: Option<MockScenario>,
+    /// Delay between visible lifecycle stages (100–30000 ms).
+    #[arg(long, value_parser = clap::value_parser!(u64).range(100..=30_000))]
+    mock_reply_delay_ms: Option<u64>,
     #[arg(long, value_parser = clap::value_parser!(u16).range(1..))]
     port: Option<u16>,
     #[arg(long)]
@@ -26,6 +32,11 @@ struct Args {
     home: Option<PathBuf>,
     #[arg(long, env = "MACBOT_CONFIG")]
     config: Option<PathBuf>,
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+enum MockScenario {
+    ChatReplyLifecycle,
 }
 
 #[derive(Debug, Subcommand)]
@@ -53,6 +64,12 @@ enum Command {
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     tracing_subscriber::fmt::init();
     let args = Args::parse();
+    if args.mock_scenario.is_some() && !args.mock {
+        return Err("--mock-scenario requires --mock".into());
+    }
+    if args.mock_reply_delay_ms.is_some() && args.mock_scenario.is_none() {
+        return Err("--mock-reply-delay-ms requires --mock-scenario".into());
+    }
     let user_home = user_home();
     let config_path = args
         .config
@@ -103,7 +120,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     } else {
         ("Mac Bot".to_owned(), "default")
     };
-    run(GatewayConfig {
+    let gateway_config = GatewayConfig {
         bind_addr: SocketAddr::from(([0, 0, 0, 0], port.port)),
         home,
         password: args.password,
@@ -112,8 +129,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         host_name_source: host_name_source.to_string(),
         port_source: port.source.to_string(),
         config_path,
-    })
-    .await
+    };
+    match args.mock_scenario {
+        Some(MockScenario::ChatReplyLifecycle) => {
+            run_mock_chat_reply_lifecycle(
+                gateway_config,
+                std::time::Duration::from_millis(args.mock_reply_delay_ms.unwrap_or(2_000)),
+            )
+            .await
+        }
+        None => run(gateway_config).await,
+    }
 }
 
 #[derive(Debug, Default)]

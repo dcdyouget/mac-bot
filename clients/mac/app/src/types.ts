@@ -15,6 +15,7 @@ export type Message = {
   mentions?: { kind?: string; bot_id?: string; instruction?: string }[]
   quote?: { message_id?: string; sender?: { kind?: string; bot_id?: string }; excerpt?: string } | null
   assignment_id?: string | null
+  source_message_id?: string | null
   sender_id?: string
   fallback_text?: string
   streaming?: boolean
@@ -100,6 +101,7 @@ export type BridgeState = {
   chats: Record<string, Chat>
   projects: Record<string, { id: string; name?: string; chat_id?: string; [key: string]: Json | undefined }>
   messages: Record<string, Message>
+  message_deltas: Record<string, string>
   assignments: Record<string, Record<string, Json>>
   approvals: Record<string, Record<string, Json>>
   questions: Record<string, Question>
@@ -117,6 +119,7 @@ export const emptyState: BridgeState = {
   chats: {},
   projects: {},
   messages: {},
+  message_deltas: {},
   assignments: {},
   approvals: {},
   questions: {},

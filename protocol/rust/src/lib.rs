@@ -391,6 +391,9 @@ pub struct Message {
     pub fallback_text: String,
     pub intent: Option<Intent>,
     pub assignment_id: Option<Id>,
+    /// Source message answered by this Bot message, in the same chat.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_message_id: Option<Id>,
     pub streaming: bool,
     pub delivery: Vec<Delivery>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]

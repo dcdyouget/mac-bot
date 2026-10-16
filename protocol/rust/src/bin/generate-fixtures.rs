@@ -1218,6 +1218,120 @@ fn question_approval_scenario(root: &Path) -> Result<(), Box<dyn std::error::Err
     Ok(())
 }
 
+fn reply_lifecycle_scenario(root: &Path) -> Result<(), Box<dyn std::error::Error>> {
+    let mut lines = Vec::new();
+    let mut seq = 0;
+    for (chat_id, bot_id, assignment_id) in [
+        ("chat_main", "bot_main", None),
+        ("chat_code", "bot_code", None),
+        ("chat_login", "bot_code", Some("asg_code")),
+    ] {
+        let source_id = format!("msg_request_{chat_id}");
+        let reply_id = format!("msg_reply_{chat_id}");
+        let mut source = scenario_message(
+            &source_id,
+            chat_id,
+            1,
+            json!({"kind":"user"}),
+            json!([{"type":"text","markdown":"请回复这条消息"}]),
+            "请回复这条消息",
+            None,
+            None,
+            json!([]),
+            json!([]),
+        );
+        push_frame(
+            &mut lines,
+            &mut seq,
+            "message.created",
+            json!({"message":source}),
+        );
+        source["delivery"] =
+            json!([{"bot_id":bot_id,"assignment_id":assignment_id,"state":"delivered","at":now()}]);
+        push_frame(
+            &mut lines,
+            &mut seq,
+            "message.updated",
+            json!({"message":source}),
+        );
+        let mut reply = scenario_message(
+            &reply_id,
+            chat_id,
+            2,
+            json!({"kind":"bot","bot_id":bot_id}),
+            json!([]),
+            "",
+            None,
+            assignment_id,
+            json!([]),
+            json!([]),
+        );
+        reply["source_message_id"] = json!(source_id);
+        reply["streaming"] = json!(true);
+        push_frame(
+            &mut lines,
+            &mut seq,
+            "message.created",
+            json!({"message":reply}),
+        );
+        source["delivery"][0]["state"] = json!("read");
+        push_frame(
+            &mut lines,
+            &mut seq,
+            "message.updated",
+            json!({"message":source}),
+        );
+        lines.push(frame(
+            None,
+            "message.delta",
+            json!({"chat_id":chat_id,"message_id":reply_id,"text":"收到，"}),
+        ));
+        lines.push(frame(
+            None,
+            "message.delta",
+            json!({"chat_id":chat_id,"message_id":reply_id,"text":"我来处理。"}),
+        ));
+        reply["streaming"] = json!(false);
+        reply["blocks"] = json!([{"type":"text","markdown":"收到，我来处理。"}]);
+        reply["fallback_text"] = json!("收到，我来处理。");
+        reply["intent"] = json!("ack");
+        push_frame(
+            &mut lines,
+            &mut seq,
+            "message.updated",
+            json!({"message":reply}),
+        );
+        let mut followup = scenario_message(
+            &format!("msg_followup_{chat_id}"),
+            chat_id,
+            3,
+            json!({"kind":"bot","bot_id":bot_id}),
+            json!([{"type":"text","markdown":"这是后续独立消息。"}]),
+            "这是后续独立消息。",
+            Some("ack"),
+            assignment_id,
+            json!([]),
+            json!([]),
+        );
+        followup["source_message_id"] = json!(source_id);
+        push_frame(
+            &mut lines,
+            &mut seq,
+            "message.created",
+            json!({"message":followup}),
+        );
+    }
+    let body = lines
+        .into_iter()
+        .map(|value| serde_json::to_string(&value))
+        .collect::<Result<Vec<_>, _>>()?
+        .join("\n")
+        + "\n";
+    fs::create_dir_all(root.join("scenarios"))?;
+    fs::write(root.join("scenarios/chat-reply-lifecycle.jsonl"), body)?;
+    Ok(())
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let root = env::args()
         .nth(1)
@@ -1229,6 +1343,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     events(&root)?;
     scenario(&root)?;
     question_approval_scenario(&root)?;
+    reply_lifecycle_scenario(&root)?;
     write(
         &root.join("results"),
         "usage_heatmap_calendar.json",

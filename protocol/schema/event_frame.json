@@ -3528,6 +3528,13 @@
           "format": "uint64",
           "minimum": 0.0
         },
+        "source_message_id": {
+          "description": "Source message answered by this Bot message, in the same chat.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "streaming": {
           "type": "boolean"
         },

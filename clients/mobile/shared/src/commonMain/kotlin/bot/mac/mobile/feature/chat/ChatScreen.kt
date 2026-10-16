@@ -1574,7 +1574,7 @@ internal fun ChatMessageRow(
                         }
                     }
                 }
-                if (message.boolean("streaming") && !isGroupChat) ChatTypingWave(LocalSystemAnimationsEnabled.current)
+                if (shouldShowStreamingPlaceholder(message, isGroupChat)) ChatTypingWave(LocalSystemAnimationsEnabled.current)
                 if (visibleSkillNames.isNotEmpty()) Row(
                     Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
                     horizontalArrangement = Arrangement.spacedBy(6.dp),

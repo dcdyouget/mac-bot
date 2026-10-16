@@ -84,4 +84,18 @@ class MainChatMessageVisibilityTest {
         assertEquals(listOf("future"), visibleMessagesForChat(listOf(progress, futureBlock), group, bots).map { it.str("id") })
         assertTrue(hasUnknownMessageBlock(futureBlock))
     }
+
+    @Test
+    fun groupStreamingPlaceholderRemainsVisibleWhileInternalProgressIsHidden() {
+        val group = buildJsonObject { put("id", "group-chat"); put("kind", "project") }
+        val placeholder = buildJsonObject {
+            put("id", "streaming")
+            put("chat_id", "group-chat")
+            put("intent", "progress")
+            put("streaming", true)
+            putJsonObject("sender") { put("kind", "bot"); put("bot_id", "worker-1") }
+        }
+
+        assertEquals(listOf("streaming"), visibleMessagesForChat(listOf(placeholder), group, bots).map { it.str("id") })
+    }
 }

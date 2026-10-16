@@ -778,6 +778,21 @@ impl Orchestrator {
         i.mark_steer_for_assignment(message_id, assignment_id, state)
     }
 
+    /// Advance one durable per-Bot message delivery. Direct-message deliveries
+    /// use `assignment_id = None`; project deliveries retain their assignment
+    /// identity so one user message can be consumed independently by several
+    /// Bots.
+    pub fn mark_message_delivery(
+        &self,
+        message_id: &str,
+        bot_id: &str,
+        assignment_id: Option<&str>,
+        state: &str,
+    ) -> Result<SteerDelivery> {
+        let mut i = self.lock()?;
+        i.mark_message_delivery(message_id, bot_id, assignment_id, state)
+    }
+
     pub fn finish_assignment(&self, assignment_id: &str, status: &str) -> Result<Assignment> {
         let mut i = self.lock()?;
         i.finish_assignment(assignment_id, status)
@@ -3521,6 +3536,8 @@ impl Inner {
         assignment_root_message_id: Option<&str>,
     ) -> Result<Message> {
         self.validate_send_msg_target(&req.chat_id, &req.bot_id)?;
+        let user_direct_chat =
+            req.bot_id == "user" && self.bots.values().any(|bot| bot.dm_chat_id == req.chat_id);
         if req.assignment_id.is_some() {
             self.validate_send_msg_destination(
                 &req.chat_id,
@@ -3651,22 +3668,57 @@ impl Inner {
             })
             .collect::<Vec<_>>();
         let sent_at = now();
-        let queued_deliveries = if req.bot_id == "user" && req.mentions.is_empty() {
-            self.assignments
+        let queued_deliveries = if req.bot_id == "user" {
+            let direct_bot = self
+                .bots
                 .values()
-                .filter(|assignment| {
-                    assignment.status == "working"
-                        && self
-                            .resolve_assignment_return_chat(&assignment.id)
-                            .is_ok_and(|chat_id| chat_id == req.chat_id)
-                })
-                .map(|assignment| Delivery {
-                    bot_id: assignment.bot_id.clone(),
-                    assignment_id: Some(assignment.id.clone()),
+                .find(|bot| bot.dm_chat_id == req.chat_id)
+                .map(|bot| bot.id.clone());
+            if let Some(bot_id) = direct_bot {
+                // A direct chat has one fixed Bot recipient. Keep consumption
+                // state on the user Message itself, with no synthetic task.
+                vec![Delivery {
+                    bot_id,
+                    assignment_id: None,
                     state: "queued".into(),
                     at: sent_at.clone(),
-                })
-                .collect()
+                }]
+            } else if req.mentions.is_empty() {
+                let active_assignments = self
+                    .assignments
+                    .values()
+                    .filter(|assignment| {
+                        assignment.status == "working"
+                            && self
+                                .resolve_assignment_return_chat(&assignment.id)
+                                .is_ok_and(|chat_id| chat_id == req.chat_id)
+                    })
+                    .map(|assignment| Delivery {
+                        bot_id: assignment.bot_id.clone(),
+                        assignment_id: Some(assignment.id.clone()),
+                        state: "queued".into(),
+                        at: sent_at.clone(),
+                    })
+                    .collect::<Vec<_>>();
+                if active_assignments.is_empty() {
+                    self.bots
+                        .values()
+                        .find(|bot| bot.is_main)
+                        .map(|bot| {
+                            vec![Delivery {
+                                bot_id: bot.id.clone(),
+                                assignment_id: None,
+                                state: "queued".into(),
+                                at: sent_at.clone(),
+                            }]
+                        })
+                        .unwrap_or_default()
+                } else {
+                    active_assignments
+                }
+            } else {
+                Vec::new()
+            }
         } else {
             Vec::new()
         };
@@ -3811,6 +3863,12 @@ impl Inner {
         for mention in msg.mentions.clone() {
             match mention {
                 Mention::Main => {
+                    if user_direct_chat {
+                        // A DM's Bot owner is fixed by chat_id. A redundant
+                        // @Main or cross-Bot mention cannot create a second
+                        // execution identity from that conversation.
+                        continue;
+                    }
                     if seen.insert("main".into()) && req.bot_id != "main" {
                         self.wake_main_for_message(
                             project_id.as_deref(),
@@ -3830,6 +3888,9 @@ impl Inner {
                         continue;
                     }
                     if req.bot_id == "user" {
+                        if user_direct_chat {
+                            continue;
+                        }
                         self.bot(&bot_id)?;
                         let delivery = self.queue_steer(SteerRequest {
                             bot_id: bot_id.clone(),
@@ -4310,6 +4371,17 @@ impl Inner {
         assignment_id: &str,
         state: &str,
     ) -> Result<SteerDelivery> {
+        let bot_id = self.assignment(assignment_id)?.bot_id.clone();
+        self.mark_message_delivery(message_id, &bot_id, Some(assignment_id), state)
+    }
+
+    fn mark_message_delivery(
+        &mut self,
+        message_id: &str,
+        bot_id: &str,
+        assignment_id: Option<&str>,
+        state: &str,
+    ) -> Result<SteerDelivery> {
         let rank = |value: &str| match value {
             "queued" => 0,
             "delivered" => 1,
@@ -4321,35 +4393,92 @@ impl Inner {
                 "invalid steer state {state}"
             )));
         }
-        let bot_id = self.assignment(assignment_id)?.bot_id.clone();
-        let has_delivery = self.messages.get(message_id).is_some_and(|message| {
-            message.delivery.iter().any(|delivery| {
-                delivery.bot_id == bot_id
-                    && delivery.assignment_id.as_deref() == Some(assignment_id)
-            })
+        let Some(message) = self.messages.get(message_id) else {
+            // `queue_steer` also supports an internal, non-public input that
+            // has not been attached to a canonical chat Message. Preserve
+            // that runtime path without manufacturing a public consumption
+            // row; only assignment steers can use this fallback.
+            if let Some(assignment_id) = assignment_id {
+                let assignment = self
+                    .assignments
+                    .get_mut(assignment_id)
+                    .filter(|assignment| {
+                        assignment.bot_id == bot_id
+                            && assignment
+                                .steers
+                                .iter()
+                                .any(|steer| steer.message_id == message_id)
+                    })
+                    .ok_or_else(|| {
+                        OrchestratorError::NotFound(format!(
+                            "message delivery {message_id} for assignment {assignment_id}"
+                        ))
+                    })?;
+                let ts = now();
+                if state != "queued" {
+                    if let Some(steer) = assignment
+                        .steers
+                        .iter_mut()
+                        .find(|steer| steer.message_id == message_id)
+                    {
+                        steer.applied_at = Some(ts.clone());
+                    }
+                }
+                return Ok(SteerDelivery {
+                    message_id: message_id.into(),
+                    bot_id: bot_id.into(),
+                    assignment_id: Some(assignment_id.into()),
+                    state: state.into(),
+                    at: ts,
+                });
+            }
+            return Err(OrchestratorError::NotFound(format!("message {message_id}")));
+        };
+        let has_delivery = message.delivery.iter().any(|delivery| {
+            delivery.bot_id == bot_id && delivery.assignment_id.as_deref() == assignment_id
         });
-        let has_steer = self
-            .assignment(assignment_id)?
-            .steers
-            .iter()
-            .any(|steer| steer.message_id == message_id);
-        if !has_delivery && !has_steer {
+        let has_steer = assignment_id.is_some_and(|assignment_id| {
+            self.assignments
+                .get(assignment_id)
+                .is_some_and(|assignment| {
+                    assignment.bot_id == bot_id
+                        && assignment
+                            .steers
+                            .iter()
+                            .any(|steer| steer.message_id == message_id)
+                })
+        });
+        let valid_direct = assignment_id.is_none()
+            && has_delivery
+            && message.sender == "user"
+            && self.bots.get(bot_id).is_some_and(|bot| {
+                bot.dm_chat_id == message.chat_id
+                    || (bot.is_main
+                        && (message.chat_id == "chat_main"
+                            || self.project_id_for_chat(&message.chat_id).is_some()))
+            });
+        let valid_assignment = assignment_id.is_some_and(|assignment_id| {
+            self.assignments
+                .get(assignment_id)
+                .is_some_and(|assignment| assignment.bot_id == bot_id)
+                && (has_delivery || has_steer)
+        });
+        if !valid_assignment && !valid_direct {
             return Err(OrchestratorError::NotFound(format!(
-                "delivery {message_id} for assignment {assignment_id}"
+                "delivery {message_id} for Bot {bot_id}"
             )));
         }
         let previous = self.messages.get(message_id).and_then(|message| {
             message.delivery.iter().find(|delivery| {
-                delivery.bot_id == bot_id
-                    && delivery.assignment_id.as_deref() == Some(assignment_id)
+                delivery.bot_id == bot_id && delivery.assignment_id.as_deref() == assignment_id
             })
         });
         if let Some(delivery) = previous {
             if rank(state) <= rank(&delivery.state) {
                 return Ok(SteerDelivery {
                     message_id: message_id.into(),
-                    bot_id,
-                    assignment_id: Some(assignment_id.into()),
+                    bot_id: bot_id.into(),
+                    assignment_id: assignment_id.map(str::to_owned),
                     state: delivery.state.clone(),
                     at: delivery.at.clone(),
                 });
@@ -4357,17 +4486,19 @@ impl Inner {
         }
         let current_rank = previous.map(|delivery| rank(&delivery.state));
         let ts = now();
-        if let Some(assignment) = self.assignments.get_mut(assignment_id) {
-            if current_rank == Some(0) && rank(state) > 0 {
-                assignment.pending_messages = assignment.pending_messages.saturating_sub(1);
-            }
-            if let Some(steer) = assignment
-                .steers
-                .iter_mut()
-                .find(|steer| steer.message_id == message_id)
-            {
-                if current_rank.is_none_or(|previous| rank(state) >= previous) {
-                    steer.applied_at = (state != "queued").then_some(ts.clone());
+        if let Some(assignment_id) = assignment_id {
+            if let Some(assignment) = self.assignments.get_mut(assignment_id) {
+                if current_rank == Some(0) && rank(state) > 0 {
+                    assignment.pending_messages = assignment.pending_messages.saturating_sub(1);
+                }
+                if let Some(steer) = assignment
+                    .steers
+                    .iter_mut()
+                    .find(|steer| steer.message_id == message_id)
+                {
+                    if current_rank.is_none_or(|previous| rank(state) >= previous) {
+                        steer.applied_at = (state != "queued").then_some(ts.clone());
+                    }
                 }
             }
         }
@@ -4375,8 +4506,7 @@ impl Inner {
         let mut effective_at = ts.clone();
         if let Some(message) = self.messages.get_mut(message_id) {
             if let Some(delivery) = message.delivery.iter_mut().find(|delivery| {
-                delivery.bot_id == bot_id
-                    && delivery.assignment_id.as_deref() == Some(assignment_id)
+                delivery.bot_id == bot_id && delivery.assignment_id.as_deref() == assignment_id
             }) {
                 if rank(state) < rank(&delivery.state) {
                     effective_state = delivery.state.clone();
@@ -4387,8 +4517,8 @@ impl Inner {
                 }
             } else {
                 message.delivery.push(Delivery {
-                    bot_id: bot_id.clone(),
-                    assignment_id: Some(assignment_id.into()),
+                    bot_id: bot_id.into(),
+                    assignment_id: assignment_id.map(str::to_owned),
                     state: state.into(),
                     at: ts.clone(),
                 });
@@ -4396,8 +4526,8 @@ impl Inner {
         }
         Ok(SteerDelivery {
             message_id: message_id.into(),
-            bot_id,
-            assignment_id: Some(assignment_id.into()),
+            bot_id: bot_id.into(),
+            assignment_id: assignment_id.map(str::to_owned),
             state: effective_state,
             at: effective_at,
         })
@@ -6783,138 +6913,146 @@ mod tests {
     }
 
     #[test]
-    fn user_chat_send_routes_mentions_and_persists_delivery() {
+    fn user_chat_send_keeps_private_bot_owner_when_message_mentions_another_bot() {
         let o = Orchestrator::default();
         let worker = bot(&o, "chat send worker");
+        let peer = bot(&o, "chat send peer");
         let worker_dm = dm_chat(&o, &worker);
-        let assignment = o
-            .create_assignment(AssignmentRequest {
-                project_id: None,
-                origin_chat_id: "chat_main".into(),
-                bot_id: worker.clone(),
-                title: "已有任务".into(),
-                instruction: "继续工作".into(),
-                from: "main".into(),
-                trigger_message_id: None,
-                parent_assignment_id: None,
-                priority: 1,
-                root_message_id: None,
-                loop_hops: 0,
-            })
-            .unwrap();
-        o.send_msg(SendMessageRequest {
-            bot_id: worker.clone(),
-            chat_id: worker_dm,
-            assignment_id: Some(assignment.id.clone()),
-            run_id: None,
-            call_id: None,
-            text: "需要用户决定".into(),
-            intent: "decision".into(),
-            mentions: vec![MentionInput::User("user".into())],
-            artifacts: vec![],
-            options: vec!["继续".into(), "停止".into()],
-        })
-        .unwrap();
-        assert_eq!(
-            o.snapshot().unwrap()["assignments"][&assignment.id]["status"],
-            "waiting_user"
-        );
         let rt = tokio::runtime::Runtime::new().unwrap();
-        let response = rt
+        let main_message = rt
             .block_on(o.rpc(
                 "send_msg",
                 json!({
                     "bot_id": "user",
                     "chat_id": "chat_main",
-                    "text": "请继续并汇报",
+                    "text": "请在主 Bot 私聊里处理",
                     "intent": "ack",
                     "mentions": [worker.clone()]
                 }),
             ))
             .unwrap();
-        let delivery = response["delivery"].as_array().unwrap();
+        let delivery = main_message["delivery"].as_array().unwrap();
         assert_eq!(delivery.len(), 1);
-        assert_eq!(delivery[0]["bot_id"], worker);
-        assert_eq!(delivery[0]["assignment_id"], assignment.id);
+        assert_eq!(delivery[0]["bot_id"], "main");
+        assert!(delivery[0]["assignment_id"].is_null());
         assert_eq!(delivery[0]["state"], "queued");
         assert_eq!(
-            o.snapshot().unwrap()["assignments"][&assignment.id]["status"],
-            "working"
-        );
-        assert!(o.snapshot().unwrap()["assignments"][&assignment.id]["wait"].is_null());
-        let message_id = response["id"].as_str().unwrap();
-        assert_eq!(
-            o.snapshot().unwrap()["messages"][message_id]["delivery"][0]["state"],
+            o.snapshot().unwrap()["messages"][main_message["id"].as_str().unwrap()]["delivery"][0]
+                ["state"],
             "queued"
         );
-        let delivered = o.mark_steer_delivered(message_id).unwrap();
+        let worker_message = rt
+            .block_on(o.rpc(
+                "send_msg",
+                json!({
+                    "bot_id": "user",
+                    "chat_id": worker_dm,
+                    "text": "请留在 worker 私聊里处理",
+                    "intent": "ack",
+                    "mentions": [peer]
+                }),
+            ))
+            .unwrap();
+        let delivery = worker_message["delivery"].as_array().unwrap();
+        assert_eq!(delivery.len(), 1);
+        assert_eq!(delivery[0]["bot_id"], worker);
+        assert!(delivery[0]["assignment_id"].is_null());
+        assert_eq!(delivery[0]["state"], "queued");
+        assert!(o.snapshot().unwrap()["assignments"]
+            .as_object()
+            .unwrap()
+            .is_empty());
+    }
+
+    #[test]
+    fn direct_user_message_tracks_delivery_for_its_single_bot() {
+        let o = Orchestrator::default();
+        let bot_id = bot(&o, "direct delivery worker");
+        let chat_id = dm_chat(&o, &bot_id);
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let message = rt
+            .block_on(o.rpc(
+                "send_msg",
+                json!({
+                    "bot_id":"user",
+                    "chat_id":chat_id,
+                    "text":"请帮我查一下",
+                    "intent":"ack",
+                    "mentions":[]
+                }),
+            ))
+            .unwrap();
+        let message_id = message["id"].as_str().unwrap();
+        assert_eq!(message["delivery"].as_array().unwrap().len(), 1);
+        assert_eq!(message["delivery"][0]["bot_id"], bot_id);
+        assert!(message["delivery"][0]["assignment_id"].is_null());
+        assert_eq!(message["delivery"][0]["state"], "queued");
+
+        let delivered = o
+            .mark_message_delivery(message_id, &bot_id, None, "delivered")
+            .unwrap();
+        assert_eq!(delivered.assignment_id, None);
         assert_eq!(delivered.state, "delivered");
-        assert_eq!(
-            o.snapshot().unwrap()["messages"][message_id]["delivery"][0]["state"],
-            "delivered"
-        );
-        let read = o.mark_steer_read(message_id).unwrap();
+        let read = o
+            .mark_message_delivery(message_id, &bot_id, None, "read")
+            .unwrap();
         assert_eq!(read.state, "read");
+        let snapshot = o.snapshot().unwrap();
         assert_eq!(
-            o.snapshot().unwrap()["messages"][message_id]["delivery"][0]["state"],
+            snapshot["messages"][message_id]["delivery"][0]["state"],
             "read"
         );
-        // Replaying the same steer does not append a second steer or regress
-        // delivery state.
-        let steer_count = o.snapshot().unwrap()["assignments"][&assignment.id]["steers"]
-            .as_array()
+        assert!(o
+            .mark_message_delivery(message_id, "main", None, "delivered")
+            .is_err());
+    }
+
+    #[test]
+    fn unassigned_group_message_tracks_main_bot_delivery() {
+        let o = Orchestrator::default();
+        let worker = bot(&o, "group delivery member");
+        let project = tokio::runtime::Runtime::new()
             .unwrap()
-            .len();
-        let replay = o
-            .queue_steer(SteerRequest {
-                bot_id: assignment.bot_id.clone(),
-                project_id: None,
-                chat_id: "chat_main".into(),
-                text: "请继续并汇报".into(),
-                message_id: Some(message_id.into()),
-            })
+            .block_on(o.rpc(
+                "project.create",
+                json!({"name":"default main delivery","member_bot_ids":[worker]}),
+            ))
             .unwrap();
-        assert_eq!(replay.state, "read");
+        let chat_id = project["chat"]["id"].as_str().unwrap();
+        let message = tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(o.rpc(
+                "send_msg",
+                json!({
+                    "bot_id":"user",
+                    "chat_id":chat_id,
+                    "text":"请帮我处理",
+                    "intent":"ack",
+                    "mentions":[]
+                }),
+            ))
+            .unwrap();
+        let message_id = message["id"].as_str().unwrap();
+        assert_eq!(message["delivery"].as_array().unwrap().len(), 1);
+        assert_eq!(message["delivery"][0]["bot_id"], "main");
+        assert!(message["delivery"][0]["assignment_id"].is_null());
+        assert_eq!(message["delivery"][0]["state"], "queued");
+
         assert_eq!(
-            o.snapshot().unwrap()["assignments"][&assignment.id]["steers"]
-                .as_array()
+            o.mark_message_delivery(message_id, "main", None, "delivered")
                 .unwrap()
-                .len(),
-            steer_count
+                .state,
+            "delivered"
         );
-
-        let plain = rt
-            .block_on(o.rpc(
-                "send_msg",
-                json!({
-                    "bot_id": "user",
-                    "chat_id": "chat_main",
-                    "text": "普通消息",
-                    "intent": "ack",
-                    "mentions": []
-                }),
-            ))
-            .unwrap();
-        assert_eq!(plain["delivery"].as_array().unwrap().len(), 1);
-        assert_eq!(plain["delivery"][0]["assignment_id"], assignment.id);
-        assert_eq!(plain["delivery"][0]["state"], "queued");
-
-        let fresh = bot(&o, "chat send fresh");
-        let fresh_response = rt
-            .block_on(o.rpc(
-                "send_msg",
-                json!({
-                    "bot_id": "user",
-                    "chat_id": "chat_main",
-                    "text": "开始新任务",
-                    "intent": "ack",
-                    "mentions": [fresh.clone()]
-                }),
-            ))
-            .unwrap();
-        assert_eq!(fresh_response["delivery"][0]["bot_id"], fresh);
-        assert_eq!(fresh_response["delivery"][0]["state"], "delivered");
-        assert!(fresh_response["delivery"][0]["assignment_id"].is_string());
+        assert_eq!(
+            o.mark_message_delivery(message_id, "main", None, "read")
+                .unwrap()
+                .state,
+            "read"
+        );
+        assert!(o
+            .mark_message_delivery(message_id, &worker, None, "read")
+            .is_err());
     }
 
     #[test]
@@ -6993,10 +7131,22 @@ mod tests {
         let o = Orchestrator::default();
         let first_bot = bot(&o, "multi delivery first");
         let second_bot = bot(&o, "multi delivery second");
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let project = rt
+            .block_on(o.rpc(
+                "project.create",
+                json!({
+                    "name":"multi delivery group",
+                    "member_bot_ids":[first_bot.clone(), second_bot.clone()]
+                }),
+            ))
+            .unwrap();
+        let project_id = project["project"]["id"].as_str().unwrap().to_owned();
+        let chat_id = project["chat"]["id"].as_str().unwrap().to_owned();
         let first = o
             .create_assignment(AssignmentRequest {
-                project_id: None,
-                origin_chat_id: "chat_main".into(),
+                project_id: Some(project_id.clone()),
+                origin_chat_id: chat_id.clone(),
                 bot_id: first_bot.clone(),
                 title: "first".into(),
                 instruction: "first".into(),
@@ -7010,8 +7160,8 @@ mod tests {
             .unwrap();
         let second = o
             .create_assignment(AssignmentRequest {
-                project_id: None,
-                origin_chat_id: "chat_main".into(),
+                project_id: Some(project_id),
+                origin_chat_id: chat_id.clone(),
                 bot_id: second_bot.clone(),
                 title: "second".into(),
                 instruction: "second".into(),
@@ -7023,13 +7173,12 @@ mod tests {
                 loop_hops: 0,
             })
             .unwrap();
-        let rt = tokio::runtime::Runtime::new().unwrap();
         let message = rt
             .block_on(o.rpc(
                 "send_msg",
                 json!({
                     "bot_id": "user",
-                    "chat_id": "chat_main",
+                    "chat_id": chat_id,
                     "text": "同时继续",
                     "intent": "ack",
                     "mentions": [first_bot, second_bot]
@@ -7095,22 +7244,25 @@ mod tests {
                 loop_hops: 0,
             })
             .unwrap();
-        let s = o
+        let steer = o
             .queue_steer(SteerRequest {
-                bot_id: b,
+                bot_id: b.clone(),
                 project_id: None,
                 chat_id: "chat_main".into(),
                 text: "调整".into(),
                 message_id: None,
             })
             .unwrap();
-        assert_eq!(s.assignment_id, Some(a.id));
-        assert_eq!(s.state, "queued");
+        assert_eq!(steer.assignment_id, Some(a.id.clone()));
+        assert_eq!(steer.state, "queued");
         assert_eq!(
-            o.mark_steer_delivered(&s.message_id).unwrap().state,
+            o.mark_steer_delivered(&steer.message_id).unwrap().state,
             "delivered"
         );
-        assert_eq!(o.mark_steer_read(&s.message_id).unwrap().state, "read");
+        assert_eq!(o.mark_steer_read(&steer.message_id).unwrap().state, "read");
+        let snapshot = o.snapshot().unwrap();
+        assert!(snapshot["messages"][&steer.message_id].is_null());
+        assert!(snapshot["assignments"][&a.id]["steers"][0]["applied_at"].is_string());
     }
 
     #[test]

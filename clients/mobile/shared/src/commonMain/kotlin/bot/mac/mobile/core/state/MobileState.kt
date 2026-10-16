@@ -116,19 +116,24 @@ object StateReducer {
             }
             "message.delta" -> {
                 val chatId = data.str("chat_id")
-                // Deltas are private-chat only. Group messages are atomic send_msg reports.
-                if (current.chats.firstOrNull { it.str("id") == chatId }?.str("kind") != "project") {
-                    val messages = current.messages[chatId].orEmpty().map { message ->
-                        if (message.str("id") != data.str("message_id")) message else {
-                            val text = data.str("text")
-                            val blocks = message.objects("blocks").toMutableList()
-                            val index = blocks.indexOfLast { it.str("type") == "text" }
-                            if (index >= 0) blocks[index] = JsonObject(blocks[index] + ("markdown" to JsonPrimitive(blocks[index].str("markdown") + text)))
-                            else blocks += buildJsonObject { put("type", "text"); put("markdown", text) }
-                            JsonObject(message + mapOf("fallback_text" to JsonPrimitive(message.str("fallback_text") + text), "blocks" to JsonArray(blocks), "streaming" to JsonPrimitive(true)))
-                        }
-                    }
-                    result = current.copy(messages = current.messages + (chatId to messages))
+                val messageId = data.str("message_id")
+                val text = data.str("text")
+                val messages = current.messages[chatId].orEmpty()
+                val messageIndex = messages.indexOfFirst { message ->
+                    message.str("id") == messageId && message.str("chat_id") == chatId &&
+                        message.obj("sender").str("kind") == "bot" && !message.boolean("deleted") && message.boolean("streaming")
+                }
+                if (chatId.isNotBlank() && messageId.isNotBlank() && text.isNotEmpty() && messageIndex >= 0) {
+                    val message = messages[messageIndex]
+                    val blocks = message.objects("blocks").toMutableList()
+                    val index = blocks.indexOfLast { it.str("type") == "text" }
+                    if (index >= 0) blocks[index] = JsonObject(blocks[index] + ("markdown" to JsonPrimitive(blocks[index].str("markdown") + text)))
+                    else blocks += buildJsonObject { put("type", "text"); put("markdown", text) }
+                    val updated = JsonObject(message + mapOf(
+                        "fallback_text" to JsonPrimitive(message.str("fallback_text") + text),
+                        "blocks" to JsonArray(blocks),
+                    ))
+                    result = current.copy(messages = current.messages + (chatId to messages.toMutableList().apply { set(messageIndex, updated) }))
                 }
             }
             "typing" -> {

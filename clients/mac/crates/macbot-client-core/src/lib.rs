@@ -1248,6 +1248,8 @@ impl AppState {
         self.routines = indexed(value.get("routines"));
         self.providers = indexed(value.get("providers"));
         self.models = indexed_by(value.get("models"), "ref");
+        // Deltas are transient and are not included in bootstrap or replay.
+        self.message_deltas.clear();
         if let Some(pending) = self.pending.as_ref() {
             self.approvals = indexed(pending.get("approvals"));
             self.questions = indexed(pending.get("questions"));
@@ -1443,14 +1445,24 @@ impl AppState {
                 }
             }
             "message.delta" => {
-                if let (Some(id), Some(text)) = (
+                if let (Some(chat_id), Some(id), Some(text)) = (
+                    data.get("chat_id").and_then(Value::as_str),
                     data.get("message_id").and_then(Value::as_str),
                     data.get("text").and_then(Value::as_str),
                 ) {
-                    self.message_deltas
-                        .entry(id.into())
-                        .or_default()
-                        .push_str(text);
+                    let matches_streaming_message = self.messages.get(id).is_some_and(|message| {
+                        message.get("chat_id").and_then(Value::as_str) == Some(chat_id)
+                            && message.get("streaming").and_then(Value::as_bool) == Some(true)
+                            && message.pointer("/sender/kind").and_then(Value::as_str)
+                                == Some("bot")
+                            && message.get("deleted").and_then(Value::as_bool) == Some(false)
+                    });
+                    if matches_streaming_message && !text.is_empty() {
+                        self.message_deltas
+                            .entry(id.into())
+                            .or_default()
+                            .push_str(text);
+                    }
                 }
             }
             "typing" => {
@@ -2470,13 +2482,13 @@ mod tests {
         state.apply_bootstrap(json!({
             "seq": 1,
             "bots": [], "chats": [{"id":"chat_a","last_read_seq":1}], "projects": [],
-            "messages": [], "assignments": [], "approvals": [], "questions": [],
+            "messages": [{"id":"msg_a","chat_id":"chat_a","sender":{"kind":"bot","bot_id":"bot_a"},"streaming":true,"deleted":false,"blocks":[],"fallback_text":""}], "assignments": [], "approvals": [], "questions": [],
             "skills": [], "routines": [], "providers": [], "models": []
         }));
         state.apply_event(ProtocolEvent {
             seq: None,
             event: "message.delta".into(),
-            data: json!({"message_id":"msg_a","text":"hi"}),
+            data: json!({"chat_id":"chat_a","message_id":"msg_a","text":"hi"}),
         });
         state.apply_event(ProtocolEvent {
             seq: None,
@@ -2511,7 +2523,7 @@ mod tests {
         let mut state = AppState::default();
         state.apply_bootstrap(json!({
             "seq": 3,
-            "messages": [{"id":"msg_stream","streaming":true}],
+            "messages": [{"id":"msg_stream","chat_id":"chat_stream","sender":{"kind":"bot","bot_id":"bot_stream"},"streaming":true,"deleted":false}],
             "chats": [], "projects": []
         }));
         // The second chunk can arrive first on the wire; the state layer must
@@ -2519,13 +2531,13 @@ mod tests {
         state.apply_event(ProtocolEvent {
             seq: Some(5),
             event: "message.delta".into(),
-            data: json!({"message_id":"msg_stream","text":"world"}),
+            data: json!({"chat_id":"chat_stream","message_id":"msg_stream","text":"world"}),
         });
         assert!(!state.message_deltas.contains_key("msg_stream"));
         state.apply_event(ProtocolEvent {
             seq: Some(4),
             event: "message.delta".into(),
-            data: json!({"message_id":"msg_stream","text":"hello "}),
+            data: json!({"chat_id":"chat_stream","message_id":"msg_stream","text":"hello "}),
         });
         assert_eq!(state.message_deltas["msg_stream"], "hello world");
         state.apply_event(ProtocolEvent {
@@ -2544,6 +2556,41 @@ mod tests {
         assert!(!state.typing.contains_key("chat_stream:bot_stream"));
         assert_eq!(state.messages["msg_stream"]["fallback_text"], "hello world");
         assert_eq!(state.last_seq, 7);
+    }
+
+    #[test]
+    fn message_delta_requires_matching_streaming_placeholder_chat() {
+        let mut state = AppState::default();
+        state.apply_bootstrap(json!({
+            "messages": [
+                {"id":"reply","chat_id":"chat-b","sender":{"kind":"bot","bot_id":"bot-b"},"streaming":true,"deleted":false},
+                {"id":"user-reply","chat_id":"chat-b","sender":{"kind":"user"},"streaming":true,"deleted":false},
+                {"id":"deleted-reply","chat_id":"chat-b","sender":{"kind":"bot","bot_id":"bot-b"},"streaming":true,"deleted":true}
+            ],
+            "chats": [], "projects": []
+        }));
+        state.apply_event(ProtocolEvent {
+            seq: None,
+            event: "message.delta".into(),
+            data: json!({"chat_id":"chat-a","message_id":"reply","text":"wrong chat"}),
+        });
+        assert!(!state.message_deltas.contains_key("reply"));
+
+        state.apply_event(ProtocolEvent {
+            seq: None,
+            event: "message.delta".into(),
+            data: json!({"chat_id":"chat-b","message_id":"reply","text":"right chat"}),
+        });
+        assert_eq!(state.message_deltas["reply"], "right chat");
+
+        for message_id in ["user-reply", "deleted-reply"] {
+            state.apply_event(ProtocolEvent {
+                seq: None,
+                event: "message.delta".into(),
+                data: json!({"chat_id":"chat-b","message_id":message_id,"text":"must be ignored"}),
+            });
+            assert!(!state.message_deltas.contains_key(message_id));
+        }
     }
 
     #[test]

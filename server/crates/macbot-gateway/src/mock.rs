@@ -8,8 +8,14 @@
 use super::{id, now, rpc_error, GatewayState, MockState, RpcResult};
 use chrono::{DateTime, Datelike, Duration, Timelike, Utc};
 use serde_json::{json, Value};
+use std::time::Duration as StdDuration;
 
-pub(crate) async fn mock_call(method: &str, params: Value, state: &GatewayState) -> RpcResult {
+pub(crate) async fn mock_call(
+    method: &str,
+    params: Value,
+    state: &GatewayState,
+    chat_reply_lifecycle_step_delay: Option<StdDuration>,
+) -> RpcResult {
     let mut data = state.inner.write().await;
     let previous_seq = data.seq;
     let request_id = params
@@ -42,7 +48,14 @@ pub(crate) async fn mock_call(method: &str, params: Value, state: &GatewayState)
         }
     }
 
-    let mut result = dispatch(method, params, &mut data, state).await?;
+    let mut result = dispatch(
+        method,
+        params,
+        &mut data,
+        state,
+        chat_reply_lifecycle_step_delay,
+    )
+    .await?;
     ensure_loaded_skills_defaults(&mut result);
     if method.starts_with("skill.") {
         persist_mock_skills(&state.home, &data)
@@ -69,6 +82,7 @@ async fn dispatch(
     params: Value,
     state: &mut MockState,
     gateway: &GatewayState,
+    chat_reply_lifecycle_step_delay: Option<StdDuration>,
 ) -> RpcResult {
     ensure_mock_defaults(state, &gateway.home);
     match method {
@@ -92,7 +106,45 @@ async fn dispatch(
         "chat.get" => find_wrapped(&state.chats, params.get("chat_id"), "chat"),
         "chat.history" => chat_history(state, &params),
         "chat.thread" => chat_thread(state, &params),
-        "chat.send" => send_chat(state, &params, &gateway.home),
+        "chat.send" => {
+            let lifecycle_target = chat_reply_lifecycle_step_delay
+                .map(|step_delay| prepare_chat_reply_lifecycle_target(state, &params, step_delay))
+                .transpose()?;
+            let result = send_chat(state, &params, &gateway.home)?;
+            if let Some(target) = lifecycle_target {
+                let source_message_id = result
+                    .pointer("/message/id")
+                    .and_then(Value::as_str)
+                    .ok_or_else(|| {
+                        rpc_error("internal", "mock user message is missing an id", None)
+                    })?
+                    .to_owned();
+                let message_id = create_chat_reply_placeholder(
+                    state,
+                    &target.chat_id,
+                    &source_message_id,
+                    &target.bot_id,
+                    target.requested_message_id.as_deref(),
+                )?;
+                schedule_chat_reply_lifecycle(
+                    gateway.clone(),
+                    target.step_delay,
+                    target.chat_id,
+                    target.bot_id,
+                    source_message_id,
+                    message_id,
+                );
+            }
+            Ok(result)
+        }
+        "mock.replay_chat_reply_lifecycle" if chat_reply_lifecycle_step_delay.is_some() => {
+            replay_chat_reply_lifecycle_from_rpc(
+                state,
+                &params,
+                gateway,
+                chat_reply_lifecycle_step_delay.expect("guarded by scenario option"),
+            )
+        }
         // Acceptance-only mock RPC. It deliberately does not exist in the
         // protocol or production adapter; it creates a canonical Bot DM event
         // so clients can exercise notification delivery and deep links.
@@ -243,6 +295,439 @@ async fn dispatch(
         )),
     }
 }
+
+const LIFECYCLE_FIRST_REPLY: &str = "收到，我来处理。";
+const LIFECYCLE_FOLLOWUP_REPLY: &str = "这是后续独立消息。";
+
+struct ChatReplyLifecycleTarget {
+    chat_id: String,
+    bot_id: String,
+    requested_message_id: Option<String>,
+    step_delay: StdDuration,
+}
+
+fn prepare_chat_reply_lifecycle_target(
+    state: &MockState,
+    params: &Value,
+    step_delay: StdDuration,
+) -> Result<ChatReplyLifecycleTarget, super::RpcError> {
+    let chat_id = params
+        .get("chat_id")
+        .and_then(Value::as_str)
+        .unwrap_or("chat_main")
+        .to_owned();
+    let bot_id = chat_reply_bot_for_chat(
+        state,
+        &chat_id,
+        params.get("mock_reply_bot_id").and_then(Value::as_str),
+    )?;
+    let requested_message_id =
+        match params.get("mock_reply_message_id") {
+            None | Some(Value::Null) => None,
+            Some(Value::String(value)) if !value.trim().is_empty() => {
+                if state.messages.values().flatten().any(|message| {
+                    message.get("id").and_then(Value::as_str) == Some(value.as_str())
+                }) {
+                    return Err(rpc_error(
+                        "conflict",
+                        "mock_reply_message_id is already in use",
+                        None,
+                    ));
+                }
+                Some(value.clone())
+            }
+            _ => {
+                return Err(rpc_error(
+                    "invalid_params",
+                    "mock_reply_message_id must be a non-empty string or null",
+                    None,
+                ));
+            }
+        };
+    Ok(ChatReplyLifecycleTarget {
+        chat_id,
+        bot_id,
+        requested_message_id,
+        step_delay,
+    })
+}
+
+fn chat_reply_bot_for_chat(
+    state: &MockState,
+    chat_id: &str,
+    requested_bot_id: Option<&str>,
+) -> Result<String, super::RpcError> {
+    let chat = state
+        .chats
+        .iter()
+        .find(|chat| chat.get("id").and_then(Value::as_str) == Some(chat_id))
+        .ok_or_else(|| rpc_error("not_found", "chat not found", None))?;
+    let kind = chat.get("kind").and_then(Value::as_str).unwrap_or("");
+    let members = chat
+        .get("member_bot_ids")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let associated_bot = chat.get("bot_id").and_then(Value::as_str);
+    let bot_id = if let Some(requested_bot_id) = requested_bot_id {
+        let is_member = members
+            .iter()
+            .any(|member| member.as_str() == Some(requested_bot_id));
+        if (kind == "project" && !is_member)
+            || (kind != "project"
+                && associated_bot.is_some_and(|associated| associated != requested_bot_id))
+        {
+            return Err(rpc_error(
+                "invalid_params",
+                "mock reply Bot must belong to the selected chat",
+                None,
+            ));
+        }
+        requested_bot_id.to_owned()
+    } else if kind == "project" {
+        members
+            .iter()
+            .filter_map(Value::as_str)
+            .find(|member| {
+                state
+                    .bots
+                    .iter()
+                    .any(|bot| bot.get("id").and_then(Value::as_str) == Some(member))
+            })
+            .map(str::to_owned)
+            .ok_or_else(|| rpc_error("not_found", "project chat has no member Bot", None))?
+    } else {
+        associated_bot
+            .map(str::to_owned)
+            .or_else(|| {
+                state
+                    .bots
+                    .iter()
+                    .find(|bot| bot.get("is_main").and_then(Value::as_bool) == Some(true))
+                    .and_then(|bot| bot.get("id").and_then(Value::as_str))
+                    .map(str::to_owned)
+            })
+            .ok_or_else(|| rpc_error("not_found", "chat has no Bot", None))?
+    };
+    if !state
+        .bots
+        .iter()
+        .any(|bot| bot.get("id").and_then(Value::as_str) == Some(&bot_id))
+    {
+        return Err(rpc_error("not_found", "bot not found", None));
+    }
+    Ok(bot_id)
+}
+
+fn create_chat_reply_placeholder(
+    state: &mut MockState,
+    chat_id: &str,
+    source_message_id: &str,
+    bot_id: &str,
+    requested_message_id: Option<&str>,
+) -> Result<String, super::RpcError> {
+    let message_id = requested_message_id
+        .map(str::to_owned)
+        .unwrap_or_else(|| id("msg"));
+    if state
+        .messages
+        .values()
+        .flatten()
+        .any(|message| message.get("id").and_then(Value::as_str) == Some(message_id.as_str()))
+    {
+        return Err(rpc_error("conflict", "message id is already in use", None));
+    }
+    let created_at = now();
+    let seq = next_chat_message_seq(state, chat_id);
+    let message = json!({
+        "id":message_id,
+        "chat_id":chat_id,
+        "seq":seq,
+        "sender":{"kind":"bot","bot_id":bot_id},
+        "created_at":created_at,
+        "edited_at":null,
+        "deleted":false,
+        "reply_to":null,
+        "quote":null,
+        "thread_count":0,
+        "mentions":[],
+        "blocks":[],
+        "fallback_text":"",
+        "intent":null,
+        "assignment_id":null,
+        "source_message_id":source_message_id,
+        "streaming":true,
+        "delivery":[],
+        "loaded_skills":[],
+        "reactions":[]
+    });
+    state
+        .messages
+        .entry(chat_id.to_owned())
+        .or_default()
+        .push(message.clone());
+    state.emit("message.created", json!({"message":message.clone()}));
+    if let Some(chat_update) = update_chat_preview(state, chat_id, &message) {
+        state.emit("chat.updated", json!({"chat":chat_update}));
+    }
+    Ok(message_id)
+}
+
+fn replay_chat_reply_lifecycle_from_rpc(
+    state: &mut MockState,
+    params: &Value,
+    gateway: &GatewayState,
+    step_delay: StdDuration,
+) -> RpcResult {
+    if params
+        .get("client_request_id")
+        .and_then(Value::as_str)
+        .is_none_or(|value| value.trim().is_empty())
+    {
+        return Err(rpc_error(
+            "invalid_params",
+            "client_request_id is required",
+            None,
+        ));
+    }
+    let chat_id = params
+        .get("chat_id")
+        .and_then(Value::as_str)
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| rpc_error("invalid_params", "chat_id is required", None))?;
+    let source_message_id = params
+        .get("source_message_id")
+        .and_then(Value::as_str)
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| rpc_error("invalid_params", "source_message_id is required", None))?;
+    let source = state
+        .messages
+        .get(chat_id)
+        .and_then(|messages| {
+            messages.iter().find(|message| {
+                message.get("id").and_then(Value::as_str) == Some(source_message_id)
+            })
+        })
+        .ok_or_else(|| rpc_error("not_found", "source message not found in this chat", None))?;
+    if source.pointer("/sender/kind").and_then(Value::as_str) != Some("user") {
+        return Err(rpc_error(
+            "invalid_params",
+            "source_message_id must identify a user message in this chat",
+            None,
+        ));
+    }
+    let bot_id =
+        chat_reply_bot_for_chat(state, chat_id, params.get("bot_id").and_then(Value::as_str))?;
+    let requested_message_id = match params.get("message_id") {
+        None | Some(Value::Null) => None,
+        Some(Value::String(value)) if !value.trim().is_empty() => Some(value.as_str()),
+        _ => {
+            return Err(rpc_error(
+                "invalid_params",
+                "message_id must be a non-empty string or null",
+                None,
+            ));
+        }
+    };
+    let message_id = if let Some(message_id) = requested_message_id {
+        let placeholder = state
+            .messages
+            .get(chat_id)
+            .and_then(|messages| {
+                messages
+                    .iter()
+                    .find(|message| message.get("id").and_then(Value::as_str) == Some(message_id))
+            })
+            .ok_or_else(|| rpc_error("not_found", "placeholder not found in this chat", None))?;
+        if placeholder.pointer("/sender/kind").and_then(Value::as_str) != Some("bot")
+            || placeholder
+                .pointer("/sender/bot_id")
+                .and_then(Value::as_str)
+                != Some(&bot_id)
+            || placeholder.get("source_message_id").and_then(Value::as_str)
+                != Some(source_message_id)
+            || placeholder.get("streaming").and_then(Value::as_bool) != Some(true)
+        {
+            return Err(rpc_error(
+                "conflict",
+                "message_id must identify this source message's active Bot placeholder",
+                None,
+            ));
+        }
+        message_id.to_owned()
+    } else {
+        create_chat_reply_placeholder(state, chat_id, source_message_id, &bot_id, None)?
+    };
+    schedule_chat_reply_lifecycle(
+        gateway.clone(),
+        step_delay,
+        chat_id.to_owned(),
+        bot_id.clone(),
+        source_message_id.to_owned(),
+        message_id.clone(),
+    );
+    Ok(json!({
+        "chat_id":chat_id,
+        "source_message_id":source_message_id,
+        "bot_id":bot_id,
+        "message_id":message_id,
+        "scheduled":true
+    }))
+}
+
+fn schedule_chat_reply_lifecycle(
+    gateway: GatewayState,
+    step_delay: StdDuration,
+    chat_id: String,
+    bot_id: String,
+    source_message_id: String,
+    message_id: String,
+) {
+    tokio::spawn(async move {
+        tokio::time::sleep(step_delay).await;
+        gateway
+            .publish_temporary(
+                "message.delta",
+                json!({"chat_id":chat_id,"message_id":message_id,"text":"收到，"}),
+            )
+            .await;
+        tokio::time::sleep(step_delay).await;
+        gateway
+            .publish_temporary(
+                "message.delta",
+                json!({"chat_id":chat_id,"message_id":message_id,"text":"我来处理。"}),
+            )
+            .await;
+        tokio::time::sleep(step_delay).await;
+        if !finish_chat_reply_placeholder(
+            &gateway,
+            &chat_id,
+            &bot_id,
+            &source_message_id,
+            &message_id,
+        )
+        .await
+        {
+            return;
+        }
+        tokio::time::sleep(step_delay).await;
+        create_chat_reply_followup(&gateway, &chat_id, &bot_id, &source_message_id).await;
+    });
+}
+
+async fn finish_chat_reply_placeholder(
+    gateway: &GatewayState,
+    chat_id: &str,
+    bot_id: &str,
+    source_message_id: &str,
+    message_id: &str,
+) -> bool {
+    let _event_lock = gateway.event_lock.lock().await;
+    let (message_event, chat_event) = {
+        let mut state = gateway.inner.write().await;
+        let Some(message) = state.messages.get_mut(chat_id).and_then(|messages| {
+            messages
+                .iter_mut()
+                .find(|message| message.get("id").and_then(Value::as_str) == Some(message_id))
+        }) else {
+            return false;
+        };
+        if message.pointer("/sender/bot_id").and_then(Value::as_str) != Some(bot_id)
+            || message.get("source_message_id").and_then(Value::as_str) != Some(source_message_id)
+            || message.get("streaming").and_then(Value::as_bool) != Some(true)
+        {
+            return false;
+        }
+        message["blocks"] = json!([{"type":"text","markdown":LIFECYCLE_FIRST_REPLY}]);
+        message["fallback_text"] = json!(LIFECYCLE_FIRST_REPLY);
+        message["intent"] = json!("ack");
+        message["streaming"] = json!(false);
+        let message = message.clone();
+        let message_event = state.emit("message.updated", json!({"message":message.clone()}));
+        let chat_event = update_chat_preview(&mut state, chat_id, &message)
+            .map(|chat| state.emit("chat.updated", json!({"chat":chat})));
+        (message_event, chat_event)
+    };
+    let _ = gateway.events.send(message_event);
+    if let Some(chat_event) = chat_event {
+        let _ = gateway.events.send(chat_event);
+    }
+    true
+}
+
+async fn create_chat_reply_followup(
+    gateway: &GatewayState,
+    chat_id: &str,
+    bot_id: &str,
+    source_message_id: &str,
+) {
+    let _event_lock = gateway.event_lock.lock().await;
+    let (message_event, chat_event) = {
+        let mut state = gateway.inner.write().await;
+        let created_at = now();
+        let seq = next_chat_message_seq(&state, chat_id);
+        let message = json!({
+            "id":id("msg"),
+            "chat_id":chat_id,
+            "seq":seq,
+            "sender":{"kind":"bot","bot_id":bot_id},
+            "created_at":created_at,
+            "edited_at":null,
+            "deleted":false,
+            "reply_to":null,
+            "quote":null,
+            "thread_count":0,
+            "mentions":[],
+            "blocks":[{"type":"text","markdown":LIFECYCLE_FOLLOWUP_REPLY}],
+            "fallback_text":LIFECYCLE_FOLLOWUP_REPLY,
+            "intent":"ack",
+            "assignment_id":null,
+            "source_message_id":source_message_id,
+            "streaming":false,
+            "delivery":[],
+            "loaded_skills":[],
+            "reactions":[]
+        });
+        state
+            .messages
+            .entry(chat_id.to_owned())
+            .or_default()
+            .push(message.clone());
+        let message_event = state.emit("message.created", json!({"message":message.clone()}));
+        let chat_event = update_chat_preview(&mut state, chat_id, &message)
+            .map(|chat| state.emit("chat.updated", json!({"chat":chat})));
+        (message_event, chat_event)
+    };
+    let _ = gateway.events.send(message_event);
+    if let Some(chat_event) = chat_event {
+        let _ = gateway.events.send(chat_event);
+    }
+}
+
+fn update_chat_preview(state: &mut MockState, chat_id: &str, message: &Value) -> Option<Value> {
+    let message_seq = message.get("seq").and_then(Value::as_u64).unwrap_or(0);
+    let chat = state
+        .chats
+        .iter_mut()
+        .find(|chat| chat.get("id").and_then(Value::as_str) == Some(chat_id))?;
+    let last_seq = chat.get("last_seq").and_then(Value::as_u64).unwrap_or(0);
+    if last_seq > message_seq {
+        return None;
+    }
+    chat["last_message"] = json!({
+        "message_id":message.get("id"),
+        "sender":message.get("sender"),
+        "text":message.get("fallback_text").and_then(Value::as_str).unwrap_or(""),
+        "created_at":message.get("created_at")
+    });
+    chat["last_seq"] = json!(message_seq);
+    chat["updated_at"] = message.get("created_at").cloned().unwrap_or(Value::Null);
+    Some(chat.clone())
+}
+
+#[cfg(test)]
+#[path = "mock_chat_reply_lifecycle_test.rs"]
+mod chat_reply_lifecycle_tests;
 
 fn search(state: &MockState, params: &Value) -> RpcResult {
     let query = params

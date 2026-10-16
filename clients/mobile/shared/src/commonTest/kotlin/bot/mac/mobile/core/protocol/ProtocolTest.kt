@@ -4,6 +4,12 @@ import bot.mac.mobile.core.protocol.generated.UsageSeries
 import bot.mac.mobile.core.protocol.generated.HeatmapResult
 import kotlin.test.*
 class ProtocolTest {
+    @Test fun messageSourceMessageIdIsOptionalAndExposedWhenPresent() {
+        assertNull(Message(buildJsonObject {}).sourceMessageId)
+        val message = Message(protocolJson.parseToJsonElement("""{"source_message_id":"user-msg"}""").jsonObject)
+        assertEquals("user-msg", message.sourceMessageId)
+    }
+
     @Test fun nullableGeneratedFieldsPreserveNullAndValues() {
         for (raw in listOf(buildJsonObject {}, protocolJson.parseToJsonElement("""{"wait":null,"last_message":null,"quote":null,"answer":null,"calendar":null,"weekhour":null,"input_values":null,"output_values":null}""").jsonObject)) {
             assertNull(bot.mac.mobile.core.protocol.generated.Assignment(raw).wait)

@@ -33,8 +33,8 @@
 | 场景 | 流量 |
 |------|------|
 | 后台挂着，只收事件 | 每分钟几 KB |
-| 群消息（Bot 用 `send_msg` 发的完整消息，不流式） | 每条几百字节到几 KB |
-| 私聊，Bot 的回复流式显示 | 1–3 KB/s 的短时峰值 |
+| 群消息（Bot 用 `send_msg` 发布的消息） | 每条几百字节到几 KB |
+| Bot 回复的流式显示（私聊或群聊） | 1–3 KB/s 的短时峰值 |
 | 打开某个 Bot 的运行轨迹（**只有打开时才推送**） | 平均 2–10 KB/s |
 | 打开 Agent Computer 画面（走 `/ws/screen`） | 100–700 KB/s（只在打开时产生） |
 
@@ -230,8 +230,9 @@ interface Message {
   fallback_text: string;       // 纯文本版本，用于通知、搜索，以及渲染不认识的块
   intent: Intent | null;       // Bot 通过 send_msg 发出的消息才有
   assignment_id: Id | null;    // 这条消息属于哪个任务
-  streaming: boolean;          // 只有私聊里 Bot 正在流式输出的回复为 true
-  delivery: Delivery[];        // 群消息对各 Bot 的送达状态，见 4.5
+  source_message_id?: Id | null; // Bot 回复关联的同一 chat_id 内来源消息（通常为用户消息）；旧消息可省略
+  streaming: boolean;          // Bot 回复尚未完成；空内容表示占位，非空内容立即渲染
+  delivery: Delivery[];        // 用户消息对各 Bot 的认领/消费状态（私聊和群聊），见 4.5
   loaded_skills?: LoadedSkill[]; // 对应用户消息实际加载成功的技能；旧消息可省略
   reactions: Reaction[];
 }
@@ -246,7 +247,7 @@ interface Reaction { emoji: string; by: Sender[] }
 interface Quote { message_id: Id; sender: Sender; excerpt: string /* 最多 120 字的纯文本 */ }
 ```
 
-**群里 Bot 发出的每条消息都来自它调用的 `send_msg` 工具**（定义见 PLAN 5.3.2），每条都是完整的，**不会有流式片段**。intent 与消息、任务状态的对应关系：
+**群里 Bot 公开发布的内容来自 `send_msg` 工具**（定义见 PLAN 5.3.2）；内部模型文本、思考和工具过程不自动进入群聊。私聊和群聊使用相同的占位及增量显示规则；群消息可以一次完整发布，也可以由服务端对已创建的公开消息发送流式片段。intent 与消息、任务状态的对应关系：
 
 | intent | 生成的块 | 任务状态 | 其他效果 |
 |--------|---------|---------|---------|
@@ -256,11 +257,17 @@ interface Quote { message_id: Id; sender: Sender; excerpt: string /* 最多 120 
 | `done` | `completion` | `done` | 被 @ 的 Bot 收到新任务（交接）；@主 Bot 时主 Bot 被唤醒，去汇总并提醒用户验收 |
 | `blocked` | `blocked` | `blocked` | 主 Bot 被唤醒跟进；@ 了用户时推送 |
 
-### 4.5 插话的送达状态
+### 4.5 用户消息的认领、消费与回复
 
 ```ts
 interface Delivery { bot_id: Id; assignment_id: Id | null; state: "queued" | "delivered" | "read"; at: Time }
 ```
+
+每条消息都有独立的 `id`，并以不可变的 `chat_id` 归属一个对话。用户私聊只由该私聊对应的 Bot 消费；群聊沿用当前路由规则，各 Bot 的消费状态分别记录在 `delivery`，不能用一个全局布尔值代替。普通私聊的 `assignment_id` 可以为 null。`queued` 表示等待处理，`delivered` 表示已认领/交给对应运行，`read` 表示已经纳入模型上下文；这些状态不表示回答已完成。
+
+Bot 开始处理用户消息时，服务端先持久化一条同对话的 Bot 回复占位，发出 `message.created`：`source_message_id` 指向用户消息，`streaming=true`，内容为空。同一用户消息被多个 Bot 处理时，每个 Bot 使用自己的占位 ID。首条回复以这个 ID 发送 `message.delta` 或 `message.updated`，不得再追加重复气泡；后续独立回复使用新 ID。同一次发送的重试与同一运行的恢复必须复用已存在的占位；用户明确重试失败任务而产生的新运行有自己的消息生命周期。
+
+客户端按 `chat_id` 与 `message_id` 同时匹配增量；只对已知、尚未结束的 Bot 消息追加片段。只有空的未完成消息显示「…」；内容一到即显示内容，不能因 `streaming=true` 隐藏正文。**每一条消息**流式结束时，`message.updated` 用该条消息的完整正文替换增量并设置 `streaming=false`，之后迟到的 delta 不再追加。这里不是将整次任务的最终答案更新到首回复：例如首条「收到」填入占位 A，后续「已完成」必须新建 B，并保留 A。工具消息之后的自然语言回复也使用新的消息 ID。失败或取消时，服务端也要结算未完成的占位，不能永久留在等待状态。
 
 用户在群里 @ 一个正在干活或正在挂起等待的 Bot 时，这条消息会作为 steer 进入它的任务。服务端**不会立即生成回复**，而是通过 `message.updated` 依次更新 `delivery`：
 - `queued`：已收到，Bot 正在执行当前步骤。
@@ -819,7 +826,7 @@ interface UserProfile {        // 用户档案（PLAN 5.5.8），不计入配额
 |------|--------|------|
 | `hello` | 刚连上的客户端 | `Hello` |
 | `sync.done` | 刚补发完的客户端 | `{ seq: number }` |
-| `message.delta` | 所有在线客户端 | `{ chat_id, message_id, text }`：**只用于私聊**里 Bot 回复的流式片段，结束时由 `message.updated`（`streaming: false`）给出全文 |
+| `message.delta` | 所有在线客户端 | `{ chat_id, message_id, text }`：私聊或群聊中已创建的 Bot 公开回复的流式片段；必须匹配消息所属对话，结束时由 `message.updated`（`streaming: false`）给出全文 |
 | `typing` | 所有在线客户端 | `{ chat_id, bot_id, on: boolean }`：**只用于私聊** |
 | `bot.status` | 所有在线客户端 | `{ bot_id, status: BotStatus }` |
 | `usage.tick` | 所有在线客户端 | `{ assignment_id, usage: UsageTotals }`：每个任务每 10 秒最多一次，用于工作台 |

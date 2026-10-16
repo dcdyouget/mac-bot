@@ -58,16 +58,64 @@ class StateReducerTest {
         assertEquals("new", reset.bots.single().str("id")); assertTrue(reset.messages.isEmpty())
         assertEquals(71L, StateReducer.event(reset, "future.event", buildJsonObject {}, 71).lastSeq)
     }
-    @Test fun groupDeltasAreIgnoredAndFinalResponseReplacesFragments() {
-        val current = MobileState(chats = listOf(objectOf("""{"id":"c","kind":"project"}""")), messages=mapOf("c" to listOf(objectOf("""{"id":"m","fallback_text":"atomic"}"""))))
-        val unchanged = StateReducer.event(current,"message.delta",objectOf("""{"chat_id":"c","message_id":"m","text":"illegal"}"""))
-        assertEquals(current, unchanged)
-        val streaming=StateReducer.event(current,"trace.delta",objectOf("""{"stream":"s","request_id":"r","channel":"text","text":"partial"}"""))
-        val final=StateReducer.event(streaming,"trace.item",objectOf("""{"stream":"s","item":{"assignment_id":"a","aseq":2,"type":"llm.response","data":{"request_id":"r","text":"full"}}}"""))
-        assertTrue(final.traceFragments.isEmpty()); assertEquals("full",final.traces.getValue("a").single().obj("data").str("text"))
+    @Test fun projectStreamingPlaceholderMergesDeltaAndFinalReplayByMessageId() {
+        val current = MobileState(chats = listOf(objectOf("""{"id":"group","kind":"project"}""")))
+        val placeholder = objectOf("""{"id":"msgA","chat_id":"group","seq":1,"sender":{"kind":"bot","bot_id":"worker"},"blocks":[],"fallback_text":"","streaming":true}""")
+        var state = StateReducer.event(current, "message.created", objectOf("""{"message":${placeholder}}"""), 1)
+        assertEquals(listOf("msgA"), state.messages.getValue("group").map { it.str("id") })
+        assertTrue(state.messages.getValue("group").single().boolean("streaming"))
+
+        state = StateReducer.event(state, "message.delta", objectOf("""{"chat_id":"group","message_id":"msgA","text":"First"}"""))
+        assertEquals("First", state.messages.getValue("group").single().str("fallback_text"))
+        assertEquals("First", state.messages.getValue("group").single().objects("blocks").single().str("markdown"))
+
+        val interim = objectOf("""{"message":{"id":"msgA","chat_id":"group","seq":1,"sender":{"kind":"bot","bot_id":"worker"},"blocks":[{"type":"text","markdown":"First reply"}],"fallback_text":"First reply","streaming":true}}""")
+        state = StateReducer.event(state, "message.updated", interim, 2)
+        assertEquals(listOf("msgA"), state.messages.getValue("group").map { it.str("id") })
+        assertEquals("First reply", state.messages.getValue("group").single().str("fallback_text"))
+
+        val final = objectOf("""{"message":{"id":"msgA","chat_id":"group","seq":1,"sender":{"kind":"bot","bot_id":"worker"},"blocks":[{"type":"text","markdown":"Complete"}],"fallback_text":"Complete","streaming":false}}""")
+        state = StateReducer.event(state, "message.updated", final, 3)
+        state = StateReducer.event(state, "message.updated", final)
+        assertEquals(listOf("msgA"), state.messages.getValue("group").map { it.str("id") })
+        assertEquals("Complete", state.messages.getValue("group").single().str("fallback_text"))
+        assertFalse(state.messages.getValue("group").single().boolean("streaming"))
+
+        val lateDelta = StateReducer.event(state, "message.delta", objectOf("""{"chat_id":"group","message_id":"msgA","text":"late"}"""))
+        assertEquals(state, lateDelta)
+
+        val nextMessage = objectOf("""{"message":{"id":"msgB","chat_id":"group","seq":2,"sender":{"kind":"bot","bot_id":"worker"},"blocks":[{"type":"text","markdown":"Next"}],"fallback_text":"Next","streaming":false}}""")
+        state = StateReducer.event(state, "message.created", nextMessage, 4)
+        assertEquals(listOf("msgA", "msgB"), state.messages.getValue("group").map { it.str("id") })
+
+        val streaming=StateReducer.event(state,"trace.delta",objectOf("""{"stream":"s","request_id":"r","channel":"text","text":"partial"}"""))
+        val traceFinal=StateReducer.event(streaming,"trace.item",objectOf("""{"stream":"s","item":{"assignment_id":"a","aseq":2,"type":"llm.response","data":{"request_id":"r","text":"full"}}}"""))
+        assertTrue(traceFinal.traceFragments.isEmpty()); assertEquals("full",traceFinal.traces.getValue("a").single().obj("data").str("text"))
+    }
+    @Test fun deltasRequireMatchingChatAndStreamingMessage() {
+        val current = MobileState(
+            chats = listOf(objectOf("""{"id":"chat-a","kind":"direct"}"""), objectOf("""{"id":"chat-b","kind":"project"}""")),
+            messages = mapOf(
+                "chat-a" to listOf(objectOf("""{"id":"same-id","chat_id":"chat-a","sender":{"kind":"bot"},"fallback_text":"A","streaming":true}""")),
+                "chat-b" to listOf(objectOf("""{"id":"same-id","chat_id":"chat-a","sender":{"kind":"bot"},"fallback_text":"corrupt","streaming":true}""")),
+            ),
+        )
+        val wrongSession = StateReducer.event(current, "message.delta", objectOf("""{"chat_id":"chat-b","message_id":"same-id","text":"wrong"}"""))
+        assertEquals(current, wrongSession)
+        val valid = StateReducer.event(current, "message.delta", objectOf("""{"chat_id":"chat-a","message_id":"same-id","text":"!"}"""))
+        assertEquals("A!", valid.messages.getValue("chat-a").single().str("fallback_text"))
+        assertEquals("corrupt", valid.messages.getValue("chat-b").single().str("fallback_text"))
+
+        val terminal = current.copy(messages = current.messages + ("chat-a" to listOf(objectOf("""{"id":"same-id","chat_id":"chat-a","sender":{"kind":"bot"},"fallback_text":"final","streaming":false}"""))))
+        assertEquals(terminal, StateReducer.event(terminal, "message.delta", objectOf("""{"chat_id":"chat-a","message_id":"same-id","text":"late"}""")))
+
+        val userMessage = current.copy(messages = current.messages + ("chat-a" to listOf(objectOf("""{"id":"same-id","chat_id":"chat-a","sender":{"kind":"user"},"fallback_text":"user","streaming":true}"""))))
+        assertEquals(userMessage, StateReducer.event(userMessage, "message.delta", objectOf("""{"chat_id":"chat-a","message_id":"same-id","text":"wrong sender"}""")))
+        val deletedMessage = current.copy(messages = current.messages + ("chat-a" to listOf(objectOf("""{"id":"same-id","chat_id":"chat-a","sender":{"kind":"bot"},"deleted":true,"fallback_text":"removed","streaming":true}"""))))
+        assertEquals(deletedMessage, StateReducer.event(deletedMessage, "message.delta", objectOf("""{"chat_id":"chat-a","message_id":"same-id","text":"resurrect"}""")))
     }
     @Test fun privateDeltasUpdateVisibleBlocksAndFinalResponseReplacesPartialText() {
-        val initial = MobileState(chats=listOf(objectOf("""{"id":"c","kind":"direct"}""")),messages=mapOf("c" to listOf(objectOf("""{"id":"m","chat_id":"c","seq":1,"blocks":[{"type":"text","markdown":"Hi"}],"fallback_text":"Hi","streaming":true}"""))))
+        val initial = MobileState(chats=listOf(objectOf("""{"id":"c","kind":"direct"}""")),messages=mapOf("c" to listOf(objectOf("""{"id":"m","chat_id":"c","seq":1,"sender":{"kind":"bot"},"blocks":[{"type":"text","markdown":"Hi"}],"fallback_text":"Hi","streaming":true}"""))))
         val partial=StateReducer.event(initial,"message.delta",objectOf("""{"chat_id":"c","message_id":"m","text":" there"}"""))
         assertEquals("Hi there",partial.messages.getValue("c").single().objects("blocks").single().str("markdown"))
         val final=StateReducer.event(partial,"message.updated",objectOf("""{"message":{"id":"m","chat_id":"c","seq":1,"blocks":[{"type":"text","markdown":"Hello"}],"fallback_text":"Hello","streaming":false}}"""),2)

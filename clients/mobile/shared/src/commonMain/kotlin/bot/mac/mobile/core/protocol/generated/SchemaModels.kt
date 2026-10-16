@@ -415,6 +415,7 @@ data class Message(override val raw: JsonObject) : RawProtocolModel {
     val replyTo: String? get() = raw.stringOrNull("reply_to")
     val sender: Sender get() = Sender(raw.obj("sender"))
     val seq: Long get() = raw.long("seq")
+    val sourceMessageId: String? get() = raw.stringOrNull("source_message_id")
     val streaming: Boolean get() = raw.boolean("streaming")
     val threadCount: Long get() = raw.long("thread_count")
 }

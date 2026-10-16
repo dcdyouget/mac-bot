@@ -1,6 +1,7 @@
 package bot.mac.mobile.feature.chat
 
 import bot.mac.mobile.core.protocol.arr
+import bot.mac.mobile.core.protocol.boolean
 import bot.mac.mobile.core.protocol.obj
 import bot.mac.mobile.core.protocol.objects
 import bot.mac.mobile.core.protocol.str
@@ -32,7 +33,26 @@ internal fun renderedMessageBlocks(message: JsonObject, groupChat: Boolean): Lis
         "progress" -> emptySet()
         else -> emptySet()
     }
-    return blocks.filter { it.str("type") in allowed }
+    val publicAttachments = setOf("image", "file", "link_preview")
+    return blocks.filter {
+        it.str("type") in allowed ||
+            it.str("type") in publicAttachments ||
+            (message.boolean("streaming") && it.str("type") == "text")
+    }
+}
+
+internal fun shouldShowStreamingPlaceholder(message: JsonObject, groupChat: Boolean): Boolean {
+    if (
+        message.obj("sender").str("kind") != "bot" ||
+        message.boolean("deleted") ||
+        !message.boolean("streaming") ||
+        message.str("fallback_text").isNotBlank()
+    ) return false
+    val hasVisibleContent = renderedMessageBlocks(message, groupChat).any { block ->
+        if (block.str("type") != "text") true
+        else block.str("markdown").ifBlank { block.str("text") }.isNotBlank()
+    }
+    return !hasVisibleContent
 }
 
 internal fun hasUnknownMessageBlock(message: JsonObject): Boolean = message.arr("blocks").any { element ->
@@ -42,9 +62,11 @@ internal fun hasUnknownMessageBlock(message: JsonObject): Boolean = message.arr(
 
 internal fun shouldHideGroupNonProductMessage(message: JsonObject, groupChat: Boolean): Boolean {
     if (!groupChat || message.obj("sender").str("kind") != "bot" || hasUnknownMessageBlock(message)) return false
+    if (message.boolean("streaming")) return false
     val intent = message.str("intent")
     if (intent !in knownProductIntents) return false
-    return intent == "progress" || (message.arr("blocks").isNotEmpty() && renderedMessageBlocks(message, groupChat).isEmpty())
+    return renderedMessageBlocks(message, groupChat).isEmpty() &&
+        (intent == "progress" || message.arr("blocks").isNotEmpty())
 }
 
 internal fun shouldShowGroupFallback(message: JsonObject, groupChat: Boolean): Boolean =

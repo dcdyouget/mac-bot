@@ -44,17 +44,29 @@ export function projectAssignmentForMember(projectId, chatId, botId, preferredId
     .sort((left, right) => String(right.created_at ?? '').localeCompare(String(left.created_at ?? '')))[0]
 }
 
-const groupProductBlocks = new Set(['text', 'question', 'completion', 'blocked', 'project_card', 'review_card'])
+const groupProductBlocks = new Set(['text', 'question', 'completion', 'blocked', 'project_card', 'review_card', 'image', 'file', 'link_preview'])
 
 export function groupProductMessage(message) {
   if (message?.sender?.kind !== 'bot') return message
   const intent = message.intent
   const blocks = Array.isArray(message.blocks) ? message.blocks : []
+  if (message.streaming === true) {
+    const visibleBlocks = blocks.filter((block) => groupProductBlocks.has(block?.type ?? ''))
+    const hasBaseText = typeof message.fallback_text === 'string' && message.fallback_text.trim().length > 0
+    if (visibleBlocks.length > 0) return { ...message, blocks: visibleBlocks }
+    if (blocks.length === 0) {
+      if (hasBaseText) return { ...message, blocks: [{ type: 'text', markdown: message.fallback_text }] }
+      return message
+    }
+    // Internal progress/task blocks are never exposed as public group replies.
+    return null
+  }
   const hasProjectJump = blocks.some((block) => block?.type === 'project_card' && block.context === 'mentioned')
   const hasQuestion = blocks.some((block) => block?.type === 'question')
   const hasDone = blocks.some((block) => block?.type === 'completion' || block?.type === 'review_card')
   const hasBlocked = blocks.some((block) => block?.type === 'blocked')
-  if (!['ack', 'decision', 'done', 'blocked'].includes(intent) && !hasProjectJump && !hasQuestion && !hasDone && !hasBlocked) return null
+  const hasPublicMedia = blocks.some((block) => ['image', 'file', 'link_preview'].includes(block?.type ?? ''))
+  if (!['ack', 'decision', 'done', 'blocked'].includes(intent) && !hasProjectJump && !hasQuestion && !hasDone && !hasBlocked && !hasPublicMedia) return null
 
   let sawUnknown = false
   const filtered = blocks.filter((block) => {
